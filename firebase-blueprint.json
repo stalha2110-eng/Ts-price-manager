@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "Item": {
+      "title": "Inventory Item",
+      "description": "An item in the inventory with prices and stock levels.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "translations": { "$ref": "Translations" },
+        "categoryId": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" },
+        "buyingPrice": { "type": "number" },
+        "buyingPriceUnit": { "type": "string" },
+        "wholesalePrice": { "type": "number" },
+        "wholesalePriceUnit": { "type": "string" },
+        "retailPrice": { "type": "number" },
+        "retailPriceUnit": { "type": "string" },
+        "lastUpdated": { "type": "string", "format": "date-time" },
+        "priceChangedAt": { "type": "string", "format": "date-time" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "categoryId", "quantity", "buyingPrice", "retailPrice"]
+    },
+    "Note": {
+      "title": "Business Note",
+      "description": "A note or reminder for daily business use.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string", "enum": ["Stock", "Payment", "Customer", "Supplier", "Reminder", "General"] },
+        "priority": { "type": "string", "enum": ["Urgent", "Important", "Completed", "Info"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["Active", "Completed"] },
+        "isPinned": { "type": "boolean" }
+      },
+      "required": ["id", "title", "category", "priority", "createdAt"]
+    },
+    "Translations": {
+      "type": "object",
+      "properties": {
+        "en": { "type": "string" },
+        "hi": { "type": "string" },
+        "mr": { "type": "string" },
+        "hi-en": { "type": "string" }
+      }
+    },
+    "UserSettings": {
+      "type": "object",
+      "properties": {
+        "theme": { "type": "string" },
+        "language": { "type": "string" },
+        "isLocked": { "type": "boolean" },
+        "pin": { "type": "string" },
+        "currency": { "type": "string" },
+        "pricePrecision": { "type": "number" },
+        "showStockAlerts": { "type": "boolean" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}/items/{itemId}": {
+      "schema": "Item",
+      "description": "User specific inventory items."
+    },
+    "/users/{userId}/notes/{noteId}": {
+      "schema": "Note",
+      "description": "User specific business notes."
+    },
+    "/users/{userId}": {
+      "schema": "UserSettings",
+      "description": "User specific settings and profile."
+    }
+  }
+}
