@@ -76,7 +76,8 @@ import {
   Tag,
   Paperclip,
   Zap,
-  Check
+  Check,
+  Share2
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
@@ -89,8 +90,16 @@ import {
   auth, 
   loginWithGoogle, 
   onAuthStateChanged,
-  User as FirebaseUser
+  signInWithEmailAndPassword,
+  signInWithPhoneNumber,
+  RecaptchaVerifier,
+  User as FirebaseUser,
+  OperationType,
+  handleFirestoreError
 } from './firebase';
+import { ChatAssistant } from './components/ChatAssistant';
+import { Logo } from './components/Logo';
+import { writeBatch } from 'firebase/firestore';
 import { 
   doc, 
   setDoc, 
@@ -103,7 +112,7 @@ import {
   updateDoc, 
   deleteDoc, 
   Timestamp,
-  serverTimestamp 
+  serverTimestamp,
 } from 'firebase/firestore';
 import { 
   AppState, 
@@ -127,7 +136,7 @@ import {
   formatCurrency, 
   formatNumber 
 } from './lib/utils';
-import { translateItemName, generatePriceAdvisory, getSmartNoteCategorization } from './services/geminiService';
+import { translateItemName, generatePriceAdvisory, getSmartNoteCategorization, parseItemDescription, analyzeNotes, analyzeInventory, processChatCommand, geminiService } from './services/geminiService';
 
 // Global device ID generation
 const getDeviceId = () => {
@@ -174,6 +183,8 @@ const INITIAL_STATE: AppState = {
   categories: DEFAULT_CATEGORIES,
   settings: INITIAL_SETTINGS,
   user: null,
+  isClientView: false,
+  clientShopId: undefined
 };
 
 interface Alert {
@@ -389,53 +400,55 @@ function NotificationBar({
 
 function SplashScreen({ onComplete }: { onComplete: () => void }) {
   useEffect(() => {
-    const timer = setTimeout(onComplete, 2500);
+    // Faster timeout for better UX
+    const timer = setTimeout(onComplete, 1200);
     return () => clearTimeout(timer);
   }, [onComplete]);
 
   return (
     <motion.div 
       initial={{ opacity: 1 }}
-      exit={{ opacity: 0, y: -20 }}
+      exit={{ opacity: 0, scale: 1.1, filter: "blur(10px)" }}
+      transition={{ duration: 0.5 }}
       className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#0a0c10]"
     >
       <motion.div
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        transition={{ duration: 0.8, ease: "easeOut" }}
+        transition={{ duration: 0.5, ease: "easeOut" }}
         className="flex flex-col items-center"
       >
         <div className="relative mb-8">
           <motion.div 
-            className="absolute inset-0 bg-amber-500 blur-[60px] opacity-20"
-            animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }}
-            transition={{ duration: 3, repeat: Infinity }}
+            className="absolute inset-0 bg-amber-500 blur-[80px] opacity-30"
+            animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }}
+            transition={{ duration: 2, repeat: Infinity }}
           />
-          <div className="relative h-40 w-40 rounded-[2.5rem] bg-gradient-to-br from-slate-800 to-slate-900 p-1 border border-white/10 shadow-2xl overflow-hidden">
-             <img src="/logo.png" alt="TS" className="h-full w-full object-contain" />
-          </div>
+          <Logo className="h-44 w-44" />
         </div>
 
         <motion.div
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.4, duration: 0.6 }}
+          transition={{ delay: 0.2, duration: 0.4 }}
           className="text-center"
         >
-          <h1 className="text-4xl font-black tracking-tighter text-white">
-            TS <span className="text-amber-500">PRICE</span> MANAGER
+          <h1 className="text-4xl font-black tracking-tighter text-white flex items-center gap-3">
+             <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">TS</span> 
+             <span className="text-amber-500">PRICE</span> 
+             <span className="bg-clip-text text-transparent bg-gradient-to-r from-white/70 to-white">MANAGER</span>
           </h1>
-          <p className="mt-2 text-[10px] font-black uppercase tracking-[0.5em] text-white/30">
-            Enterprise Pricing Core v2.5
+          <p className="mt-3 text-[9px] font-black uppercase tracking-[0.6em] text-amber-500/50">
+            Enterprise Cloud v2.6.2
           </p>
         </motion.div>
         
-        <div className="mt-12 w-48 h-1 bg-white/5 rounded-full overflow-hidden">
+        <div className="mt-14 w-40 h-1 bg-white/5 rounded-full overflow-hidden relative">
           <motion.div 
-            className="h-full bg-amber-500"
+            className="absolute inset-y-0 left-0 bg-gradient-to-r from-amber-600 to-amber-400"
             initial={{ width: "0%" }}
             animate={{ width: "100%" }}
-            transition={{ duration: 2, ease: "easeInOut" }}
+            transition={{ duration: 1.2, ease: "easeInOut" }}
           />
         </div>
       </motion.div>
@@ -467,25 +480,20 @@ export default function App() {
   const [notesExpanded, setNotesExpanded] = useState(true);
   const [showAddNote, setShowAddNote] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
 
   // PWA Install Logic
   useEffect(() => {
     const handleBeforeInstall = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      // Automatically show welcome or install banner if it's the first visit
-      const hasSeenInstall = localStorage.getItem('ts_install_seen');
-      if (!hasSeenInstall) {
-        setShowWelcome(true);
-      }
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
     
     window.addEventListener('appinstalled', () => {
       setDeferredPrompt(null);
-      localStorage.setItem('ts_install_seen', 'true');
-      console.log('PWA was installed');
+      localStorage.setItem('pwa_prompt_seen', 'true');
     });
 
     return () => {
@@ -493,16 +501,32 @@ export default function App() {
     };
   }, []);
 
-  const handleInstallClick = async () => {
-    if (!deferredPrompt) {
-      alert(t.installApp + ": " + t.error);
-      return;
+  // Show contextual install prompt after user is logged in for a while
+  useEffect(() => {
+    if (state.user && deferredPrompt && !localStorage.getItem('pwa_prompt_seen')) {
+      const timer = setTimeout(() => {
+        setShowInstallPrompt(true);
+      }, 30000); // 30 seconds after login
+      return () => clearTimeout(timer);
     }
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setDeferredPrompt(null);
-      localStorage.setItem('ts_install_seen', 'true');
+  }, [state.user, deferredPrompt]);
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+        setShowInstallPrompt(false);
+        localStorage.setItem('pwa_prompt_seen', 'true');
+      }
+    } else {
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+      if (isIOS) {
+        alert("To install on iPhone: \n1. Click the 'Share' icon (square with arrow) at the bottom.\n2. Scroll down and click 'Add to Home Screen'.");
+      } else {
+        alert("To install: \n1. Click the 3-dots menu (⋮) in your browser corner.\n2. Select 'Install App' or 'Add to Home Screen'.");
+      }
     }
   };
 
@@ -556,17 +580,28 @@ export default function App() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
         if (json.items && Array.isArray(json.items)) {
-          if (confirm('Importing will merge with current data. Proceed?')) {
-            setState(prev => ({ ...prev, items: [...prev.items, ...json.items] }));
+          if (confirm(t.confirmImport || 'Importing will merge with current data. Proceed?')) {
+            if (state.user && state.settings.autoCloudSync) {
+               const batch = writeBatch(db);
+               for (const item of json.items) {
+                  const itemsRef = collection(db, 'users', state.user.uid, 'items');
+                  const itemRef = doc(itemsRef);
+                  const { id, ...cleanItem } = item;
+                  batch.set(itemRef, { ...cleanItem, lastUpdated: new Date().toISOString() });
+               }
+               await batch.commit();
+            } else {
+               setState(prev => ({ ...prev, items: [...prev.items, ...json.items] }));
+            }
             alert('Import successful!');
           }
         }
       } catch (err) {
-        alert('Invalid file format. Please upload a valid JSON backup.');
+        handleFirestoreError(err, OperationType.WRITE, `users/${state?.user?.uid}/import`);
       }
     };
     reader.readAsText(file);
@@ -616,60 +651,88 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Detect Client View Mode
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get('mode');
+    const shopId = params.get('shop');
+    
+    if (mode === 'client' && shopId) {
+      setState(prev => ({ 
+        ...prev, 
+        isClientView: true,
+        clientShopId: shopId 
+      }));
+    }
+  }, []);
+
   // --- Real-time Firestore Sync ---
   useEffect(() => {
-    if (!state.user || !state.settings.autoCloudSync) {
-      // Local storage fallback if not logged in or cloud sync disabled
-      const saved = localStorage.getItem('price_manager_state');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          setState(prev => ({ 
-            ...prev, 
-            items: parsed.items || [], 
-            notes: parsed.notes || [],
-            settings: { ...prev.settings, ...parsed.settings }
-          }));
-        } catch (e) {
-          console.error("Local load failed", e);
+    const targetUserId = state.isClientView ? state.clientShopId : state.user?.uid;
+    const isCloudSyncEnabled = state.isClientView || (state.user && state.settings.autoCloudSync);
+
+    if (!targetUserId || !isCloudSyncEnabled) {
+      // Local storage fallback if not logged in, not in client mode, or cloud sync disabled
+      if (!state.isClientView) {
+        const saved = localStorage.getItem('price_manager_state');
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            setState(prev => ({ 
+              ...prev, 
+              items: parsed.items || [], 
+              notes: parsed.notes || [],
+              settings: { ...prev.settings, ...parsed.settings }
+            }));
+          } catch (e) {
+            console.error("Local load failed", e);
+          }
         }
       }
+      setIsInitializing(false);
       return;
     }
 
-    const userDocRef = doc(db, 'users', state.user.uid);
+    const userDocRef = doc(db, 'users', targetUserId);
     
-    // Sync Settings
+    // Sync Settings (Only if owner or if we want client to see owner's basic settings like currency)
     const unsubSettings = onSnapshot(userDocRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        setState(prev => ({ ...prev, settings: { ...prev.settings, ...data } }));
+        setState(prev => ({ 
+          ...prev, 
+          settings: { 
+            ...prev.settings, 
+            ...data,
+            // Force some settings for client view
+            isLocked: state.isClientView ? false : (data.isLocked ?? prev.settings.isLocked)
+          } 
+        }));
       }
     }, (error) => {
-      console.error("Settings sync error:", error);
+      if (!state.isClientView) handleFirestoreError(error, OperationType.GET, `users/${targetUserId}`);
     });
 
     // Sync Items
-    const itemsRef = collection(db, 'users', state.user.uid, 'items');
+    const itemsRef = collection(db, 'users', targetUserId, 'items');
     const unsubItems = onSnapshot(query(itemsRef, orderBy('lastUpdated', 'desc')), (snap) => {
       const itemsList: Item[] = [];
       snap.forEach(doc => itemsList.push({ ...doc.data() as Item, id: doc.id }));
       setState(prev => ({ ...prev, items: itemsList }));
+      setIsInitializing(false);
     }, (error) => {
-      console.error("Items sync error:", error);
-      if (error.code === 'permission-denied') {
-        alert("Firestore Permission Denied. Please check your account permissions.");
-      }
+      if (!state.isClientView) handleFirestoreError(error, OperationType.LIST, `users/${targetUserId}/items`);
+      setIsInitializing(false);
     });
 
-    // Sync Notes
-    const notesRef = collection(db, 'users', state.user.uid, 'notes');
+    // Sync Notes (Optional for client? Maybe they should only see "Public" notes? For now let's sync all as per request)
+    const notesRef = collection(db, 'users', targetUserId, 'notes');
     const unsubNotes = onSnapshot(query(notesRef, orderBy('createdAt', 'desc')), (snap) => {
       const notesList: Note[] = [];
       snap.forEach(doc => notesList.push({ ...doc.data() as Note, id: doc.id }));
       setState(prev => ({ ...prev, notes: notesList }));
     }, (error) => {
-      console.error("Notes sync error:", error);
+      if (!state.isClientView) handleFirestoreError(error, OperationType.LIST, `users/${targetUserId}/notes`);
     });
 
     return () => {
@@ -677,7 +740,7 @@ export default function App() {
       unsubItems();
       unsubNotes();
     };
-  }, [state.user, state.settings.autoCloudSync]);
+  }, [state.user, state.settings.autoCloudSync, state.isClientView, state.clientShopId]);
 
   // --- Effects ---
 
@@ -688,7 +751,7 @@ export default function App() {
       indigo: '99, 102, 241',
       emerald: '16, 185, 129',
       rose: '244, 63, 94',
-      amber: '245, 158, 11',
+      accent: '245, 158, 11',
       cyan: '6, 182, 212',
       slate: '100, 116, 139'
     };
@@ -727,10 +790,10 @@ export default function App() {
 
   // Separate Effect for Persistence
   useEffect(() => {
-    if (!state.user || !state.settings.autoCloudSync) {
+    if (!state.isClientView && (!state.user || !state.settings.autoCloudSync)) {
       localStorage.setItem('price_manager_state', JSON.stringify(state));
     }
-  }, [state.items, state.notes, state.settings, state.user, state.settings.autoCloudSync]);
+  }, [state.items, state.notes, state.settings, state.user, state.settings.autoCloudSync, state.isClientView]);
 
   const t = UI_TEXT[state.settings.language];
   const precision = state.settings.pricePrecision || 0;
@@ -760,20 +823,20 @@ export default function App() {
         ...prev,
         settings: { ...prev.settings, ...updates }
       }));
-    } catch (e) {
-      console.error("Settings update failed", e);
-      alert(t.error + ": " + (e instanceof Error ? e.message : 'Unknown error'));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${state.user.uid}`);
     }
-  }, [state.user, state.settings.autoCloudSync, t.error]);
+  }, [state.user, state.settings.autoCloudSync]);
 
   const handleAddItem = useCallback(async (data: Omit<Item, 'id' | 'lastUpdated'>) => {
+    const newItem = {
+      ...data,
+      lastUpdated: new Date().toISOString(),
+      priceChangedAt: new Date().toISOString(),
+      lastChangedBy: state.settings.deviceName
+    };
+    
     try {
-      const newItem = {
-        ...data,
-        lastUpdated: new Date().toISOString(),
-        priceChangedAt: new Date().toISOString()
-      };
-      
       if (state.user && state.settings.autoCloudSync) {
         await addDoc(collection(db, 'users', state.user.uid, 'items'), newItem);
         setShowAddItem(false);
@@ -785,15 +848,13 @@ export default function App() {
         }));
         setShowAddItem(false);
       }
-    } catch (e) {
-      console.error("Add item failed", e);
-      alert(t.error + ": " + (e instanceof Error ? e.message : 'Permission Denied or Sync Error'));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `users/${state.user.uid}/items`);
     }
-  }, [state.user, state.settings.autoCloudSync, t.error]);
+  }, [state.user, state.settings.autoCloudSync, state.settings.deviceName]);
 
   const handleUpdateItem = useCallback(async (id: string, data: Partial<Item>) => {
-    try {
-      const existingItem = state.items.find(i => i.id === id);
+    const existingItem = state.items.find(i => i.id === id);
       const updates: any = { 
         ...data, 
         lastUpdated: new Date().toISOString() 
@@ -810,6 +871,7 @@ export default function App() {
         updates.lastChangedBy = state.settings.deviceName;
       }
 
+    try {
       if (state.user && state.settings.autoCloudSync) {
         await updateDoc(doc(db, 'users', state.user.uid, 'items', id), updates);
       } else {
@@ -819,49 +881,30 @@ export default function App() {
         }));
       }
       setEditingItem(null);
-    } catch (e) {
-      console.error("Update failed", e);
-      alert(t.error + ": " + (e instanceof Error ? e.message : 'Permission Denied'));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${state.user.uid}/items/${id}`);
     }
-  }, [state.items, state.user, state.settings.autoCloudSync, state.settings.deviceName, t.error]);
+  }, [state.items, state.user, state.settings.autoCloudSync, state.settings.deviceName]);
 
-  const handleBulkUpdatePrices = useCallback(async (ids: string[], updates: { retailPrice?: number; wholesalePrice?: number; buyingPrice?: number }) => {
-    try {
-      if (state.user && state.settings.autoCloudSync) {
-        const batch: any[] = [];
-        for (const id of ids) {
-          const itemRef = doc(db, 'users', state.user.uid, 'items', id);
-          batch.push(updateDoc(itemRef, {
-            ...updates,
-            lastUpdated: new Date().toISOString(),
-            priceChangedAt: new Date().toISOString(),
-            lastChangedBy: state.settings.deviceName
-          }));
-        }
-        await Promise.all(batch);
-      } else {
-        setState(prev => ({
-          ...prev,
-          items: prev.items.map(item => 
-            ids.includes(item.id) 
-              ? { 
-                  ...item, 
-                  ...updates, 
-                  lastUpdated: new Date().toISOString(),
-                  priceChangedAt: new Date().toISOString()
-                } 
-              : item
-          )
-        }));
-      }
-      setSelectedItemIds([]);
-      setShowBulkUpdate(false);
-      alert(t.success);
-    } catch (e) {
-      console.error("Bulk update failed", e);
-      alert(t.error);
+  const handleShareWhatsApp = useCallback(() => {
+    if (state.items.length === 0) {
+      alert("No items to share.");
+      return;
     }
-  }, [state.user, state.settings.autoCloudSync, state.settings.deviceName, t.error, t.success]);
+    
+    let message = `*TS PRICE MANAGER - ITEM LIST*\n\n`;
+    state.items.forEach((item, index) => {
+      const name = item.translations[state.settings.language] || item.name;
+      message += `${index + 1}. *${name}*\n`;
+      message += `   Unit: ${item.unit}\n`;
+      message += `   Retail: ₹${item.retailPrice}\n`;
+      message += `   Wholesale: ₹${item.wholesalePrice}\n\n`;
+    });
+    message += `_Shared via TS Price Manager_`;
+    
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    window.open(whatsappUrl, '_blank');
+  }, [state.items, state.settings.language]);
 
   const handleDeleteItem = useCallback(async (id: string) => {
     if (confirm(t.delete + '?')) {
@@ -874,9 +917,8 @@ export default function App() {
       if (state.user && state.settings.autoCloudSync) {
         try {
           await deleteDoc(doc(db, 'users', state.user.uid, 'items', id));
-        } catch (e) {
-          console.error("Cloud delete failed", e);
-          alert(t.error + ": Permission Denied on Cloud");
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, `users/${state.user.uid}/items/${id}`);
         }
       }
     }
@@ -902,7 +944,11 @@ export default function App() {
     };
 
     if (state.user && state.settings.autoCloudSync) {
-      await addDoc(collection(db, 'users', state.user.uid, 'notes'), newNote);
+      try {
+        await addDoc(collection(db, 'users', state.user.uid, 'notes'), newNote);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.CREATE, `users/${state.user.uid}/notes`);
+      }
     } else {
       const id = Date.now().toString();
       setState(prev => ({
@@ -915,7 +961,11 @@ export default function App() {
 
   const handleUpdateNote = async (id: string, updates: Partial<Note>) => {
     if (state.user && state.settings.autoCloudSync) {
-      await updateDoc(doc(db, 'users', state.user.uid, 'notes', id), updates);
+      try {
+        await updateDoc(doc(db, 'users', state.user.uid, 'notes', id), updates);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `users/${state.user.uid}/notes/${id}`);
+      }
     } else {
       setState(prev => ({
         ...prev,
@@ -926,7 +976,11 @@ export default function App() {
 
   const handleDeleteNote = async (id: string) => {
     if (state.user && state.settings.autoCloudSync) {
-      await deleteDoc(doc(db, 'users', state.user.uid, 'notes', id));
+      try {
+        await deleteDoc(doc(db, 'users', state.user.uid, 'notes', id));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, `users/${state.user.uid}/notes/${id}`);
+      }
     } else {
       setState(prev => ({
         ...prev,
@@ -952,6 +1006,37 @@ export default function App() {
   const [showComparison, setShowComparison] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showTour, setShowTour] = useState(false);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedItemIds.length === 0) return;
+    
+    const confirmMessage = state.settings.language === 'en' 
+      ? `Are you sure you want to delete ${selectedItemIds.length} items?` 
+      : `${selectedItemIds.length} आइटम हटाना चाहते हैं?`;
+
+    if (confirm(confirmMessage)) {
+      const itemsToDelete = [...selectedItemIds];
+      
+      // Optimistic Update
+      setState(prev => ({
+        ...prev,
+        items: prev.items.filter(item => !itemsToDelete.includes(item.id))
+      }));
+      setSelectedItemIds([]);
+
+      try {
+        if (state.user && state.settings.autoCloudSync) {
+          const batch = writeBatch(db);
+          itemsToDelete.forEach(id => {
+            batch.delete(doc(db, 'users', state.user!.uid, 'items', id));
+          });
+          await batch.commit();
+        }
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, 'bulk-items');
+      }
+    }
+  }, [selectedItemIds, state.user, state.settings, t]);
 
   useEffect(() => {
     // Show tour for new users who haven't seen it
@@ -984,9 +1069,18 @@ export default function App() {
     >
       <AnimatePresence>
         {isInitializing && <SplashScreen onComplete={() => setIsInitializing(false)} />}
+        {!isInitializing && !state.user && !state.isClientView && (
+          <LoginScreen t={t} onLogin={(u) => setState(p => ({ ...p, user: u }))} />
+        )}
       </AnimatePresence>
 
-      {/* Dynamic Background Elements for Specific Themes */}
+      {!isInitializing && state.user && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="relative z-10"
+        >
+          {/* Dynamic Background Elements for Specific Themes */}
       {state.settings.theme === 'premium_dynamic' && (
         <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
           <motion.div 
@@ -1083,21 +1177,16 @@ export default function App() {
           <div className="flex items-center gap-4">
             <div className="relative group">
               <div className="absolute inset-0 bg-amber-500 blur-lg opacity-20 group-hover:opacity-40 transition-opacity" />
-              <div className="relative overflow-hidden h-14 w-14 rounded-2xl bg-white flex items-center justify-center p-1.5 border-2 border-[var(--primary)] shadow-2xl transform group-hover:scale-105 transition-transform">
-                 <img src="/logo.png" alt="TS" className="w-full h-full object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} />
-                 <div className="hidden flex h-full w-full items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 shadow-inner">
-                   <Package size={28} className="text-white" />
-                 </div>
-              </div>
+              <Logo className="h-14 w-14" />
             </div>
             <div>
               <h1 className="text-2xl font-black tracking-tighter text-white mb-0 leading-none flex items-baseline">
                 TS <span className="text-xs font-bold opacity-60 ml-1.5 tracking-[0.3em] uppercase">Price Manager</span>
               </h1>
               <div className="flex items-center gap-2 mt-1.5">
-                 <div className={cn("h-1.5 w-1.5 rounded-full ring-2 ring-white/10", state.user && state.settings.autoCloudSync ? "bg-green-400 animate-pulse" : "bg-slate-400")} />
+                 <div className={cn("h-1.5 w-1.5 rounded-full ring-2 ring-white/10", state.isClientView ? "bg-blue-400" : state.user && state.settings.autoCloudSync ? "bg-green-400 animate-pulse" : "bg-slate-400")} />
                  <p className="text-[9px] uppercase tracking-[0.2em] text-white/40 font-black">
-                   {state.user && state.settings.autoCloudSync ? 'Authenticated Cloud session' : 'Standalone Local Hub'}
+                   {state.isClientView ? 'Verified Guest View (Read Only)' : state.user && state.settings.autoCloudSync ? 'Authenticated Cloud session' : 'Standalone Local Hub'}
                  </p>
               </div>
             </div>
@@ -1175,7 +1264,7 @@ export default function App() {
             <RecentPriceChanges items={state.items} t={t} precision={precision} />
 
             {/* Quick Metrics Hub */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
               <div className="card p-6 bg-gradient-to-br from-[var(--card)] to-transparent border-white/5">
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40 mb-2">{t.totalItems}</p>
                 <div className="flex items-baseline gap-2">
@@ -1189,6 +1278,16 @@ export default function App() {
                    <p className="text-2xl font-black tracking-tight">
                      {formatCurrency(totalValue, state.settings.currency, precision)}
                    </p>
+                </div>
+              </div>
+              <div className="col-span-2 lg:col-span-1 card p-6 bg-indigo-500/5 border-indigo-500/20 flex flex-col justify-between overflow-hidden relative group">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 blur-[40px] rounded-full group-hover:scale-150 transition-transform" />
+                <div className="relative z-10">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles size={14} className="text-indigo-400 animate-pulse" />
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">AI Operational Summary</p>
+                  </div>
+                  <InventoryAIInsight items={state.items} />
                 </div>
               </div>
             </div>
@@ -1267,6 +1366,7 @@ export default function App() {
                           isSelected={selectedItemIds.includes(item.id)}
                           onSelect={() => toggleItemSelection(item.id)}
                           t={t}
+                          isReadOnly={state.isClientView}
                         />
                       </motion.div>
                     ))
@@ -1362,21 +1462,29 @@ export default function App() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 20 }}
           >
-            <ProfileScreen state={state} t={t} deferredPrompt={deferredPrompt} onInstall={handleInstallClick} />
+            <ProfileScreen 
+              state={state} 
+              t={t} 
+              deferredPrompt={deferredPrompt} 
+              onInstall={handleInstallClick} 
+              onShareWhatsApp={handleShareWhatsApp}
+            />
           </motion.div>
         )}
-        </AnimatePresence>
-      </main>
+      </AnimatePresence>
+    </main>
 
       {/* Bottom Nav */}
-      <nav id="tour-nav" className="fixed bottom-0 left-0 right-0 z-50 border-t border-[var(--border)] bg-[var(--card)] px-4 py-2 backdrop-blur-md">
-        <div className="mx-auto flex max-w-lg items-center justify-between">
-          <NavButton active={activeTab === 'home'} icon={<Home />} label={t.all || "Home"} onClick={() => setActiveTab('home')} />
-          <NavButton active={activeTab === 'notes'} icon={<FileText />} label={t.notes || "Notes"} onClick={() => setActiveTab('notes')} />
-          <NavButton active={activeTab === 'settings'} icon={<SettingsIcon />} label={t.settings || "Settings"} onClick={() => setActiveTab('settings')} />
-          <NavButton active={activeTab === 'profile'} icon={<User />} label={t.profile || "Profile"} onClick={() => setActiveTab('profile')} />
-        </div>
-      </nav>
+      {!state.isClientView && (
+        <nav id="tour-nav" className="fixed bottom-0 left-0 right-0 z-50 border-t border-[var(--border)] bg-[var(--card)] px-4 py-2 backdrop-blur-md">
+          <div className="mx-auto flex max-w-lg items-center justify-between">
+            <NavButton active={activeTab === 'home'} icon={<Home />} label={t.all || "Home"} onClick={() => setActiveTab('home')} />
+            <NavButton active={activeTab === 'notes'} icon={<FileText />} label={t.notes || "Notes"} onClick={() => setActiveTab('notes')} />
+            <NavButton active={activeTab === 'settings'} icon={<SettingsIcon />} label={t.settings || "Settings"} onClick={() => setActiveTab('settings')} />
+            <NavButton active={activeTab === 'profile'} icon={<User />} label={t.profile || "Profile"} onClick={() => setActiveTab('profile')} />
+          </div>
+        </nav>
+      )}
 
       {/* Comparison Bottom Bar - Enhanced Visibility */}
       <AnimatePresence>
@@ -1442,6 +1550,15 @@ export default function App() {
                    <Edit2 size={16} className="mr-2" />
                    {t.bulkUpdate || "Bulk Update"}
                  </Button>
+
+                 <Button 
+                   onClick={handleBulkDelete}
+                   variant="ghost"
+                   className="text-white hover:bg-red-500/20 hover:text-red-300 rounded-2xl px-6 h-12 text-[10px] font-black uppercase tracking-widest flex-1 md:flex-none border border-white/10"
+                 >
+                   <Trash2 size={16} className="mr-2" />
+                   {t.delete || "Delete"}
+                 </Button>
                </div>
             </div>
           </motion.div>
@@ -1449,7 +1566,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Floating Action Buttons */}
-      {activeTab === 'home' && (
+      {!state.isClientView && activeTab === 'home' && (
         <Button 
           className="fixed bottom-24 right-6 h-14 w-14 rounded-full shadow-2xl accent-glow"
           onClick={() => setShowAddItem(true)}
@@ -1457,7 +1574,7 @@ export default function App() {
           <Plus size={32} />
         </Button>
       )}
-      {activeTab === 'notes' && (
+      {!state.isClientView && activeTab === 'notes' && (
         <Button 
           className="fixed bottom-24 right-6 h-14 w-14 rounded-full shadow-2xl accent-glow bg-amber-500 hover:bg-amber-600"
           onClick={() => setShowAddNote(true)}
@@ -1498,24 +1615,6 @@ export default function App() {
             hideBuyingPrice={state.settings.hideBuyingPriceByDefault}
           />
         )}
-        {showBulkUpdate && (
-          <BulkPriceUpdateModal 
-            selectedItems={state.items.filter(i => selectedItemIds.includes(i.id))}
-            onClose={() => setShowBulkUpdate(false)}
-            onSave={handleBulkUpdatePrices}
-            t={t}
-            language={state.settings.language}
-          />
-        )}
-        {showBulkUpdate && (
-          <BulkPriceUpdateModal 
-            selectedItems={state.items.filter(i => selectedItemIds.includes(i.id))}
-            onClose={() => setShowBulkUpdate(false)}
-            onSave={handleBulkUpdatePrices}
-            t={t}
-            language={state.settings.language}
-          />
-        )}
         {showHelp && (
           <HelpModal 
             onClose={() => setShowHelp(false)}
@@ -1531,14 +1630,33 @@ export default function App() {
             t={t}
           />
         )}
+        {showInstallPrompt && (
+          <InstallPrompt t={t} onInstall={handleInstallClick} />
+        )}
+        {!state.isClientView && (
+          <ChatAssistant 
+            items={state.items}
+            onAddItem={handleAddItem}
+            onUpdateItem={handleUpdateItem}
+            onDeleteItem={handleDeleteItem}
+            onAddNote={handleAddNote}
+            onExport={exportToExcel}
+            onToggleBuying={() => handleUpdateSettings({ showBuyingPrice: !state.settings.showBuyingPrice })}
+            showBuyingPrice={state.settings.showBuyingPrice}
+            precision={precision}
+            t={t}
+          />
+        )}
       </AnimatePresence>
+        </motion.div>
+      )}
     </div>
   );
 }
 
 // --- Sub-Components ---
 
-const ItemCard = React.memo(({ item, isLocked, language, precision, onEdit, onDelete, t, onUpdateItem, isSelected, onSelect }: { 
+const ItemCard = React.memo(({ item, isLocked, language, precision, onEdit, onDelete, t, onUpdateItem, isSelected, onSelect, isReadOnly }: { 
   item: Item; 
   isLocked: boolean; 
   language: LanguageType;
@@ -1549,13 +1667,14 @@ const ItemCard = React.memo(({ item, isLocked, language, precision, onEdit, onDe
   onUpdateItem: (id: string, updates: Partial<Item>) => void;
   isSelected: boolean;
   onSelect: () => void;
+  isReadOnly?: boolean;
 }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const category = DEFAULT_CATEGORIES.find(c => c.id === item.categoryId);
   const name = item.translations[language] || item.translations.en;
 
   const handleAIAdvice = async () => {
-    if (isGenerating) return;
+    if (isGenerating || isReadOnly) return;
     setIsGenerating(true);
     try {
       const advice = await generatePriceAdvisory(item);
@@ -1610,30 +1729,32 @@ const ItemCard = React.memo(({ item, isLocked, language, precision, onEdit, onDe
               </div>
             </div>
           </div>
-          <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit();
-              }} 
-              className="h-9 w-9 rounded-full hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"
-            >
-              <Edit2 size={18} />
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }} 
-              className="h-9 w-9 rounded-full hover:bg-red-500/10 hover:text-red-500"
-            >
-              <Trash2 size={18} />
-            </Button>
-          </div>
+          {!isReadOnly && (
+            <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                }} 
+                className="h-9 w-9 rounded-full hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"
+              >
+                <Edit2 size={18} />
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }} 
+                className="h-9 w-9 rounded-full hover:bg-red-500/10 hover:text-red-500"
+              >
+                <Trash2 size={18} />
+              </Button>
+            </div>
+          )}
         </div>
         
         <div className="mt-6 grid grid-cols-3 gap-2">
@@ -1651,45 +1772,50 @@ const ItemCard = React.memo(({ item, isLocked, language, precision, onEdit, onDe
             <p className="text-[8px] opacity-40">/ {item.wholesalePriceUnit}</p>
           </div>
 
-          {/* Cost (Buy) */}
-          <div className="rounded-xl bg-[var(--background)]/50 p-3 border border-[var(--border)] transition-colors group-hover:border-[var(--primary)]/20 shadow-inner">
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-40 mb-1">{t.buy}</p>
-            <div className="flex flex-col">
-              {isLocked ? (
-                <div className="h-5 flex items-center">
-                  <Lock size={12} className="opacity-40 animate-pulse" />
+          {!isReadOnly && (
+            <>
+              {/* Cost (Buy) */}
+              <div className="rounded-xl bg-[var(--background)]/50 p-3 border border-[var(--border)] transition-colors group-hover:border-[var(--primary)]/20 shadow-inner">
+                <p className="text-[9px] font-black uppercase tracking-widest opacity-40 mb-1">{t.buy}</p>
+                <div className="flex flex-col">
+                  {isLocked ? (
+                    <div className="h-5 flex items-center">
+                      <Lock size={12} className="opacity-40 animate-pulse" />
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm font-bold text-[var(--foreground)] truncate">₹{formatNumber(item.buyingPrice, precision)}</p>
+                      <p className="text-[8px] opacity-40">/ {item.buyingPriceUnit}</p>
+                    </>
+                  )}
                 </div>
-              ) : (
-                <>
-                  <p className="text-sm font-bold text-[var(--foreground)] truncate">₹{formatNumber(item.buyingPrice, precision)}</p>
-                  <p className="text-[8px] opacity-40">/ {item.buyingPriceUnit}</p>
-                </>
-              )}
-            </div>
-          </div>
+              </div>
 
-          {/* Profit Margin (Calculated) */}
-          <div className="rounded-xl bg-green-500/5 p-3 border border-green-500/20 transition-colors group-hover:bg-green-500/10 shadow-inner">
-            <p className="text-[9px] font-black uppercase tracking-widest text-green-600 opacity-70 mb-1">{t.margin}</p>
-            <div className="flex flex-col">
-              {isLocked ? (
-                <div className="h-5 flex items-center">
-                  <Lock size={12} className="opacity-40 animate-pulse" />
+              {/* Profit Margin (Calculated) */}
+              <div className="rounded-xl bg-green-500/5 p-3 border border-green-500/20 transition-colors group-hover:bg-green-500/10 shadow-inner">
+                <p className="text-[9px] font-black uppercase tracking-widest text-green-600 opacity-70 mb-1">{t.margin}</p>
+                <div className="flex flex-col">
+                  {isLocked ? (
+                    <div className="h-5 flex items-center">
+                      <Lock size={12} className="opacity-40 animate-pulse" />
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm font-bold text-green-600 truncate">₹{formatNumber(item.retailPrice - item.buyingPrice, precision)}</p>
+                      <p className="text-[8px] text-green-500 font-bold">
+                        {item.buyingPrice > 0 ? `+${formatNumber(((item.retailPrice - item.buyingPrice) / item.buyingPrice) * 100, 1)}%` : '---'}
+                      </p>
+                    </>
+                  )}
                 </div>
-              ) : (
-                <>
-                  <p className="text-sm font-bold text-green-600 truncate">₹{formatNumber(item.retailPrice - item.buyingPrice, precision)}</p>
-                  <p className="text-[8px] text-green-500 font-bold">
-                    {item.buyingPrice > 0 ? `+${formatNumber(((item.retailPrice - item.buyingPrice) / item.buyingPrice) * 100, 1)}%` : '---'}
-                  </p>
-                </>
-              )}
-            </div>
-          </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* AI Advisory Section */}
-        <div className="mt-4 pt-4 border-t border-white/5">
+        {!isReadOnly && (
+          <div className="mt-4 pt-4 border-t border-white/5">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1.5">
               <Sparkles size={14} className="text-amber-500" />
@@ -1729,6 +1855,7 @@ const ItemCard = React.memo(({ item, isLocked, language, precision, onEdit, onDe
             <p className="text-[10px] opacity-30 italic px-1">{t.getAiAdvice}</p>
           )}
         </div>
+      )}
       </div>
       
       {/* Bottom info bar */}
@@ -2324,6 +2451,8 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
 
   const [activeUnitSelection, setActiveUnitSelection] = useState<'base'|'retail'|'wholesale'|'buy'|null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [smartInput, setSmartInput] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
   
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const section1Ref = React.useRef<HTMLDivElement>(null);
@@ -2354,6 +2483,35 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
     if (!formData.name) return alert('Name is required');
     onSave(formData);
     onClose();
+  };
+
+  const handleAiSmartFill = async () => {
+    if (!smartInput.trim()) return;
+    setIsAiLoading(true);
+    const result = await parseItemDescription(smartInput);
+    if (result) {
+      setFormData(prev => ({
+        ...prev,
+        ...result,
+        name: result.name || prev.name,
+        retailPrice: result.retailPrice || prev.retailPrice,
+        wholesalePrice: result.wholesalePrice || prev.wholesalePrice,
+        buyingPrice: result.buyingPrice || prev.buyingPrice,
+        unit: result.unit || prev.unit,
+        notes: result.notes || prev.notes
+      }));
+      setSmartInput('');
+      // After filling name, trigger translation manually if needed or let effect handle it (assuming there's one)
+      if (result.name) {
+        setIsTranslating(true);
+        const trans = await translateItemName(result.name);
+        setFormData(prev => ({ ...prev, translations: trans }));
+        setIsTranslating(false);
+      }
+    } else {
+      alert("AI couldn't parse the description. Try being more specific.");
+    }
+    setIsAiLoading(false);
   };
 
   const sectionVariants = {
@@ -2394,6 +2552,33 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
         {/* Content */}
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-6 space-y-24 no-scrollbar pb-32 scroll-smooth">
           
+          {/* Section 0: AI Smart Entry (Spice Store) */}
+          <motion.div 
+            variants={sectionVariants}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            className="p-6 rounded-[2rem] bg-gradient-to-br from-indigo-500/10 to-blue-500/5 border border-indigo-500/20 space-y-4"
+          >
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-indigo-400">
+              <Sparkles size={14} className="animate-pulse" /> AI Smart Entry (Masala & Dry Fruits)
+            </div>
+            <textarea
+              className="w-full h-24 rounded-2xl border-2 border-[var(--border)] bg-[var(--background)]/50 p-4 font-bold text-sm focus:border-indigo-500 focus:outline-none transition-all placeholder:opacity-40 shadow-inner resize-none"
+              placeholder="Example: Badam A grade, 1kg retail 900, wholesale 850, buy 800..."
+              value={smartInput}
+              onChange={(e) => setSmartInput(e.target.value)}
+            />
+            <Button 
+                onClick={handleAiSmartFill} 
+                disabled={isAiLoading || !smartInput.trim()}
+                className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black uppercase text-[10px] tracking-widest gap-2 py-4 h-auto shadow-lg shadow-indigo-500/20"
+            >
+              {isAiLoading ? <RefreshCw className="animate-spin" size={16} /> : <Sparkles size={16} />}
+              {isAiLoading ? 'AI Processing Data...' : 'Execute AI Smart Entry'}
+            </Button>
+          </motion.div>
+
           {/* Section 1: Identity */}
           <motion.div 
             variants={sectionVariants}
@@ -3025,7 +3210,13 @@ function SettingsScreen({
   );
 }
 
-function ProfileScreen({ state, t, deferredPrompt, onInstall }: { state: AppState; t: any; deferredPrompt: any; onInstall: () => void }) {
+function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareWhatsApp }: { 
+  state: AppState; 
+  t: any; 
+  deferredPrompt: any; 
+  onInstall: () => void;
+  onShareWhatsApp: () => void;
+}) {
   const handleAuth = async () => {
     if (state.user) {
       await auth.signOut();
@@ -3088,31 +3279,61 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall }: { state: AppStat
             <div className="h-px flex-1 bg-[var(--border)] mx-4 opacity-10" />
          </div>
 
-         {/* PWA Deployment Call-to-Action */}
-         {deferredPrompt && (
-           <button 
-             onClick={onInstall}
-             className="w-full flex items-center justify-between p-8 bg-gradient-to-br from-amber-500 to-orange-600 text-white rounded-[2.5rem] shadow-2xl shadow-amber-500/30 active:scale-[0.98] transition-all group overflow-hidden relative"
-           >
-              <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-500" />
-              <div className="flex items-center gap-5 relative z-10">
-                 <div className="h-14 w-14 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner">
-                    <Download size={28} />
-                 </div>
-                 <div className="text-left">
-                    <p className="text-xl font-black uppercase tracking-tight">{t.deployNode}</p>
-                    <p className="text-[10px] font-bold opacity-70 uppercase tracking-widest">{t.pwaInstallHint}</p>
-                 </div>
-              </div>
-              <ChevronRight size={24} className="relative z-10 opacity-60 group-hover:translate-x-1 transition-transform" />
-           </button>
+    {/* PWA Deployment Call-to-Action - Enhanced for "Download" intent */}
+         <button 
+           onClick={onInstall}
+           className="w-full flex items-center justify-between p-8 bg-gradient-to-br from-indigo-500 via-indigo-600 to-blue-700 text-white rounded-[2.5rem] shadow-2xl shadow-indigo-500/30 active:scale-[0.98] transition-all group overflow-hidden relative border border-white/20"
+         >
+            <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-500" />
+            <div className="flex items-center gap-5 relative z-10">
+               <div className="h-16 w-16 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner ring-4 ring-white/5">
+                  <Smartphone size={32} className="animate-bounce" />
+               </div>
+               <div className="text-left">
+                  <p className="text-xl font-black uppercase tracking-tight">{t.deployNode || "Download & Install App"}</p>
+                  <p className="text-[10px] font-bold opacity-70 uppercase tracking-widest leading-relaxed">
+                     {deferredPrompt ? (t.pwaInstallHint || "Install it to open like a real mobile app") : "Use Browser Menu > 'Install App' or 'Add to Home Screen'"}
+                  </p>
+               </div>
+            </div>
+            <div className="relative z-10 h-10 w-10 rounded-full bg-white/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+               <Download size={20} />
+            </div>
+         </button>
+
+         {!deferredPrompt && !localStorage.getItem('pwa_prompt_seen') && (
+            <div className="p-4 bg-white/5 border border-dashed border-white/10 rounded-2xl">
+               <p className="text-[9px] font-black uppercase tracking-widest opacity-30 text-center">
+                  To open this without Chrome address bar: Click 3-dots menu <span className="text-[var(--primary)]">⋮</span> and select <span className="text-[var(--primary)]">"Install App"</span>
+               </p>
+            </div>
          )}
 
          {/* Secondary Hub Actions */}
          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <button 
+              onClick={onShareWhatsApp}
+              className="flex items-center justify-between p-6 bg-[var(--card)] border border-[var(--border)] rounded-[2rem] hover:border-green-500/30 hover:bg-green-500/5 transition-all group"
+            >
+               <div className="flex items-center gap-4">
+                  <div className="h-12 w-12 rounded-2xl bg-green-500/10 text-green-500 flex items-center justify-center transition-colors group-hover:bg-green-500 group-hover:text-white">
+                     <Share2 size={22} />
+                  </div>
+                  <div className="text-left">
+                     <p className="text-sm font-black uppercase group-hover:text-green-500 transition-colors">Share Product List</p>
+                     <p className="text-[8px] font-bold opacity-40 uppercase tracking-widest leading-tight">Send price list to customers via WhatsApp</p>
+                  </div>
+               </div>
+               <ChevronRight size={16} className="opacity-20 group-hover:translate-x-1 transition-transform" />
+            </button>
+
+            <button 
               onClick={() => {
-                  const message = encodeURIComponent(`Check out TS PRICE MANAGER: ${window.location.host}`);
+                  if (!state.user) {
+                    alert("Please log in first to generate your share link.");
+                    return;
+                  }
+                  const message = encodeURIComponent(`Check out our LIVE inventory and prices: ${window.location.origin}?mode=client&shop=${state.user.uid}`);
                   window.open(`https://wa.me/?text=${message}`, '_blank');
               }}
               className="flex items-center justify-between p-6 bg-[var(--card)] border border-[var(--border)] rounded-[2rem] hover:border-green-500/30 hover:bg-green-500/5 transition-all group"
@@ -3167,6 +3388,47 @@ function StatCard({ label, value, icon, color }: { label: string; value: string;
           <p className="text-[8px] font-black uppercase tracking-widest opacity-60 leading-tight mb-1">{label}</p>
           <p className="text-xl font-black uppercase tracking-tight">{value}</p>
        </div>
+    </div>
+  );
+}
+
+function InventoryAIInsight({ items }: { items: Item[] }) {
+  const [insight, setInsight] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const fetchInsight = async () => {
+    if (items.length === 0) return;
+    setLoading(true);
+    const text = await analyzeInventory(items);
+    setInsight(text);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchInsight();
+  }, [items.length]);
+
+  return (
+    <div className="min-h-[3rem] flex flex-col justify-center">
+      {loading ? (
+        <div className="flex gap-1 items-center">
+          <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce" />
+          <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.2s]" />
+          <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.4s]" />
+        </div>
+      ) : (
+        <div className="group/insight relative">
+          <p className="text-[11px] font-medium opacity-80 leading-relaxed italic">
+            {insight || "Awaiting inventory data for neural analysis..."}
+          </p>
+          <button 
+            onClick={fetchInsight}
+            className="absolute -right-2 -top-6 p-1 rounded-full hover:bg-indigo-500/20 text-indigo-500 opacity-0 group-hover/insight:opacity-100 transition-opacity"
+          >
+            <RefreshCw size={10} className={loading ? "animate-spin" : ""} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -3253,6 +3515,16 @@ function NotesDashboard({
 
   const displayNotes = isPreview ? filteredNotes.slice(0, 3) : filteredNotes;
   const categories = ['All', 'Stock', 'Payment', 'Customer', 'Supplier', 'Reminder', 'General'];
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+
+  const handleAiAnalyze = async () => {
+    setIsAiLoading(true);
+    const combinedNotes = notes.map(n => `[${n.category}] ${n.title}: ${n.description}`);
+    const summary = await analyzeNotes(combinedNotes);
+    setAiSummary(summary);
+    setIsAiLoading(false);
+  };
 
   const getPriorityClass = (priority: string) => {
     switch (priority) {
@@ -3288,12 +3560,44 @@ function NotesDashboard({
                  <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Operational Journal</p>
                </div>
             </button>
-            <Button onClick={onAdd} className="rounded-xl flex gap-2 h-10 px-4 bg-amber-500 hover:bg-amber-600 shadow-xl shadow-amber-500/20 active:scale-95 transition-all">
+                  <Button 
+                    variant="ghost"
+                    onClick={handleAiAnalyze}
+                    disabled={isAiLoading || notes.length === 0}
+                    className="flex-1 sm:flex-none rounded-xl gap-2 h-10 px-4 bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all overflow-hidden"
+                  >
+                    {isAiLoading ? <RefreshCw size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                    <span className="text-[10px] font-black uppercase tracking-widest">
+                      {isAiLoading ? 'AI Thinking...' : 'AI Insights'}
+                    </span>
+                  </Button>
+                  <Button onClick={onAdd} className="rounded-xl flex gap-2 h-10 px-4 bg-amber-500 hover:bg-amber-600 shadow-xl shadow-amber-500/20 active:scale-95 transition-all">
                <Plus size={18} /> <span className="hidden sm:inline text-[10px] font-black uppercase tracking-widest">{t.addNote}</span>
             </Button>
           </div>
 
           <AnimatePresence>
+            {aiSummary && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="p-6 rounded-[2rem] bg-indigo-500/5 border border-indigo-500/20 relative group"
+              >
+                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-indigo-500 mb-2">
+                  <Sparkles size={14} /> AI Journal Intelligence
+                </div>
+                <div className="text-xs font-medium leading-relaxed opacity-80 whitespace-pre-line text-indigo-900/80">
+                  {aiSummary}
+                </div>
+                <button 
+                  onClick={() => setAiSummary(null)} 
+                  className="absolute top-4 right-4 opacity-0 group-hover:opacity-40 hover:opacity-100 transition-opacity"
+                >
+                  <X size={16} />
+                </button>
+              </motion.div>
+            )}
             {expanded && (
               <motion.div 
                 initial={{ opacity: 0, y: -10 }}
@@ -3559,5 +3863,288 @@ function NoteFormModal({ onClose, onSave, t }: { onClose: () => void; onSave: (d
         </div>
       </motion.div>
     </div>
+  );
+}
+
+function LoginScreen({ onLogin, t }: { onLogin: (user: any) => void; t: any }) {
+  const [authMode, setAuthMode] = useState<'email' | 'phone' | 'google'>('email');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
+  const [confirmationResult, setConfirmationResult] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
+
+  const handleEmailLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      const user = await signInWithEmailAndPassword(auth, email, password);
+      onLogin(user.user);
+    } catch (error) {
+      alert(t.loginError);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePhoneSignIn = async () => {
+    setIsLoading(true);
+    try {
+      const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible'
+      });
+      const result = await signInWithPhoneNumber(auth, phone, verifier);
+      setConfirmationResult(result);
+      alert(t.otpSent);
+    } catch (error) {
+      alert(t.loginError);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const verifyOtp = async () => {
+    setIsLoading(true);
+    try {
+      const result = await confirmationResult.confirm(otp);
+      onLogin(result.user);
+    } catch (error) {
+      alert(t.loginError);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
+    try {
+      const user = await loginWithGoogle();
+      onLogin(user);
+    } catch (error) {
+      alert(t.loginError);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-[#0a0a0f] overflow-hidden">
+      {/* Animated Background */}
+      <div className="absolute inset-0 z-0">
+        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-indigo-500/20 blur-[120px] rounded-full animate-pulse" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-amber-500/10 blur-[120px] rounded-full animate-pulse delay-1000" />
+      </div>
+
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-md relative z-10 px-6"
+      >
+        <div className="text-center mb-8">
+           <Logo className="h-24 w-24 mx-auto mb-4" />
+           <h1 className="text-3xl font-black tracking-tight text-white">{t.loginTitle}</h1>
+           <p className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-400/80 mt-2">{t.loginSubtitle}</p>
+        </div>
+
+        <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-8 shadow-2xl">
+           <AnimatePresence mode="wait">
+              {authMode === 'email' ? (
+                <motion.form 
+                  key="email"
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 10 }}
+                  onSubmit={handleEmailLogin} 
+                  className="space-y-5"
+                >
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">{t.emailLabel}</label>
+                    <div className="relative">
+                       <User className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" size={18} />
+                       <input 
+                         type="email" 
+                         required
+                         className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 text-sm text-white focus:border-indigo-500 transition-all"
+                         value={email}
+                         onChange={e => setEmail(e.target.value)}
+                         placeholder="admin@enterprise.com"
+                       />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center px-1">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-white/40">{t.passwordLabel}</label>
+                      <button type="button" className="text-[9px] font-black uppercase tracking-widest text-indigo-400">{t.forgotPassword}</button>
+                    </div>
+                    <div className="relative">
+                       <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" size={18} />
+                       <input 
+                         type={showPassword ? "text" : "password"} 
+                         required
+                         className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pl-12 pr-12 text-sm text-white focus:border-indigo-500 transition-all"
+                         value={password}
+                         onChange={e => setPassword(e.target.value)}
+                         placeholder="••••••••"
+                       />
+                       <button 
+                         type="button" 
+                         onClick={() => setShowPassword(!showPassword)}
+                         className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 hover:text-white"
+                       >
+                         {showPassword ? <Unlock size={18} /> : <Lock size={18} />}
+                       </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 px-1">
+                    <button 
+                      type="button"
+                      onClick={() => setRememberMe(!rememberMe)}
+                      className={`h-5 w-5 rounded-md border flex items-center justify-center transition-all ${rememberMe ? 'bg-indigo-500 border-indigo-500' : 'bg-white/5 border-white/10'}`}
+                    >
+                      {rememberMe && <Check size={12} className="text-white" />}
+                    </button>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white/40">{t.rememberMe}</span>
+                  </div>
+
+                  <Button 
+                    type="submit" 
+                    disabled={isLoading}
+                    className="w-full h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-xs font-black uppercase tracking-[0.2em] shadow-xl shadow-indigo-500/20"
+                  >
+                    {isLoading ? t.authenticating : t.loginBtn}
+                  </Button>
+                </motion.form>
+              ) : authMode === 'phone' ? (
+                <motion.div 
+                  key="phone"
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 10 }}
+                  className="space-y-5"
+                >
+                  {!confirmationResult ? (
+                    <div className="space-y-4">
+                       <div className="space-y-2">
+                         <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">{t.phoneLabel}</label>
+                         <div className="relative">
+                            <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" size={18} />
+                            <input 
+                              type="tel" 
+                              className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 text-sm text-white focus:border-indigo-500 transition-all"
+                              value={phone}
+                              onChange={e => setPhone(e.target.value)}
+                              placeholder="+91 98765 43210"
+                            />
+                         </div>
+                       </div>
+                       <Button 
+                         onClick={handlePhoneSignIn}
+                         disabled={isLoading}
+                         className="w-full h-14 rounded-2xl bg-amber-500 hover:bg-amber-600 text-black text-xs font-black uppercase tracking-[0.2em]"
+                       >
+                         {isLoading ? t.verifying : t.sendOtp}
+                       </Button>
+                       <div id="recaptcha-container"></div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                       <div className="space-y-2">
+                         <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">OTP CODE</label>
+                         <input 
+                           type="text" 
+                           className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-4 text-center tracking-[1em] text-xl font-black text-white focus:border-indigo-500 transition-all"
+                           value={otp}
+                           onChange={e => setOtp(e.target.value)}
+                           placeholder="000000"
+                         />
+                       </div>
+                       <Button 
+                         onClick={verifyOtp}
+                         disabled={isLoading}
+                         className="w-full h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-xs font-black uppercase tracking-[0.2em]"
+                       >
+                         {t.verifyOtp}
+                       </Button>
+                    </div>
+                  )}
+                </motion.div>
+              ) : null}
+           </AnimatePresence>
+
+           <div className="mt-8 pt-8 border-t border-white/5 space-y-4">
+              <Button 
+                variant="outline" 
+                onClick={handleGoogleLogin}
+                className="w-full h-14 border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-white/5"
+              >
+                 <Globe size={18} className="text-blue-400" />
+                 {t.googleBtn}
+              </Button>
+
+              <div className="flex gap-4">
+                 <Button 
+                   onClick={() => setAuthMode(authMode === 'phone' ? 'email' : 'phone')}
+                   variant="ghost" 
+                   className="flex-1 rounded-xl text-[9px] font-black uppercase tracking-widest opacity-60 hover:opacity-100"
+                 >
+                   {authMode === 'phone' ? t.loginBtn : t.otpBtn}
+                 </Button>
+                 <Button 
+                    variant="ghost" 
+                    className="flex-1 rounded-xl text-[9px] font-black uppercase tracking-widest opacity-60 hover:opacity-100"
+                 >
+                    {t.signUp}
+                 </Button>
+              </div>
+           </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function InstallPrompt({ t, onInstall }: { t: any; onInstall: () => void }) {
+  return (
+    <motion.div 
+      initial={{ y: 100, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: 100, opacity: 0 }}
+      className="fixed bottom-24 left-4 right-4 z-[400] md:left-auto md:right-8 md:bottom-8 md:w-96"
+    >
+      <div className="bg-indigo-600 rounded-3xl p-6 shadow-2xl flex flex-col gap-4 border border-indigo-400/30">
+         <div className="flex items-start gap-4">
+            <div className="h-12 w-12 rounded-2xl bg-white/20 flex items-center justify-center shrink-0">
+               <Smartphone className="text-white" size={24} />
+            </div>
+            <div>
+               <h4 className="text-white font-black text-sm uppercase tracking-tight">Install TS PRICE MANAGER</h4>
+               <p className="text-white/70 text-xs leading-relaxed mt-1">Get instant access from your home screen, offline support, and full enterprise features.</p>
+            </div>
+         </div>
+         <div className="flex gap-3 mt-2">
+            <Button 
+              onClick={onInstall}
+              className="flex-1 bg-white text-indigo-600 hover:bg-white/90 rounded-xl h-11 text-[10px] font-black uppercase tracking-widest"
+            >
+               Install Now
+            </Button>
+            <Button 
+              variant="ghost" 
+              onClick={() => {
+                localStorage.setItem('pwa_prompt_seen', 'true');
+                // Could also use a state to hide it
+              }}
+              className="px-4 text-white/50 hover:text-white text-[10px] font-black uppercase tracking-widest"
+            >
+               Maybe Later
+            </Button>
+         </div>
+      </div>
+    </motion.div>
   );
 }

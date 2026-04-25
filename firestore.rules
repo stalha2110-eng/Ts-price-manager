@@ -51,19 +51,13 @@ service cloud.firestore {
       allow update: if isOwner(userId) && isValidSettings(incoming());
 
       match /items/{itemId} {
-        allow list: if isOwner(userId);
-        allow get: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidItem(incoming());
-        allow update: if isOwner(userId) && isValidItem(incoming());
-        allow delete: if isOwner(userId);
+        allow list, get: if true; // Allow public read for client mode link
+        allow create, update, delete: if isOwner(userId) && isValidItem(incoming());
       }
 
       match /notes/{noteId} {
-        allow list: if isOwner(userId);
-        allow get: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidNote(incoming());
-        allow update: if isOwner(userId) && isValidNote(incoming());
-        allow delete: if isOwner(userId);
+        allow list, get: if true; // Allow public read for client mode link
+        allow create, update, delete: if isOwner(userId) && isValidNote(incoming());
       }
     }
   }

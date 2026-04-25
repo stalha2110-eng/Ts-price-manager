@@ -82,4 +82,6 @@ export interface AppState {
     uid: string;
     email: string | null;
   } | null;
+  isClientView?: boolean;
+  clientShopId?: string;
 }
