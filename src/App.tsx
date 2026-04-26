@@ -85,6 +85,7 @@ import autoTable from 'jspdf-autotable';
 import { Button } from './components/ui/Button';
 import { PINScreen } from './components/ui/PINScreen';
 import { UnitSelectorModal } from './components/ui/UnitSelectorModal';
+import { AuthScreen } from './components/AuthScreen';
 import { 
   db, 
   auth, 
@@ -350,7 +351,7 @@ function NotificationBar({
               <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-2xl p-2 space-y-1 max-h-[400px] overflow-y-auto no-scrollbar mt-1">
                  {alerts.map((alert) => (
                    <div 
-                     key={alert.id + alert.timestamp}
+                    key={`alert-${alert.type}-${alert.id}-${alert.timestamp}`}
                      className={cn(
                        "flex items-center gap-4 p-4 rounded-xl hover:bg-[var(--primary)]/5 transition-all cursor-pointer group/item border border-transparent hover:border-[var(--primary)]/10",
                        alert.priority === 'Urgent' ? "bg-red-500/5 shadow-inner" : ""
@@ -481,6 +482,15 @@ export default function App() {
   const [showAddNote, setShowAddNote] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  // Initialize guest status
+  useEffect(() => {
+    const guestMode = localStorage.getItem('ts_guest_mode') === 'true';
+    if (guestMode && !state.user) {
+      setState(prev => ({ ...prev, isGuest: true }));
+    }
+  }, []);
 
   // PWA Install Logic
   useEffect(() => {
@@ -638,18 +648,93 @@ export default function App() {
     reader.readAsText(file);
   };
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
+        setIsLoggingIn(true);
+        // Check for migration
+        const guestData = localStorage.getItem('price_manager_state');
+        const wasGuest = localStorage.getItem('ts_guest_mode') === 'true';
+        
+        if (wasGuest && guestData) {
+          try {
+            const parsed = JSON.parse(guestData);
+            if (parsed.items?.length > 0 || parsed.notes?.length > 0) {
+              const batch = writeBatch(db);
+              
+              // Migrate Items
+              if (parsed.items) {
+                for (const item of parsed.items) {
+                  const ref = doc(collection(db, 'users', user.uid, 'items'));
+                  const { id, ...cleanItem } = item;
+                  batch.set(ref, { ...cleanItem, lastUpdated: new Date().toISOString() });
+                }
+              }
+              
+              // Migrate Notes
+              if (parsed.notes) {
+                for (const note of parsed.notes) {
+                  const ref = doc(collection(db, 'users', user.uid, 'notes'));
+                  const { id, ...cleanNote } = note;
+                  batch.set(ref, { ...cleanNote, createdAt: new Date().toISOString() });
+                }
+              }
+
+              // Migrate Settings
+              if (parsed.settings) {
+                const settingsRef = doc(db, 'users', user.uid);
+                batch.set(settingsRef, parsed.settings, { merge: true });
+              }
+
+              await batch.commit();
+              // Clear guest mode after successful migration
+              localStorage.removeItem('ts_guest_mode');
+            }
+          } catch (e) {
+            console.error("Migration failed", e);
+          }
+        }
+
         setState(prev => ({ 
           ...prev, 
-          user: { uid: user.uid, email: user.email } 
+          user: { uid: user.uid, email: user.email },
+          isGuest: false
         }));
+        localStorage.removeItem('ts_guest_mode');
       } else {
         setState(prev => ({ ...prev, user: null }));
       }
+      setIsLoggingIn(false);
+      setIsInitializing(false);
     });
     return () => unsubscribe();
   }, []);
+
+  const handleGuestLogin = () => {
+    localStorage.setItem('ts_guest_mode', 'true');
+    setState(prev => ({ ...prev, isGuest: true }));
+  };
+
+  const handleGoogleAuth = async () => {
+    try {
+      setIsLoggingIn(true);
+      await loginWithGoogle();
+    } catch (err) {
+      console.error("Login Error", err);
+      throw err;
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+      localStorage.removeItem('ts_guest_mode');
+      setState(prev => ({ ...prev, user: null, isGuest: false, items: [], notes: [] }));
+    } catch (err) {
+      console.error("Logout Error", err);
+    }
+  };
 
   // Detect Client View Mode
   useEffect(() => {
@@ -1069,12 +1154,16 @@ export default function App() {
     >
       <AnimatePresence>
         {isInitializing && <SplashScreen onComplete={() => setIsInitializing(false)} />}
-        {!isInitializing && !state.user && !state.isClientView && (
-          <LoginScreen t={t} onLogin={(u) => setState(p => ({ ...p, user: u }))} />
+        {!isInitializing && !state.user && !state.isGuest && !state.isClientView && (
+          <AuthScreen 
+            onGuest={handleGuestLogin}
+            onGoogle={handleGoogleAuth}
+            isLoggingIn={isLoggingIn}
+          />
         )}
       </AnimatePresence>
 
-      {!isInitializing && state.user && (
+      {!isInitializing && (state.user || state.isGuest || state.isClientView) && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -1468,6 +1557,8 @@ export default function App() {
               deferredPrompt={deferredPrompt} 
               onInstall={handleInstallClick} 
               onShareWhatsApp={handleShareWhatsApp}
+              onLogout={handleLogout}
+              onGoogleAuth={handleGoogleAuth}
             />
           </motion.div>
         )}
@@ -1503,7 +1594,7 @@ export default function App() {
                       const cat = DEFAULT_CATEGORIES.find(c => c.id === it?.categoryId);
                       return (
                         <motion.div 
-                          key={id} 
+                          key={`compare-${id}-${index}`} 
                           initial={{ x: -20, opacity: 0 }}
                           animate={{ x: 0, opacity: 1 }}
                           transition={{ delay: index * 0.1 }}
@@ -2670,7 +2761,7 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
                  </div>
                  <div className="flex flex-wrap gap-1.5 pt-2">
                    {quickQtys.map(q => (
-                     <button key={q} onClick={() => setFormData(prev => ({ ...prev, quantity: q }))} className="px-3 py-1.5 rounded-lg bg-[var(--background)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">{q} {formData.unit}</button>
+                     <button key={`qty-${q}`} onClick={() => setFormData(prev => ({ ...prev, quantity: q }))} className="px-3 py-1.5 rounded-lg bg-[var(--background)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">{q} {formData.unit}</button>
                    ))}
                  </div>
                </div>
@@ -2732,7 +2823,7 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
              
              <div className="grid grid-cols-4 gap-2">
                 {quickAmounts.map(amt => (
-                  <button key={amt} onClick={() => setFormData(prev => ({ ...prev, retailPrice: amt }))} className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">₹{amt}</button>
+                  <button key={`amt-${amt}`} onClick={() => setFormData(prev => ({ ...prev, retailPrice: amt }))} className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">₹{amt}</button>
                 ))}
              </div>
           </motion.div>
@@ -2835,7 +2926,7 @@ function NotificationsView({
       <div className="grid grid-cols-1 gap-3">
         {allNotifications.map((notif) => (
           <motion.div
-            key={notif.id}
+            key={`${notif.type}-${notif.id}`}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             onClick={() => notif.type === 'price' ? onViewItem(notif.itemId) : onViewNote(notif.id)}
@@ -3210,25 +3301,22 @@ function SettingsScreen({
   );
 }
 
-function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareWhatsApp }: { 
+function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareWhatsApp, onLogout, onGoogleAuth }: { 
   state: AppState; 
   t: any; 
   deferredPrompt: any; 
   onInstall: () => void;
   onShareWhatsApp: () => void;
+  onLogout: () => void;
+  onGoogleAuth: () => void;
 }) {
-  const handleAuth = async () => {
-    if (state.user) {
-      await auth.signOut();
-    } else {
-      await loginWithGoogle();
-    }
-  };
-
   return (
     <div className="space-y-8 pb-32 animate-in fade-in slide-in-from-bottom-6 duration-1000 max-w-2xl mx-auto px-4 sm:px-0">
       {/* Dynamic Visual Header */}
-      <div className="relative overflow-hidden rounded-[3rem] bg-[var(--primary)] p-10 text-white shadow-2xl shadow-[var(--primary)]/20 min-h-[250px] flex flex-col justify-end group">
+      <div className={cn(
+        "relative overflow-hidden rounded-[3rem] p-10 text-white shadow-2xl min-h-[250px] flex flex-col justify-end group transition-all duration-700",
+        state.user ? "bg-[var(--primary)] shadow-[var(--primary)]/20" : "bg-gradient-to-br from-slate-800 to-slate-900 shadow-slate-900/50"
+      )}>
          <div className="absolute top-0 right-0 p-8 opacity-10 rotate-12 transition-transform group-hover:scale-110 group-hover:rotate-0 duration-700">
             <User size={200} />
          </div>
@@ -3241,12 +3329,12 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareWhatsApp }:
                </div>
                <div>
                   <h2 className="text-4xl font-black uppercase tracking-tight leading-none truncate max-w-[200px] sm:max-w-md">
-                    {state.user ? (state.user.email?.split('@')[0] || 'Merchant') : 'SYSTEM ADMIN'}
+                    {state.user ? (state.user.email?.split('@')[0] || 'Merchant') : state.isGuest ? 'Guest Merchant' : 'SYSTEM ADMIN'}
                   </h2>
                   <div className="mt-2 flex items-center gap-2">
-                     <span className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
+                     <span className={cn("h-2 w-2 rounded-full", state.user ? "bg-green-400 animate-pulse" : "bg-amber-400")} />
                      <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-70">
-                       {state.user ? t.liveNode : t.localSandbox}
+                       {state.user ? t.liveNode : state.isGuest ? 'Local-Only Mode' : t.localSandbox}
                      </p>
                   </div>
                </div>
@@ -3255,13 +3343,23 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareWhatsApp }:
             <div className="flex gap-8 pt-4">
                <div>
                   <p className="text-[9px] font-black uppercase tracking-widest opacity-50 mb-1">{t.authorization}</p>
-                  <button 
-                    onClick={handleAuth}
-                    className="flex items-center gap-2 bg-white/10 hover:bg-white text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full transition-all text-white hover:text-[var(--primary)] shadow-lg active:scale-95"
-                  >
-                     {state.user ? <LogOut size={14} /> : <LogIn size={14} />}
-                     {state.user ? t.terminateSession : t.cloudEntry}
-                  </button>
+                  {state.user ? (
+                    <button 
+                      onClick={onLogout}
+                      className="flex items-center gap-2 bg-white/10 hover:bg-white text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full transition-all text-white hover:text-red-500 shadow-lg active:scale-95"
+                    >
+                       <LogOut size={14} />
+                       {t.terminateSession}
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={onGoogleAuth}
+                      className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full transition-all text-white shadow-lg active:scale-95"
+                    >
+                       <LogIn size={14} />
+                       Connect to Cloud
+                    </button>
+                  )}
                </div>
                <div className="h-10 w-px bg-white/20" />
                <div>
@@ -3643,9 +3741,9 @@ function NotesDashboard({
         isPreview ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
       )}>
         <AnimatePresence mode="popLayout">
-          {displayNotes.length > 0 ? displayNotes.map(note => (
+          {displayNotes.length > 0 ? displayNotes.map((note, idx) => (
             <NoteCard 
-               key={note.id} 
+               key={`note-${note.id}-${idx}`} 
                note={note} 
                onUpdate={onUpdate} 
                onDelete={onDelete} 
@@ -3860,248 +3958,6 @@ function NoteFormModal({ onClose, onSave, t }: { onClose: () => void; onSave: (d
         <div className="flex gap-4 pt-4">
            <Button variant="ghost" className="flex-1 rounded-2xl" onClick={onClose}>Cancel</Button>
            <Button className="flex-1 rounded-2xl py-4" onClick={() => onSave(formData)}>Create Note</Button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-function LoginScreen({ onLogin, t }: { onLogin: (user: any) => void; t: any }) {
-  const [authMode, setAuthMode] = useState<'email' | 'phone' | 'google'>('email');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState('');
-  const [confirmationResult, setConfirmationResult] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
-
-  const handleEmailLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    try {
-      const user = await signInWithEmailAndPassword(auth, email, password);
-      onLogin(user.user);
-    } catch (error) {
-      alert(t.loginError);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handlePhoneSignIn = async () => {
-    setIsLoading(true);
-    try {
-      const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        size: 'invisible'
-      });
-      const result = await signInWithPhoneNumber(auth, phone, verifier);
-      setConfirmationResult(result);
-      alert(t.otpSent);
-    } catch (error) {
-      alert(t.loginError);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const verifyOtp = async () => {
-    setIsLoading(true);
-    try {
-      const result = await confirmationResult.confirm(otp);
-      onLogin(result.user);
-    } catch (error) {
-      alert(t.loginError);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    setIsLoading(true);
-    try {
-      const user = await loginWithGoogle();
-      onLogin(user);
-    } catch (error) {
-      alert(t.loginError);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-[#0a0a0f] overflow-hidden">
-      {/* Animated Background */}
-      <div className="absolute inset-0 z-0">
-        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-indigo-500/20 blur-[120px] rounded-full animate-pulse" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-amber-500/10 blur-[120px] rounded-full animate-pulse delay-1000" />
-      </div>
-
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md relative z-10 px-6"
-      >
-        <div className="text-center mb-8">
-           <Logo className="h-24 w-24 mx-auto mb-4" />
-           <h1 className="text-3xl font-black tracking-tight text-white">{t.loginTitle}</h1>
-           <p className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-400/80 mt-2">{t.loginSubtitle}</p>
-        </div>
-
-        <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-8 shadow-2xl">
-           <AnimatePresence mode="wait">
-              {authMode === 'email' ? (
-                <motion.form 
-                  key="email"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 10 }}
-                  onSubmit={handleEmailLogin} 
-                  className="space-y-5"
-                >
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">{t.emailLabel}</label>
-                    <div className="relative">
-                       <User className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" size={18} />
-                       <input 
-                         type="email" 
-                         required
-                         className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 text-sm text-white focus:border-indigo-500 transition-all"
-                         value={email}
-                         onChange={e => setEmail(e.target.value)}
-                         placeholder="admin@enterprise.com"
-                       />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center px-1">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-white/40">{t.passwordLabel}</label>
-                      <button type="button" className="text-[9px] font-black uppercase tracking-widest text-indigo-400">{t.forgotPassword}</button>
-                    </div>
-                    <div className="relative">
-                       <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" size={18} />
-                       <input 
-                         type={showPassword ? "text" : "password"} 
-                         required
-                         className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pl-12 pr-12 text-sm text-white focus:border-indigo-500 transition-all"
-                         value={password}
-                         onChange={e => setPassword(e.target.value)}
-                         placeholder="••••••••"
-                       />
-                       <button 
-                         type="button" 
-                         onClick={() => setShowPassword(!showPassword)}
-                         className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 hover:text-white"
-                       >
-                         {showPassword ? <Unlock size={18} /> : <Lock size={18} />}
-                       </button>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 px-1">
-                    <button 
-                      type="button"
-                      onClick={() => setRememberMe(!rememberMe)}
-                      className={`h-5 w-5 rounded-md border flex items-center justify-center transition-all ${rememberMe ? 'bg-indigo-500 border-indigo-500' : 'bg-white/5 border-white/10'}`}
-                    >
-                      {rememberMe && <Check size={12} className="text-white" />}
-                    </button>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white/40">{t.rememberMe}</span>
-                  </div>
-
-                  <Button 
-                    type="submit" 
-                    disabled={isLoading}
-                    className="w-full h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-xs font-black uppercase tracking-[0.2em] shadow-xl shadow-indigo-500/20"
-                  >
-                    {isLoading ? t.authenticating : t.loginBtn}
-                  </Button>
-                </motion.form>
-              ) : authMode === 'phone' ? (
-                <motion.div 
-                  key="phone"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 10 }}
-                  className="space-y-5"
-                >
-                  {!confirmationResult ? (
-                    <div className="space-y-4">
-                       <div className="space-y-2">
-                         <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">{t.phoneLabel}</label>
-                         <div className="relative">
-                            <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" size={18} />
-                            <input 
-                              type="tel" 
-                              className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 text-sm text-white focus:border-indigo-500 transition-all"
-                              value={phone}
-                              onChange={e => setPhone(e.target.value)}
-                              placeholder="+91 98765 43210"
-                            />
-                         </div>
-                       </div>
-                       <Button 
-                         onClick={handlePhoneSignIn}
-                         disabled={isLoading}
-                         className="w-full h-14 rounded-2xl bg-amber-500 hover:bg-amber-600 text-black text-xs font-black uppercase tracking-[0.2em]"
-                       >
-                         {isLoading ? t.verifying : t.sendOtp}
-                       </Button>
-                       <div id="recaptcha-container"></div>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                       <div className="space-y-2">
-                         <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">OTP CODE</label>
-                         <input 
-                           type="text" 
-                           className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-4 text-center tracking-[1em] text-xl font-black text-white focus:border-indigo-500 transition-all"
-                           value={otp}
-                           onChange={e => setOtp(e.target.value)}
-                           placeholder="000000"
-                         />
-                       </div>
-                       <Button 
-                         onClick={verifyOtp}
-                         disabled={isLoading}
-                         className="w-full h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-xs font-black uppercase tracking-[0.2em]"
-                       >
-                         {t.verifyOtp}
-                       </Button>
-                    </div>
-                  )}
-                </motion.div>
-              ) : null}
-           </AnimatePresence>
-
-           <div className="mt-8 pt-8 border-t border-white/5 space-y-4">
-              <Button 
-                variant="outline" 
-                onClick={handleGoogleLogin}
-                className="w-full h-14 border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-white/5"
-              >
-                 <Globe size={18} className="text-blue-400" />
-                 {t.googleBtn}
-              </Button>
-
-              <div className="flex gap-4">
-                 <Button 
-                   onClick={() => setAuthMode(authMode === 'phone' ? 'email' : 'phone')}
-                   variant="ghost" 
-                   className="flex-1 rounded-xl text-[9px] font-black uppercase tracking-widest opacity-60 hover:opacity-100"
-                 >
-                   {authMode === 'phone' ? t.loginBtn : t.otpBtn}
-                 </Button>
-                 <Button 
-                    variant="ghost" 
-                    className="flex-1 rounded-xl text-[9px] font-black uppercase tracking-widest opacity-60 hover:opacity-100"
-                 >
-                    {t.signUp}
-                 </Button>
-              </div>
-           </div>
         </div>
       </motion.div>
     </div>
