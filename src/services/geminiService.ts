@@ -1,6 +1,18 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiInstance: GoogleGenAI | null = null;
+
+function getAI() {
+  if (!aiInstance) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn("GEMINI_API_KEY is missing. AI features will be disabled.");
+      return null;
+    }
+    aiInstance = new GoogleGenAI({ apiKey });
+  }
+  return aiInstance;
+}
 
 export interface AISmartEntryResult {
   name: string;
@@ -37,7 +49,9 @@ function cleanAndParseJson(text: string): any {
  */
 export async function translateItemName(name: string): Promise<any> {
   try {
-    const response = await ai.models.generateContent({
+    const ai = getAI();
+    if (!ai || !ai.models) throw new Error("AI not initialized");
+    const response = await (ai.models as any).generateContent({
       model: "gemini-3-flash-preview",
       contents: `Translate the product name "${name}" into Hindi, Marathi, and Hinglish.`,
       config: {
@@ -73,7 +87,9 @@ export async function translateItemName(name: string): Promise<any> {
  */
 export async function generatePriceAdvisory(item: any): Promise<string> {
   try {
-    const response = await ai.models.generateContent({
+    const ai = getAI();
+    if (!ai || !ai.models) throw new Error("AI not initialized");
+    const response = await (ai.models as any).generateContent({
       model: "gemini-3-flash-preview",
       contents: `Analyze pricing:
       Name: ${item.name}
@@ -95,7 +111,9 @@ export async function generatePriceAdvisory(item: any): Promise<string> {
  */
 export async function getSmartNoteCategorization(title: string, description: string): Promise<string> {
   try {
-    const response = await ai.models.generateContent({
+    const ai = getAI();
+    if (!ai || !ai.models) throw new Error("AI not initialized");
+    const response = await (ai.models as any).generateContent({
       model: "gemini-3-flash-preview",
       contents: `Categorize this note: 
       Title: ${title}
@@ -115,7 +133,9 @@ export async function getSmartNoteCategorization(title: string, description: str
  */
 export async function analyzeNotes(notes: string[]): Promise<string> {
   try {
-    const response = await ai.models.generateContent({
+    const ai = getAI();
+    if (!ai || !ai.models) throw new Error("AI not initialized");
+    const response = await (ai.models as any).generateContent({
       model: "gemini-3-flash-preview",
       contents: `Analyze these business notes and provide a summary of key actions or trends:\n${notes.join("\n---\n")}`,
       config: {
@@ -133,7 +153,9 @@ export async function analyzeNotes(notes: string[]): Promise<string> {
  */
 export async function parseItemDescription(input: string): Promise<AISmartEntryResult | null> {
   try {
-    const response = await ai.models.generateContent({
+    const ai = getAI();
+    if (!ai || !ai.models) throw new Error("AI not initialized");
+    const response = await (ai.models as any).generateContent({
       model: "gemini-3-flash-preview",
       contents: `Extract item details from: "${input}"`,
       config: {
@@ -169,8 +191,10 @@ export async function parseItemDescription(input: string): Promise<AISmartEntryR
  */
 export async function analyzeInventory(items: any[]): Promise<string> {
   try {
+    const ai = getAI();
+    if (!ai || !ai.models) throw new Error("AI not initialized");
     const summary = items.map(i => `${i.name}: Buy ₹${i.buyingPrice}, Sell ₹${i.retailPrice}`).join(', ');
-    const response = await ai.models.generateContent({
+    const response = await (ai.models as any).generateContent({
       model: "gemini-3-flash-preview",
       contents: `Analyze this inventory: ${summary.slice(0, 2000)}`,
       config: {
@@ -188,7 +212,9 @@ export async function analyzeInventory(items: any[]): Promise<string> {
  */
 export async function processChatCommand(command: string, history: any[]): Promise<any> {
   try {
-    const response = await ai.models.generateContent({
+    const ai = getAI();
+    if (!ai || !ai.models) throw new Error("AI not initialized");
+    const response = await (ai.models as any).generateContent({
       model: "gemini-3-flash-preview",
       contents: [
         ...history.map(h => ({ role: h.role, parts: [{ text: h.content }] })),

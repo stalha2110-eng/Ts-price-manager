@@ -52,6 +52,7 @@ export interface Item {
   lastChangedBy?: string;
   notes?: string;
   aiAdvice?: string;
+  profitMargin?: number;
 }
 
 export interface AppSettings {
@@ -71,6 +72,7 @@ export interface AppSettings {
   dismissedNotifications: string[];
   deviceId: string;
   deviceName: string;
+  showBuyingPrice: boolean;
 }
 
 export interface AppState {

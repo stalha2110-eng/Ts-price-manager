@@ -139,23 +139,60 @@ import {
 } from './lib/utils';
 import { translateItemName, generatePriceAdvisory, getSmartNoteCategorization, parseItemDescription, analyzeNotes, analyzeInventory, processChatCommand, geminiService } from './services/geminiService';
 
+// Safe localStorage wrapper
+const safeStorage = {
+  getItem: (key: string) => {
+    try {
+      return localStorage.getItem(key);
+    } catch (e) {
+      console.warn("Storage access denied", e);
+      return null;
+    }
+  },
+  setItem: (key: string, value: string) => {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      console.warn("Storage write failed", e);
+    }
+  },
+  removeItem: (key: string) => {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+      console.warn("Storage remove failed", e);
+    }
+  },
+  clear: () => {
+    try {
+      localStorage.clear();
+    } catch (e) {
+      console.warn("Storage clear failed", e);
+    }
+  }
+};
+
 // Global device ID generation
 const getDeviceId = () => {
-  let id = localStorage.getItem('ts_device_id');
+  let id = safeStorage.getItem('ts_device_id');
   if (!id) {
     id = Math.random().toString(36).substring(2, 11);
-    localStorage.setItem('ts_device_id', id);
+    safeStorage.setItem('ts_device_id', id);
   }
   return id;
 };
 
 const getDeviceName = () => {
-  const ua = navigator.userAgent;
-  if (/android/i.test(ua)) return "Android Device";
-  if (/iPad|iPhone|iPod/.test(ua)) return "iOS Device";
-  if (/Windows/i.test(ua)) return "Windows PC";
-  if (/Macintosh/i.test(ua)) return "MacBook";
-  return "Web Browser";
+  try {
+    const ua = navigator.userAgent;
+    if (/android/i.test(ua)) return "Android Device";
+    if (/iPad|iPhone|iPod/.test(ua)) return "iOS Device";
+    if (/Windows/i.test(ua)) return "Windows PC";
+    if (/Macintosh/i.test(ua)) return "MacBook";
+    return "Web Browser";
+  } catch (e) {
+    return "Unknown Device";
+  }
 };
 
 // --- Default State ---
@@ -176,6 +213,7 @@ const INITIAL_SETTINGS: AppSettings = {
   dismissedNotifications: [],
   deviceId: getDeviceId(),
   deviceName: getDeviceName(),
+  showBuyingPrice: false,
 };
 
 const INITIAL_STATE: AppState = {
@@ -486,7 +524,7 @@ export default function App() {
 
   // Initialize guest status
   useEffect(() => {
-    const guestMode = localStorage.getItem('ts_guest_mode') === 'true';
+    const guestMode = safeStorage.getItem('ts_guest_mode') === 'true';
     if (guestMode && !state.user) {
       setState(prev => ({ ...prev, isGuest: true }));
     }
@@ -503,7 +541,7 @@ export default function App() {
     
     window.addEventListener('appinstalled', () => {
       setDeferredPrompt(null);
-      localStorage.setItem('pwa_prompt_seen', 'true');
+      safeStorage.setItem('pwa_prompt_seen', 'true');
     });
 
     return () => {
@@ -513,7 +551,7 @@ export default function App() {
 
   // Show contextual install prompt after user is logged in for a while
   useEffect(() => {
-    if (state.user && deferredPrompt && !localStorage.getItem('pwa_prompt_seen')) {
+    if (state.user && deferredPrompt && !safeStorage.getItem('pwa_prompt_seen')) {
       const timer = setTimeout(() => {
         setShowInstallPrompt(true);
       }, 30000); // 30 seconds after login
@@ -528,7 +566,7 @@ export default function App() {
       if (outcome === 'accepted') {
         setDeferredPrompt(null);
         setShowInstallPrompt(false);
-        localStorage.setItem('pwa_prompt_seen', 'true');
+        safeStorage.setItem('pwa_prompt_seen', 'true');
       }
     } else {
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
@@ -637,7 +675,15 @@ export default function App() {
         const json = JSON.parse(event.target?.result as string);
         if (json.settings && json.items) {
           if (confirm('Restoring will overwrite current settings and items. Proceed?')) {
-            setState(json);
+            // Sanitize items to remove duplicates
+            const uniqueItems = Array.from(new Map(json.items.map((it: any) => [it.id, it])).values());
+            const uniqueNotes = Array.from(new Map((json.notes || []).map((n: any) => [n.id, n])).values());
+            
+            setState({
+              ...json,
+              items: uniqueItems,
+              notes: uniqueNotes
+            });
             alert('System Restored!');
           }
         }
@@ -652,8 +698,8 @@ export default function App() {
       if (user) {
         setIsLoggingIn(true);
         // Check for migration
-        const guestData = localStorage.getItem('price_manager_state');
-        const wasGuest = localStorage.getItem('ts_guest_mode') === 'true';
+        const guestData = safeStorage.getItem('price_manager_state');
+        const wasGuest = safeStorage.getItem('ts_guest_mode') === 'true';
         
         if (wasGuest && guestData) {
           try {
@@ -687,7 +733,7 @@ export default function App() {
 
               await batch.commit();
               // Clear guest mode after successful migration
-              localStorage.removeItem('ts_guest_mode');
+              safeStorage.removeItem('ts_guest_mode');
             }
           } catch (e) {
             console.error("Migration failed", e);
@@ -699,18 +745,21 @@ export default function App() {
           user: { uid: user.uid, email: user.email },
           isGuest: false
         }));
-        localStorage.removeItem('ts_guest_mode');
+        safeStorage.removeItem('ts_guest_mode');
       } else {
         setState(prev => ({ ...prev, user: null }));
+        // If not in guest mode, we are definitely done initializing
+        if (safeStorage.getItem('ts_guest_mode') !== 'true') {
+          setIsInitializing(false);
+        }
       }
       setIsLoggingIn(false);
-      setIsInitializing(false);
     });
     return () => unsubscribe();
   }, []);
 
   const handleGuestLogin = () => {
-    localStorage.setItem('ts_guest_mode', 'true');
+    safeStorage.setItem('ts_guest_mode', 'true');
     setState(prev => ({ ...prev, isGuest: true }));
   };
 
@@ -729,7 +778,7 @@ export default function App() {
   const handleLogout = async () => {
     try {
       await auth.signOut();
-      localStorage.removeItem('ts_guest_mode');
+      safeStorage.removeItem('ts_guest_mode');
       setState(prev => ({ ...prev, user: null, isGuest: false, items: [], notes: [] }));
     } catch (err) {
       console.error("Logout Error", err);
@@ -759,7 +808,7 @@ export default function App() {
     if (!targetUserId || !isCloudSyncEnabled) {
       // Local storage fallback if not logged in, not in client mode, or cloud sync disabled
       if (!state.isClientView) {
-        const saved = localStorage.getItem('price_manager_state');
+        const saved = safeStorage.getItem('price_manager_state');
         if (saved) {
           try {
             const parsed = JSON.parse(saved);
@@ -876,7 +925,7 @@ export default function App() {
   // Separate Effect for Persistence
   useEffect(() => {
     if (!state.isClientView && (!state.user || !state.settings.autoCloudSync)) {
-      localStorage.setItem('price_manager_state', JSON.stringify(state));
+      safeStorage.setItem('price_manager_state', JSON.stringify(state));
     }
   }, [state.items, state.notes, state.settings, state.user, state.settings.autoCloudSync, state.isClientView]);
 
@@ -1536,7 +1585,7 @@ export default function App() {
               onRestore={handleRestore}
               onClearCache={() => {
                 if (confirm('Wipe everything?')) {
-                  localStorage.clear();
+                  safeStorage.clear();
                   window.location.reload();
                 }
               }}
@@ -1980,7 +2029,7 @@ function NavButton({ active, icon, label, onClick }: { active: boolean; icon: Re
       )}
     >
       <div className={cn("rounded-full p-1 transition-all", active && "bg-[var(--primary)]/10")}>
-        {React.cloneElement(icon as React.ReactElement, { size: 24 })}
+        {React.cloneElement(icon as React.ReactElement<any>, { size: 24 })}
       </div>
       <span className="text-[10px] font-bold uppercase tracking-tighter">{label}</span>
       {active && <motion.div layoutId="nav-dot" className="h-1 w-1 rounded-full bg-[var(--primary)]" />}
@@ -2607,7 +2656,7 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
 
   const sectionVariants = {
     hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" } }
+    visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" as any } }
   };
 
   const quickQtys = [5, 10, 25, 50, 100];
@@ -3399,7 +3448,7 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareWhatsApp, o
             </div>
          </button>
 
-         {!deferredPrompt && !localStorage.getItem('pwa_prompt_seen') && (
+         {!deferredPrompt && !safeStorage.getItem('pwa_prompt_seen') && (
             <div className="p-4 bg-white/5 border border-dashed border-white/10 rounded-2xl">
                <p className="text-[9px] font-black uppercase tracking-widest opacity-30 text-center">
                   To open this without Chrome address bar: Click 3-dots menu <span className="text-[var(--primary)]">⋮</span> and select <span className="text-[var(--primary)]">"Install App"</span>
@@ -3992,7 +4041,7 @@ function InstallPrompt({ t, onInstall }: { t: any; onInstall: () => void }) {
             <Button 
               variant="ghost" 
               onClick={() => {
-                localStorage.setItem('pwa_prompt_seen', 'true');
+                safeStorage.setItem('pwa_prompt_seen', 'true');
                 // Could also use a state to hide it
               }}
               className="px-4 text-white/50 hover:text-white text-[10px] font-black uppercase tracking-widest"
