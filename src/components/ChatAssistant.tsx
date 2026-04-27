@@ -33,6 +33,8 @@ interface ChatAssistantProps {
   showBuyingPrice: boolean;
   precision: number;
   t: any;
+  user: any;
+  isGuest: boolean;
 }
 
 export const ChatAssistant: React.FC<ChatAssistantProps> = ({
@@ -45,19 +47,29 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   onToggleBuying,
   showBuyingPrice,
   precision,
-  t
+  t,
+  user,
+  isGuest
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<Message[]>([
-    { role: 'model', content: "Namaste! I am TS Assistant. How can I help you manage your business today? (English, Hindi, Marathi support)" }
-  ]);
+  
+  // Initialize from local storage if available (especially for guests)
+  const [messages, setMessages] = useState<Message[]>(() => {
+    const saved = localStorage.getItem('ts_chat_history');
+    if (saved) return JSON.parse(saved);
+    return [{ role: 'model', content: "Namaste! I am TS Assistant. How can I help you manage your business today? (English, Hindi, Marathi support)" }];
+  });
+
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  const [unreadCount, setUnreadCount] = useState(1);
-  const [conversations, setConversations] = useState<Message[][]>([]);
+  // Persistence
+  useEffect(() => {
+    localStorage.setItem('ts_chat_history', JSON.stringify(messages));
+  }, [messages]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -72,6 +84,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     const text = textOverride || input;
     if (!text.trim() || isLoading) return;
 
+    // Feature gate for advanced AI
+    if (isGuest && messages.length > 10) {
+      setMessages(prev => [...prev, 
+        { role: 'user', content: text },
+        { role: 'model', content: "Sign in with Google to unlock professional daily AI insights and cloud sync features! You are currently in offline guest mode." }
+      ]);
+      setInput('');
+      return;
+    }
+
     const userMessage: Message = { role: 'user', content: text };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
@@ -83,23 +105,21 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       const aiMessage: Message = { role: 'model', content: result.reply };
       setMessages(prev => [...prev, aiMessage]);
 
-      // Perform App Action based on AI intent
       if (result.action !== "NONE") {
         executeAction(result.action, result.data);
       }
     } catch (error) {
-      setMessages(prev => [...prev, { role: 'model', content: "Network fluctuation detected. Please try again." }]);
+      setMessages(prev => [...prev, { role: 'model', content: "Network fluctuation detected. Try asking again in a moment." }]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const closeChat = () => {
-    // Save to history on close if there's a conversation
-    if (messages.length > 1) {
-      setConversations(prev => [messages, ...prev].slice(0, 5));
+  const clearChat = () => {
+    if (window.confirm("Clear all chat history?")) {
+      setMessages([{ role: 'model', content: "Chat cleared. Ready for new questions!" }]);
+      localStorage.removeItem('ts_chat_history');
     }
-    setIsOpen(false);
   };
 
   const executeAction = (action: string, data: any) => {
@@ -251,12 +271,21 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   </span>
                 </div>
               </div>
-              <button 
-                onClick={closeChat}
-                className="w-10 h-10 rounded-full hover:bg-white/5 flex items-center justify-center transition-colors text-white/40 hover:text-white"
-              >
-                <X size={20} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={clearChat}
+                  className="w-8 h-8 rounded-lg hover:bg-white/5 flex items-center justify-center transition-colors text-white/20 hover:text-red-400"
+                  title="Clear Chat"
+                >
+                  <Trash2 size={16} />
+                </button>
+                <button 
+                  onClick={() => setIsOpen(false)}
+                  className="w-10 h-10 rounded-full hover:bg-white/5 flex items-center justify-center transition-colors text-white/40 hover:text-white"
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
             {/* Messages Area */}

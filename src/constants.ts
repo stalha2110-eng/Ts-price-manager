@@ -186,6 +186,7 @@ export const UI_TEXT = {
     otpSent: 'OTP sent successfully',
     verifying: 'Verifying...',
     authenticating: 'Authenticating...',
+    confirmImport: 'Importing will merge with current data. Proceed?',
   },
   hi: {
     inventory: 'इनवेंटरी मैनेजमेंट',
@@ -320,6 +321,8 @@ export const UI_TEXT = {
     analyticsDesc: 'कुल मूल्य (कीमत x मात्रा) है। मार्जिन खरीद और खुदरा कीमतों के बीच का अंतर है।',
     cloudDesc: 'किसी भी डिवाइस पर अपना डेटा तुरंत एक्सेस करने के लिए Google से साइन इन करें।',
     securityDesc: 'ग्राहकों से संवेदनशील लागत कीमतों को सुरक्षित रखने के लिए 4-अंकीय पिन सेट करें।',
+    authenticating: 'प्रमाणित किया जा रहा है...',
+    confirmImport: 'इम्पोर्ट करने से वर्तमान डेटा बदल जाएगा। क्या आप जारी रखना चाहते हैं?',
   },
   mr: {
     inventory: 'मालमत्ता व्यवस्थापन',
@@ -454,6 +457,8 @@ export const UI_TEXT = {
     analyticsDesc: 'एकूण मूल्य (किंमत x प्रमाण) आहे. मार्जिन खरेदी आणि किरकोळ किमतींमधील फरक आहे.',
     cloudDesc: 'कोणत्याही डिव्हाइसवर तुमचा डेटा त्वरित प्रवेश करण्यासाठी Google सह साइन इन करा.',
     securityDesc: 'ग्राहकांपासून संवेदनशील किमती सुरक्षित ठेवण्यासाठी ४-अंकी पिन सेट करा.',
+    authenticating: 'प्रमाणित करत आहे...',
+    confirmImport: 'इम्पोर्ट केल्याने सध्याचा डेटा बदलला जाईल. पुढे जायचे का?',
   },
   'hi-en': {
     inventory: 'Inventory Dashboard',
@@ -588,5 +593,7 @@ export const UI_TEXT = {
     analyticsDesc: 'Total Value = (Price x Quantity). Margin buy aur retail price ka difference hai.',
     cloudDesc: 'Google login karein taaki data sabhi devices par sync ho jaye.',
     securityDesc: 'Customer se rates chhupane ke liye 4-digit PIN set karein.',
+    authenticating: 'Authenticating...',
+    confirmImport: 'Import karne se data merge ho jayega. Sure?',
   },
 };
