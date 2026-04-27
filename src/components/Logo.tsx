@@ -5,113 +5,95 @@ import {
   ClipboardList, 
   Bell
 } from 'lucide-react';
+import { cn } from '../lib/utils';
 
-export const Logo = ({ className }: { className?: string }) => {
+export const Logo = ({ className, simplified = false }: { className?: string, simplified?: boolean }) => {
   return (
-    <div className={`relative ${className} group select-none`}>
+    <div className={cn("relative group select-none flex items-center justify-center", className)}>
       {/* Outer App Icon Container */}
-      <div className="relative w-full h-full p-[4%] bg-white/5 rounded-[22%] shadow-2xl overflow-hidden backdrop-blur-sm border border-white/10 ring-1 ring-white/20">
+      <div className="relative w-full h-full p-[4%] bg-white/5 rounded-[22%] shadow-2xl overflow-hidden backdrop-blur-sm border border-white/10 ring-1 ring-white/20 flex flex-col items-center justify-center">
         
         {/* Glossy Background Layer */}
         <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-[#0a0f1d] to-black" />
         
         {/* Radial Lighting / Glow */}
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(59,130,246,0.15),transparent_70%)]" />
-        <div className="absolute -inset-full bg-[conic-gradient(from_0deg,transparent_0deg,rgba(255,215,0,0.03)_180deg,transparent_360deg)] animate-[spin_10s_linear_infinity]" />
         
         {/* Gold Border Frame */}
         <div className="absolute inset-0 rounded-[22%] border-[1.5px] border-[#d4af37]/40 pointer-events-none shadow-[inset_0_0_15px_rgba(212,175,55,0.2)]" />
-        <div className="absolute inset-[3%] rounded-[19%] border-[0.5px] border-[#d4af37]/20 pointer-events-none" />
 
-        <div className="relative h-full w-full flex flex-col items-center justify-center pt-2">
+        <div className="relative w-full h-full flex flex-col items-center justify-center">
           
-          {/* Growth Ring & Arrow Swoosh */}
-          <div className="absolute top-[15%] w-[75%] h-[75%] pointer-events-none">
+          {/* Growth Ring & Arrow Swoosh (shrunken for header) */}
+          <div className={cn("absolute w-[80%] h-[80%] pointer-events-none", simplified ? "top-[10%]" : "top-[15%]")}>
              <svg viewBox="0 0 100 100" className="w-full h-full overflow-visible">
                 <defs>
                    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
                       <stop offset="0%" stopColor="#8a6e2f" />
-                      <stop offset="25%" stopColor="#d4af37" />
                       <stop offset="50%" stopColor="#f9f295" />
-                      <stop offset="75%" stopColor="#d4af37" />
                       <stop offset="100%" stopColor="#8a6e2f" />
                    </linearGradient>
-                   <filter id="shadow">
-                      <feDropShadow dx="0" dy="1" stdDeviation="1" floodOpacity="0.5" />
-                   </filter>
                 </defs>
-                {/* Swoosh Circle */}
                 <path 
                   d="M 20,80 A 40,40 0 1 1 85,25" 
                   fill="none" 
                   stroke="url(#goldGrad)" 
-                  strokeWidth="3" 
+                  strokeWidth="4" 
                   strokeLinecap="round"
-                  className="drop-shadow-lg"
                 />
-                {/* Arrow head */}
-                <path 
-                  d="M 85,25 L 88,15 L 78,20" 
-                  fill="url(#goldGrad)" 
-                  className="drop-shadow-lg"
-                />
+                <path d="M 85,25 L 88,15 L 78,20" fill="url(#goldGrad)" />
              </svg>
           </div>
 
-          {/* TS Initials */}
-          <div className="relative flex items-center justify-center gap-0.5 mt-[-10%]">
-             <span className="text-[2.2rem] sm:text-[2.6rem] font-black italic tracking-tighter leading-none" 
+          {/* TS Initials - Scaled by container via CSS text size or manual adjust */}
+          <div className="relative flex items-center justify-center gap-0.5 z-10 transition-transform group-hover:scale-105 duration-500">
+             <span className="text-[min(2.8rem,10vw)] sm:text-[min(3rem,12vw)] font-black italic tracking-tighter leading-none" 
                    style={{ 
                      background: 'linear-gradient(135deg, #8a6e2f 0%, #f9f295 50%, #d4af37 100%)',
                      WebkitBackgroundClip: 'text',
                      WebkitTextFillColor: 'transparent',
-                     filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5)) drop-shadow(0 0 2px rgba(212,175,55,0.3))'
+                     filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))'
                    }}>
                 T
              </span>
-             <span className="text-[2.2rem] sm:text-[2.6rem] font-black italic tracking-tighter leading-none" 
+             <span className="text-[min(2.8rem,10vw)] sm:text-[min(3rem,12vw)] font-black italic tracking-tighter leading-none" 
                    style={{ 
                      background: 'linear-gradient(135deg, #444 0%, #eee 50%, #888 100%)',
                      WebkitBackgroundClip: 'text',
                      WebkitTextFillColor: 'transparent',
-                     filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5)) drop-shadow(0 0 2px rgba(255,255,255,0.3))'
+                     filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))'
                    }}>
                 S
              </span>
-
-             {/* Bar Charts (small) */}
-             <div className="absolute right-[-20%] bottom-0 flex items-end gap-[1px]">
-                {[3, 5, 4, 7, 9].map((h, i) => (
-                  <div key={i} className="w-[2px] bg-gradient-to-t from-[#8a6e2f] to-[#f9f295]" style={{ height: `${h}px` }} />
-                ))}
-             </div>
           </div>
 
-          {/* Label Text */}
-          <div className="flex flex-col items-center mt-1">
-             <span className="text-[0.6rem] sm:text-[0.7rem] font-black tracking-[0.1em]"
-                   style={{ 
-                     background: 'linear-gradient(135deg, #ccc 0%, #fff 50%, #999 100%)',
-                     WebkitBackgroundClip: 'text',
-                     WebkitTextFillColor: 'transparent'
-                   }}>
-                PRICE
-             </span>
-             <span className="text-[0.35rem] sm:text-[0.4rem] font-black tracking-[0.35em] uppercase text-[#d4af37]">
-                MANAGER
-             </span>
-          </div>
+          {/* Label Text - Only if not too tiny */}
+          {!simplified && (
+            <div className="flex flex-col items-center mt-1 z-10">
+               <span className="text-[min(0.7rem,2.5vw)] font-black tracking-[0.1em]"
+                     style={{ 
+                       background: 'linear-gradient(135deg, #ccc 0%, #fff 50%, #999 100%)',
+                       WebkitBackgroundClip: 'text',
+                       WebkitTextFillColor: 'transparent'
+                     }}>
+                  PRICE
+               </span>
+               <span className="text-[min(0.45rem,1.5vw)] font-black tracking-[0.35em] uppercase text-[#d4af37]">
+                  MANAGER
+               </span>
+            </div>
+          )}
 
-          {/* Bottom Icons */}
-          <div className="absolute bottom-[8%] w-[70%] flex items-center justify-between opacity-60">
-             <ShoppingCart size={8} className="text-[#d4af37]" />
-             <div className="flex items-center gap-[1px]">
-                <Tag size={8} className="text-[#d4af37]" />
-                <span className="text-[5px] font-bold text-[#d4af37]">₹</span>
-             </div>
-             <ClipboardList size={8} className="text-[#d4af37]" />
-             <Bell size={8} className="text-[#d4af37]" />
-          </div>
+          {/* Bottom Icons (Full mode only) */}
+          {!simplified && (
+            <div className="absolute bottom-[10%] w-[70%] flex items-center justify-between opacity-60">
+               <ShoppingCart size={10} className="text-[#d4af37]" />
+               <div className="flex items-center gap-[1px]">
+                  <Tag size={10} className="text-[#d4af37]" />
+               </div>
+               <Bell size={10} className="text-[#d4af37]" />
+            </div>
+          )}
 
         </div>
       </div>

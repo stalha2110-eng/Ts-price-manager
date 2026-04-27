@@ -75,16 +75,32 @@ export interface AppSettings {
   showBuyingPrice: boolean;
 }
 
+export interface User {
+  uid: string;
+  email: string | null;
+  role?: 'owner' | 'admin' | 'staff' | 'client';
+  status?: 'pending' | 'approved' | 'blocked';
+  isAnonymous?: boolean;
+}
+
+export interface AdminConfig {
+  isOpenAccess: boolean;
+  requireApproval: boolean;
+  maintenanceMode: boolean;
+  readOnlyMode: boolean;
+  allowedDomains: string[];
+  blockedEmails: string[];
+  maxDevicesPerUser: number;
+}
+
 export interface AppState {
   items: Item[];
   notes: Note[];
   categories: Category[];
   settings: AppSettings;
-  user: {
-    uid: string;
-    email: string | null;
-  } | null;
+  user: User | null;
   isGuest?: boolean;
   isClientView?: boolean;
   clientShopId?: string;
+  adminConfig?: AdminConfig;
 }

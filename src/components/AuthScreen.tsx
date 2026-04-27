@@ -21,7 +21,11 @@ export function AuthScreen({ onGuest, onGoogle, isLoggingIn }: AuthScreenProps) 
       setError(null);
       await onGoogle();
     } catch (err: any) {
-      setError(err.message || "Failed to sign in with Google");
+      if (err.message?.includes('auth/unauthorized-domain')) {
+        setError("Domain Access Required: This app's domain needs to be added to Firebase authorized domains. Please continue as Guest temporarily.");
+      } else {
+        setError(err.message || "Failed to sign in with Google");
+      }
     }
   };
 

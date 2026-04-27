@@ -50,25 +50,17 @@ function cleanAndParseJson(text: string): any {
 export async function translateItemName(name: string): Promise<any> {
   try {
     const ai = getAI();
-    if (!ai || !ai.models) throw new Error("AI not initialized");
-    const response = await (ai.models as any).generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `Translate the product name "${name}" into Hindi, Marathi, and Hinglish.`,
+    if (!ai) throw new Error("AI not initialized");
+    
+    const response = await ai.models.generateContent({
+      model: "gemini-1.5-flash",
+      contents: [{ role: "user", parts: [{ text: `Translate the product name "${name}" into Hindi, Marathi, and Hinglish. Return ONLY JSON like {en: string, hi: string, mr: string, 'hi-en': string}` }] }],
       config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            en: { type: Type.STRING },
-            hi: { type: Type.STRING },
-            mr: { type: Type.STRING },
-            'hi-en': { type: Type.STRING },
-          },
-          required: ["en", "hi", "mr", "hi-en"]
-        },
         systemInstruction: "You are a multilingual translator for an Indian inventory app. Return ONLY JSON.",
-      },
+        responseMimeType: "application/json"
+      }
     });
+
     const result = cleanAndParseJson(response.text || "{}");
     return {
       en: result.en || name,
@@ -88,18 +80,20 @@ export async function translateItemName(name: string): Promise<any> {
 export async function generatePriceAdvisory(item: any): Promise<string> {
   try {
     const ai = getAI();
-    if (!ai || !ai.models) throw new Error("AI not initialized");
-    const response = await (ai.models as any).generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `Analyze pricing:
+    if (!ai) throw new Error("AI not initialized");
+    
+    const response = await ai.models.generateContent({
+      model: "gemini-1.5-flash",
+      contents: [{ role: "user", parts: [{ text: `Analyze pricing:
       Name: ${item.name}
       Buy: ${item.buyingPrice}
       Wholesale: ${item.wholesalePrice}
-      Retail: ${item.retailPrice}`,
+      Retail: ${item.retailPrice}` }] }],
       config: {
-        systemInstruction: "Provide a quick, 2-sentence pricing advice. Is the margin healthy? Any trends? Be professional and direct.",
-      },
+        systemInstruction: "Provide a quick, 2-sentence pricing advice. Is the margin healthy? Any trends? Be professional and direct."
+      }
     });
+
     return response.text || "No AI feedback currently.";
   } catch (error) {
     return "Analysis unavailable.";
@@ -112,17 +106,16 @@ export async function generatePriceAdvisory(item: any): Promise<string> {
 export async function getSmartNoteCategorization(title: string, description: string): Promise<string> {
   try {
     const ai = getAI();
-    if (!ai || !ai.models) throw new Error("AI not initialized");
-    const response = await (ai.models as any).generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `Categorize this note: 
-      Title: ${title}
-      Description: ${description}`,
+    if (!ai) return "Normal";
+    
+    const response = await ai.models.generateContent({
+      model: "gemini-1.5-flash",
+      contents: [{ role: "user", parts: [{ text: `Categorize this note: Title: ${title}, Body: ${description}` }] }],
       config: {
-        systemInstruction: "Categorize this note into ONE of: Urgent, Important, Medium, or Normal. Return ONLY the category name.",
-      },
+        systemInstruction: "Categorize. Return ONE: Urgent, Important, Medium, Normal."
+      }
     });
-    return response.text.trim() || "Normal";
+    return response.text?.trim() || "Normal";
   } catch (error) {
     return "Normal";
   }
@@ -134,15 +127,16 @@ export async function getSmartNoteCategorization(title: string, description: str
 export async function analyzeNotes(notes: string[]): Promise<string> {
   try {
     const ai = getAI();
-    if (!ai || !ai.models) throw new Error("AI not initialized");
-    const response = await (ai.models as any).generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `Analyze these business notes and provide a summary of key actions or trends:\n${notes.join("\n---\n")}`,
+    if (!ai) return "Analysis unavailable.";
+
+    const response = await ai.models.generateContent({
+      model: "gemini-1.5-flash",
+      contents: [{ role: "user", parts: [{ text: `Analyze: \n${notes.join("\n---\n")}` }] }],
       config: {
-        systemInstruction: "You are a business consultant. Summarize the notes into a concise, bulleted list of 'Action Items' and 'General Insights'. Focus on inventory and price management topics.",
-      },
+        systemInstruction: "Summarize into bulleted Action Items."
+      }
     });
-    return response.text || "No insights found in notes.";
+    return response.text || "No insights found.";
   } catch (error) {
     return "AI Note Analysis failed.";
   }
@@ -154,30 +148,15 @@ export async function analyzeNotes(notes: string[]): Promise<string> {
 export async function parseItemDescription(input: string): Promise<AISmartEntryResult | null> {
   try {
     const ai = getAI();
-    if (!ai || !ai.models) throw new Error("AI not initialized");
-    const response = await (ai.models as any).generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `Extract item details from: "${input}"`,
+    if (!ai) return null;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-1.5-flash",
+      contents: [{ role: "user", parts: [{ text: `Extract item details from: "${input}"` }] }],
       config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            name: { type: Type.STRING },
-            retailPrice: { type: Type.NUMBER },
-            wholesalePrice: { type: Type.NUMBER },
-            buyingPrice: { type: Type.NUMBER },
-            unit: { type: Type.STRING },
-            notes: { type: Type.STRING },
-          },
-          required: ["name"]
-        },
-        systemInstruction: `Extract product details for a Dry Fruits & Masala Store. 
-        Example inputs: 
-        - "Badam quality A, 1kg retail 900, wholesale 850, buy 800"
-        - "Jeera powder 500g, selling 200, bulk 180, cost 150"
-        Guess the unit (KG, G, PCS, PKT) if possible. Return ONLY JSON.`,
-      },
+        systemInstruction: "Extract product details for a Dry Fruits & Masala Store. Return JSON only.",
+        responseMimeType: "application/json"
+      }
     });
     return cleanAndParseJson(response.text || "null");
   } catch (error) {
@@ -192,16 +171,18 @@ export async function parseItemDescription(input: string): Promise<AISmartEntryR
 export async function analyzeInventory(items: any[]): Promise<string> {
   try {
     const ai = getAI();
-    if (!ai || !ai.models) throw new Error("AI not initialized");
+    if (!ai) return "Intelligence matrix offline.";
+
     const summary = items.map(i => `${i.name}: Buy ₹${i.buyingPrice}, Sell ₹${i.retailPrice}`).join(', ');
-    const response = await (ai.models as any).generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `Analyze this inventory: ${summary.slice(0, 2000)}`,
+    const response = await ai.models.generateContent({
+      model: "gemini-1.5-flash",
+      contents: [{ role: "user", parts: [{ text: `Analyze this inventory: ${summary.slice(0, 2000)}` }] }],
       config: {
-        systemInstruction: "You are a business manager. Give a single, powerful sentence summary of the inventory health and pricing strategy.",
-      },
+        systemInstruction: "You are a business manager. Give a single, powerful sentence summary of the inventory health and pricing strategy."
+      }
     });
-    return response.text.trim() || "Inventory balance within operational parameters.";
+
+    return response.text || "Inventory balance within operational parameters.";
   } catch (error) {
     return "Intelligence matrix offline.";
   }
@@ -210,76 +191,11 @@ export async function analyzeInventory(items: any[]): Promise<string> {
 /**
  * Advanced Chatbot logic: Processes natural language commands into application actions.
  */
-export async function processChatCommand(command: string, history: any[]): Promise<any> {
-  try {
-    const ai = getAI();
-    if (!ai || !ai.models) throw new Error("AI not initialized");
-    const response = await (ai.models as any).generateContent({
-      model: "gemini-3-flash-preview",
-      contents: [
-        ...history.map(h => ({ role: h.role, parts: [{ text: h.content }] })),
-        { role: 'user', parts: [{ text: command }] }
-      ],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            reply: { type: Type.STRING, description: "Your conversational response in the user's language (Hindi, Hinglish, Marathi, or English)." },
-            action: { 
-              type: Type.STRING, 
-              enum: ["ADD_ITEM", "EDIT_ITEM", "DELETE_ITEM", "SEARCH", "ADD_NOTE", "EXPORT", "HIDE_BUYING", "SHOW_BUYING", "NONE"],
-              description: "The intended app action." 
-            },
-            data: { 
-              type: Type.OBJECT, 
-              description: "Extracted data for the action." ,
-              properties: {
-                name: { type: Type.STRING },
-                retailPrice: { type: Type.NUMBER },
-                wholesalePrice: { type: Type.NUMBER },
-                buyingPrice: { type: Type.NUMBER },
-                unit: { type: Type.STRING },
-                id: { type: Type.STRING, description: "ID for edit/delete actions" },
-                query: { type: Type.STRING, description: "Search query" },
-                noteTitle: { type: Type.STRING },
-                noteDesc: { type: Type.STRING }
-              }
-            }
-          },
-          required: ["reply", "action"]
-        },
-        systemInstruction: `You are 'TS Assistant', a premium AI for 'TS Price Manager'. 
-        You understand English, Hindi, Marathi, and Hinglish.
-        
-        SUPPORTED ACTIONS:
-        - ADD_ITEM: format "Name -> Unit -> Retail -> Wholesale -> Buy" or natural language.
-        - EDIT_ITEM: change price or unit of existing item.
-        - DELETE_ITEM: remove an item.
-        - SEARCH: find an item.
-        - ADD_NOTE: add business notes/reminders.
-        - EXPORT: export database to excel/json.
-        - HIDE_BUYING / SHOW_BUYING: toggle visibility of cost prices.
-        
-        For ADD_ITEM, if information is missing (like prices), ask for them politely.
-        If user says "Badam -> kg -> 950 -> 900 -> 820", this is an ADD_ITEM action.
-        
-        Always be professional, concise, and helpful. Return ONLY valid JSON.`,
-      },
-    });
-    return cleanAndParseJson(response.text || "{}");
-  } catch (error) {
-    console.error("Chatbot Error:", error);
-    return { reply: "Technical glitch in my matrix. Please try again.", action: "NONE" };
-  }
-}
-
 export const geminiService = {
   translateItemName,
   generatePriceAdvisory,
   getSmartNoteCategorization,
   parseItemDescription,
   analyzeNotes,
-  analyzeInventory,
-  processChatCommand
+  analyzeInventory
 };

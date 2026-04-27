@@ -21,7 +21,7 @@ import {
   Settings as SettingsIcon, 
   Plus, 
   Home, 
-  User, 
+  User as UserIcon, 
   Lock, 
   Unlock, 
   ArrowLeft,
@@ -98,7 +98,6 @@ import {
   OperationType,
   handleFirestoreError
 } from './firebase';
-import { ChatAssistant } from './components/ChatAssistant';
 import { Logo } from './components/Logo';
 import { writeBatch } from 'firebase/firestore';
 import { 
@@ -123,7 +122,9 @@ import {
   LanguageType, 
   ThemeType,
   Translations,
-  Note
+  Note,
+  User,
+  AdminConfig
 } from './types';
 import { 
   DEFAULT_CATEGORIES, 
@@ -137,7 +138,7 @@ import {
   formatCurrency, 
   formatNumber 
 } from './lib/utils';
-import { translateItemName, generatePriceAdvisory, getSmartNoteCategorization, parseItemDescription, analyzeNotes, analyzeInventory, processChatCommand, geminiService } from './services/geminiService';
+import { translateItemName, generatePriceAdvisory, getSmartNoteCategorization, parseItemDescription, analyzeNotes, analyzeInventory, geminiService } from './services/geminiService';
 
 // Safe localStorage wrapper
 const safeStorage = {
@@ -180,6 +181,11 @@ const getDeviceId = () => {
     safeStorage.setItem('ts_device_id', id);
   }
   return id;
+};
+
+// Robust unique ID generation
+const generateId = () => {
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 };
 
 const getDeviceName = () => {
@@ -693,6 +699,29 @@ export default function App() {
     };
     reader.readAsText(file);
   };
+  const [adminConfig, setAdminConfig] = useState<AdminConfig>({
+    isOpenAccess: true,
+    requireApproval: false,
+    maintenanceMode: false,
+    readOnlyMode: false,
+    allowedDomains: [],
+    blockedEmails: [],
+    maxDevicesPerUser: 5
+  });
+
+  // Fetch Admin Config
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'config', 'admin'), (snap) => {
+      if (snap.exists()) {
+        setAdminConfig(snap.data() as AdminConfig);
+      }
+    }, (error) => {
+      console.warn("Admin config fetching inhibited", error);
+      // Fail gracefully: use defaults already in state
+    });
+    return () => unsub();
+  }, []);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -924,8 +953,18 @@ export default function App() {
 
   // Separate Effect for Persistence
   useEffect(() => {
-    if (!state.isClientView && (!state.user || !state.settings.autoCloudSync)) {
-      safeStorage.setItem('price_manager_state', JSON.stringify(state));
+    if (!state.isClientView) {
+      const isAuthMode = !!state.user && state.settings.autoCloudSync;
+      // We only want to persist to local storage if we are in Guest mode 
+      // or if cloud sync is explicitly disabled for the logged in user
+      if (!isAuthMode) {
+        const minimalState = {
+          items: state.items,
+          notes: state.notes,
+          settings: state.settings
+        };
+        safeStorage.setItem('price_manager_state', JSON.stringify(minimalState));
+      }
     }
   }, [state.items, state.notes, state.settings, state.user, state.settings.autoCloudSync, state.isClientView]);
 
@@ -933,7 +972,7 @@ export default function App() {
   const precision = state.settings.pricePrecision || 0;
 
   const filteredItems = useMemo(() => {
-    return state.items.filter(item => {
+    const matches = state.items.filter(item => {
       const matchesSearch = 
         item.translations.en.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.translations.hi.includes(searchQuery) ||
@@ -943,6 +982,17 @@ export default function App() {
       const matchesCategory = !selectedCategory || item.categoryId === selectedCategory;
       
       return matchesSearch && matchesCategory;
+    });
+
+    // Stability Pass: Ensure keys are unique before rendering
+    const seen = new Set();
+    return matches.map(item => {
+      const isDuplicate = seen.has(item.id);
+      seen.add(item.id);
+      if (isDuplicate || !item.id) {
+        return { ...item, id: `${item.id || 'new'}-${Math.random().toString(36).substring(2, 9)}` };
+      }
+      return item;
     });
   }, [state.items, searchQuery, selectedCategory]);
 
@@ -975,7 +1025,7 @@ export default function App() {
         await addDoc(collection(db, 'users', state.user.uid, 'items'), newItem);
         setShowAddItem(false);
       } else {
-        const id = Date.now().toString();
+        const id = generateId();
         setState(prev => ({
           ...prev,
           items: [{ ...newItem, id }, ...prev.items]
@@ -1084,7 +1134,7 @@ export default function App() {
         handleFirestoreError(error, OperationType.CREATE, `users/${state.user.uid}/notes`);
       }
     } else {
-      const id = Date.now().toString();
+      const id = generateId();
       setState(prev => ({
         ...prev,
         notes: [{ ...newNote, id }, ...prev.notes]
@@ -1191,7 +1241,13 @@ export default function App() {
   const handleEditTrigger = useCallback((item: Item) => {
     setEditingItem(item);
   }, []);
-  const totalValue = state.items.reduce((sum, item) => sum + (item.buyingPrice * item.quantity), 0);
+  const totalValue = useMemo(() => {
+    return state.items.reduce((sum, item) => {
+      const buyPrice = Number(item.buyingPrice) || 0;
+      const qty = Number(item.quantity) || 0;
+      return sum + (buyPrice * qty);
+    }, 0);
+  }, [state.items]);
 
   return (
     <div 
@@ -1309,33 +1365,41 @@ export default function App() {
       {/* Header */}
       <header 
         id="tour-header"
-        className="sticky top-0 z-40 bg-[var(--primary)]/95 backdrop-blur-xl px-6 py-4 text-[var(--primary-foreground)] shadow-2xl transition-colors border-b border-white/10"
+        className="sticky top-0 z-40 bg-[var(--primary)]/95 backdrop-blur-xl px-4 sm:px-6 py-3 sm:py-4 text-[var(--primary-foreground)] shadow-2xl transition-colors border-b border-white/10"
       >
         <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <div className="relative group">
               <div className="absolute inset-0 bg-amber-500 blur-lg opacity-20 group-hover:opacity-40 transition-opacity" />
-              <Logo className="h-14 w-14" />
+              <Logo className="h-10 w-10 sm:h-14 sm:w-14" simplified />
             </div>
             <div>
-              <h1 className="text-2xl font-black tracking-tighter text-white mb-0 leading-none flex items-baseline">
-                TS <span className="text-xs font-bold opacity-60 ml-1.5 tracking-[0.3em] uppercase">Price Manager</span>
+              <h1 className="text-xl sm:text-2xl font-black tracking-tighter text-white mb-0 leading-none flex items-baseline">
+                TS <span className="text-[10px] sm:text-xs font-bold opacity-60 ml-1 sm:ml-1.5 tracking-[0.2em] sm:tracking-[0.3em] uppercase">Price Manager</span>
               </h1>
-              <div className="flex items-center gap-2 mt-1.5">
-                 <div className={cn("h-1.5 w-1.5 rounded-full ring-2 ring-white/10", state.isClientView ? "bg-blue-400" : state.user && state.settings.autoCloudSync ? "bg-green-400 animate-pulse" : "bg-slate-400")} />
-                 <p className="text-[9px] uppercase tracking-[0.2em] text-white/40 font-black">
-                   {state.isClientView ? 'Verified Guest View (Read Only)' : state.user && state.settings.autoCloudSync ? 'Authenticated Cloud session' : 'Standalone Local Hub'}
+              <div className="flex items-center gap-1.5 mt-1 sm:mt-1.5">
+                 <div className={cn("h-1 w-1 sm:h-1.5 sm:w-1.5 rounded-full ring-2 ring-white/10", state.isClientView ? "bg-blue-400" : state.user && state.settings.autoCloudSync ? "bg-green-400 animate-pulse" : "bg-slate-400")} />
+                 <p className="text-[7px] sm:text-[9px] uppercase tracking-[0.15em] sm:tracking-[0.2em] text-white/40 font-black">
+                   {state.isClientView ? 'Verified Guest View' : state.user && state.settings.autoCloudSync ? 'Authenticated Cloud session' : 'Standalone Local Hub'}
                  </p>
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* User Profile Info */}
+            {state.user && (
+              <div className="hidden md:flex flex-col items-end mr-2">
+                <span className="text-[9px] font-black uppercase tracking-widest text-[#d4af37]">{state.user.role || 'Partner'}</span>
+                <span className="text-[10px] font-bold text-white/60 truncate max-w-[120px]">{state.user.email}</span>
+              </div>
+            )}
+            
             <button
                onClick={() => setShowHelp(true)}
-               className="flex h-9 w-9 items-center justify-center rounded-xl transition-all border border-white/10 bg-white/5 text-white/80 hover:bg-white/20"
+               className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl transition-all border border-white/10 bg-white/5 text-white/80 hover:bg-white/20"
                title={t.help}
             >
-               <HelpCircle size={18} />
+               <HelpCircle size={16} className="sm:size-[18px]" />
             </button>
             <div 
                id="tour-notes"
@@ -1487,7 +1551,7 @@ export default function App() {
                   {filteredItems.length > 0 ? (
                     filteredItems.map((item, index) => (
                       <motion.div
-                        key={item.id}
+                        key={`item-grid-${item.id}`}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95 }}
@@ -1621,7 +1685,7 @@ export default function App() {
             <NavButton active={activeTab === 'home'} icon={<Home />} label={t.all || "Home"} onClick={() => setActiveTab('home')} />
             <NavButton active={activeTab === 'notes'} icon={<FileText />} label={t.notes || "Notes"} onClick={() => setActiveTab('notes')} />
             <NavButton active={activeTab === 'settings'} icon={<SettingsIcon />} label={t.settings || "Settings"} onClick={() => setActiveTab('settings')} />
-            <NavButton active={activeTab === 'profile'} icon={<User />} label={t.profile || "Profile"} onClick={() => setActiveTab('profile')} />
+            <NavButton active={activeTab === 'profile'} icon={<UserIcon />} label={t.profile || "Profile"} onClick={() => setActiveTab('profile')} />
           </div>
         </nav>
       )}
@@ -1643,7 +1707,7 @@ export default function App() {
                       const cat = DEFAULT_CATEGORIES.find(c => c.id === it?.categoryId);
                       return (
                         <motion.div 
-                          key={`compare-${id}-${index}`} 
+                          key={`compare-bubble-${id}-${index}`} 
                           initial={{ x: -20, opacity: 0 }}
                           animate={{ x: 0, opacity: 1 }}
                           transition={{ delay: index * 0.1 }}
@@ -1774,18 +1838,17 @@ export default function App() {
           <InstallPrompt t={t} onInstall={handleInstallClick} />
         )}
         {!state.isClientView && (
-          <ChatAssistant 
-            items={state.items}
-            onAddItem={handleAddItem}
-            onUpdateItem={handleUpdateItem}
-            onDeleteItem={handleDeleteItem}
-            onAddNote={handleAddNote}
-            onExport={exportToExcel}
-            onToggleBuying={() => handleUpdateSettings({ showBuyingPrice: !state.settings.showBuyingPrice })}
-            showBuyingPrice={state.settings.showBuyingPrice}
-            precision={precision}
-            t={t}
-          />
+          <div className="fixed left-6 bottom-32 z-[100] group">
+            <button
+              disabled
+              className="w-14 h-14 bg-slate-800 rounded-full shadow-lg border border-white/10 flex items-center justify-center text-slate-500 cursor-not-allowed transition-all opacity-50"
+            >
+              <Sparkles size={24} />
+            </button>
+            <div className="absolute left-16 top-1/2 -translate-y-1/2 bg-slate-900 border border-white/10 px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-2xl">
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">AI Assistant coming soon</span>
+            </div>
+          </div>
         )}
       </AnimatePresence>
         </motion.div>
@@ -2006,8 +2069,8 @@ const ItemCard = React.memo(({ item, isLocked, language, precision, onEdit, onDe
         <div className="flex items-center gap-2">
            <span className="text-[8px] font-bold opacity-30 uppercase">Languages:</span>
            <div className="flex -space-x-1">
-            {LANGUAGES.map(l => (
-              <div key={l.id} className="w-4 h-4 rounded-full border-2 border-[var(--card)] bg-[var(--background)] flex items-center justify-center text-[8px] opacity-40">
+            {LANGUAGES.map((l, idx) => (
+              <div key={`${l.id}-${idx}`} className="w-4 h-4 rounded-full border-2 border-[var(--card)] bg-[var(--background)] flex items-center justify-center text-[8px] opacity-40">
                 {l.emoji}
               </div>
             ))}
@@ -2070,9 +2133,9 @@ function HelpModal({ onClose, t }: { onClose: () => void; t: any }) {
             <p className="text-[8px] font-black uppercase tracking-widest opacity-40 mt-1">Enterprise Guide</p>
           </div>
           <div className="flex-1 p-4 flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-x-visible">
-            {tabs.map(tab => (
+            {tabs.map((tab, idx) => (
               <button
-                key={tab.id}
+                key={`${tab.id}-${idx}`}
                 onClick={() => setActiveTab(tab.id as any)}
                 className={cn(
                   "flex items-center gap-3 px-4 py-3 rounded-xl transition-all whitespace-nowrap md:whitespace-normal text-left group",
@@ -2119,7 +2182,7 @@ function HelpModal({ onClose, t }: { onClose: () => void; t: any }) {
                   <div className="space-y-6">
                     <div className="grid gap-4">
                       {[t.qs1, t.qs2, t.qs3].map((text, i) => (
-                        <div key={i} className="flex gap-4 p-5 rounded-2xl bg-white/5 border border-white/5">
+                        <div key={`qs-item-${i}-${text.substring(0, 10)}`} className="flex gap-4 p-5 rounded-2xl bg-white/5 border border-white/5">
                           <div className="h-10 w-10 shrink-0 bg-[var(--primary)]/10 rounded-full flex items-center justify-center text-[var(--primary)] font-black">
                             {i + 1}
                           </div>
@@ -2318,7 +2381,7 @@ function OnboardingTour({ onClose, t }: { onClose: () => void; t: any }) {
 
             <div className="mt-6 flex justify-center gap-1.5">
               {steps.map((_, i) => (
-                <div key={i} className={`h-1 rounded-full transition-all duration-500 ${i === step ? 'w-6 bg-[var(--primary)]' : 'w-1.5 bg-white/10'}`} />
+                <div key={`tour-indicator-${i}`} className={`h-1 rounded-full transition-all duration-500 ${i === step ? 'w-6 bg-[var(--primary)]' : 'w-1.5 bg-white/10'}`} />
               ))}
             </div>
           </div>
@@ -2809,8 +2872,8 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
                    </button>
                  </div>
                  <div className="flex flex-wrap gap-1.5 pt-2">
-                   {quickQtys.map(q => (
-                     <button key={`qty-${q}`} onClick={() => setFormData(prev => ({ ...prev, quantity: q }))} className="px-3 py-1.5 rounded-lg bg-[var(--background)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">{q} {formData.unit}</button>
+                   {quickQtys.map((q, idx) => (
+                     <button key={`qty-${q}-${idx}`} onClick={() => setFormData(prev => ({ ...prev, quantity: q }))} className="px-3 py-1.5 rounded-lg bg-[var(--background)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">{q} {formData.unit}</button>
                    ))}
                  </div>
                </div>
@@ -2871,8 +2934,8 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
              </div>
              
              <div className="grid grid-cols-4 gap-2">
-                {quickAmounts.map(amt => (
-                  <button key={`amt-${amt}`} onClick={() => setFormData(prev => ({ ...prev, retailPrice: amt }))} className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">₹{amt}</button>
+                {quickAmounts.map((amt, idx) => (
+                  <button key={`amt-${amt}-${idx}`} onClick={() => setFormData(prev => ({ ...prev, retailPrice: amt }))} className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">₹{amt}</button>
                 ))}
              </div>
           </motion.div>
@@ -2973,9 +3036,9 @@ function NotificationsView({
       </header>
 
       <div className="grid grid-cols-1 gap-3">
-        {allNotifications.map((notif) => (
+        {allNotifications.map((notif, idx) => (
           <motion.div
-            key={`${notif.type}-${notif.id}`}
+            key={`${notif.type}-${notif.id}-${idx}`}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             onClick={() => notif.type === 'price' ? onViewItem(notif.itemId) : onViewNote(notif.id)}
@@ -3367,14 +3430,14 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareWhatsApp, o
         state.user ? "bg-[var(--primary)] shadow-[var(--primary)]/20" : "bg-gradient-to-br from-slate-800 to-slate-900 shadow-slate-900/50"
       )}>
          <div className="absolute top-0 right-0 p-8 opacity-10 rotate-12 transition-transform group-hover:scale-110 group-hover:rotate-0 duration-700">
-            <User size={200} />
+            <UserIcon size={200} />
          </div>
          <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent" />
          
          <div className="relative z-10 space-y-6">
             <div className="flex items-center gap-5">
                <div className="h-20 w-20 rounded-[2rem] bg-white/10 border border-white/20 backdrop-blur-xl flex items-center justify-center shadow-2xl transition-transform group-hover:scale-105">
-                  <User size={40} className="text-white" />
+                  <UserIcon size={40} className="text-white" />
                </div>
                <div>
                   <h2 className="text-4xl font-black uppercase tracking-tight leading-none truncate max-w-[200px] sm:max-w-md">
@@ -3762,9 +3825,9 @@ function NotesDashboard({
                      />
                    </div>
                    <div className="flex gap-1 overflow-x-auto no-scrollbar pb-1">
-                      {categories.map(cat => (
+                      {categories.map((cat, idx) => (
                         <button
-                          key={cat}
+                          key={`${cat}-${idx}`}
                           onClick={() => setFilter(cat)}
                           className={cn(
                             "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all shrink-0",
@@ -3790,9 +3853,9 @@ function NotesDashboard({
         isPreview ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
       )}>
         <AnimatePresence mode="popLayout">
-          {displayNotes.length > 0 ? displayNotes.map((note, idx) => (
+          {displayNotes.length > 0 ? displayNotes.map((note) => (
             <NoteCard 
-               key={`note-${note.id}-${idx}`} 
+               key={`note-dashboard-item-${note.id}`} 
                note={note} 
                onUpdate={onUpdate} 
                onDelete={onDelete} 
