@@ -21,7 +21,7 @@ import {
   Settings as SettingsIcon, 
   Plus, 
   Home, 
-  User as UserIcon, 
+  User, 
   Lock, 
   Unlock, 
   ArrowLeft,
@@ -85,7 +85,6 @@ import autoTable from 'jspdf-autotable';
 import { Button } from './components/ui/Button';
 import { PINScreen } from './components/ui/PINScreen';
 import { UnitSelectorModal } from './components/ui/UnitSelectorModal';
-import { AuthScreen } from './components/AuthScreen';
 import { 
   db, 
   auth, 
@@ -98,6 +97,7 @@ import {
   OperationType,
   handleFirestoreError
 } from './firebase';
+import { ChatAssistant } from './components/ChatAssistant';
 import { Logo } from './components/Logo';
 import { writeBatch } from 'firebase/firestore';
 import { 
@@ -122,9 +122,7 @@ import {
   LanguageType, 
   ThemeType,
   Translations,
-  Note,
-  User,
-  AdminConfig
+  Note
 } from './types';
 import { 
   DEFAULT_CATEGORIES, 
@@ -138,67 +136,25 @@ import {
   formatCurrency, 
   formatNumber 
 } from './lib/utils';
-import { translateItemName, generatePriceAdvisory, getSmartNoteCategorization, parseItemDescription, analyzeNotes, analyzeInventory, geminiService } from './services/geminiService';
-
-// Safe localStorage wrapper
-const safeStorage = {
-  getItem: (key: string) => {
-    try {
-      return localStorage.getItem(key);
-    } catch (e) {
-      console.warn("Storage access denied", e);
-      return null;
-    }
-  },
-  setItem: (key: string, value: string) => {
-    try {
-      localStorage.setItem(key, value);
-    } catch (e) {
-      console.warn("Storage write failed", e);
-    }
-  },
-  removeItem: (key: string) => {
-    try {
-      localStorage.removeItem(key);
-    } catch (e) {
-      console.warn("Storage remove failed", e);
-    }
-  },
-  clear: () => {
-    try {
-      localStorage.clear();
-    } catch (e) {
-      console.warn("Storage clear failed", e);
-    }
-  }
-};
+import { translateItemName, generatePriceAdvisory, getSmartNoteCategorization, parseItemDescription, analyzeNotes, analyzeInventory, processChatCommand, geminiService } from './services/geminiService';
 
 // Global device ID generation
 const getDeviceId = () => {
-  let id = safeStorage.getItem('ts_device_id');
+  let id = localStorage.getItem('ts_device_id');
   if (!id) {
     id = Math.random().toString(36).substring(2, 11);
-    safeStorage.setItem('ts_device_id', id);
+    localStorage.setItem('ts_device_id', id);
   }
   return id;
 };
 
-// Robust unique ID generation
-const generateId = () => {
-  return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-};
-
 const getDeviceName = () => {
-  try {
-    const ua = navigator.userAgent;
-    if (/android/i.test(ua)) return "Android Device";
-    if (/iPad|iPhone|iPod/.test(ua)) return "iOS Device";
-    if (/Windows/i.test(ua)) return "Windows PC";
-    if (/Macintosh/i.test(ua)) return "MacBook";
-    return "Web Browser";
-  } catch (e) {
-    return "Unknown Device";
-  }
+  const ua = navigator.userAgent;
+  if (/android/i.test(ua)) return "Android Device";
+  if (/iPad|iPhone|iPod/.test(ua)) return "iOS Device";
+  if (/Windows/i.test(ua)) return "Windows PC";
+  if (/Macintosh/i.test(ua)) return "MacBook";
+  return "Web Browser";
 };
 
 // --- Default State ---
@@ -219,7 +175,6 @@ const INITIAL_SETTINGS: AppSettings = {
   dismissedNotifications: [],
   deviceId: getDeviceId(),
   deviceName: getDeviceName(),
-  showBuyingPrice: false,
 };
 
 const INITIAL_STATE: AppState = {
@@ -228,8 +183,6 @@ const INITIAL_STATE: AppState = {
   categories: DEFAULT_CATEGORIES,
   settings: INITIAL_SETTINGS,
   user: null,
-  isClientView: false,
-  clientShopId: undefined
 };
 
 interface Alert {
@@ -395,7 +348,7 @@ function NotificationBar({
               <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-2xl p-2 space-y-1 max-h-[400px] overflow-y-auto no-scrollbar mt-1">
                  {alerts.map((alert) => (
                    <div 
-                    key={`alert-${alert.type}-${alert.id}-${alert.timestamp}`}
+                     key={alert.id + alert.timestamp}
                      className={cn(
                        "flex items-center gap-4 p-4 rounded-xl hover:bg-[var(--primary)]/5 transition-all cursor-pointer group/item border border-transparent hover:border-[var(--primary)]/10",
                        alert.priority === 'Urgent' ? "bg-red-500/5 shadow-inner" : ""
@@ -526,15 +479,6 @@ export default function App() {
   const [showAddNote, setShowAddNote] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-
-  // Initialize guest status
-  useEffect(() => {
-    const guestMode = safeStorage.getItem('ts_guest_mode') === 'true';
-    if (guestMode && !state.user) {
-      setState(prev => ({ ...prev, isGuest: true }));
-    }
-  }, []);
 
   // PWA Install Logic
   useEffect(() => {
@@ -547,7 +491,7 @@ export default function App() {
     
     window.addEventListener('appinstalled', () => {
       setDeferredPrompt(null);
-      safeStorage.setItem('pwa_prompt_seen', 'true');
+      localStorage.setItem('pwa_prompt_seen', 'true');
     });
 
     return () => {
@@ -557,7 +501,7 @@ export default function App() {
 
   // Show contextual install prompt after user is logged in for a while
   useEffect(() => {
-    if (state.user && deferredPrompt && !safeStorage.getItem('pwa_prompt_seen')) {
+    if (state.user && deferredPrompt && !localStorage.getItem('pwa_prompt_seen')) {
       const timer = setTimeout(() => {
         setShowInstallPrompt(true);
       }, 30000); // 30 seconds after login
@@ -572,7 +516,7 @@ export default function App() {
       if (outcome === 'accepted') {
         setDeferredPrompt(null);
         setShowInstallPrompt(false);
-        safeStorage.setItem('pwa_prompt_seen', 'true');
+        localStorage.setItem('pwa_prompt_seen', 'true');
       }
     } else {
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
@@ -681,15 +625,7 @@ export default function App() {
         const json = JSON.parse(event.target?.result as string);
         if (json.settings && json.items) {
           if (confirm('Restoring will overwrite current settings and items. Proceed?')) {
-            // Sanitize items to remove duplicates
-            const uniqueItems = Array.from(new Map(json.items.map((it: any) => [it.id, it])).values());
-            const uniqueNotes = Array.from(new Map((json.notes || []).map((n: any) => [n.id, n])).values());
-            
-            setState({
-              ...json,
-              items: uniqueItems,
-              notes: uniqueNotes
-            });
+            setState(json);
             alert('System Restored!');
           }
         }
@@ -699,203 +635,71 @@ export default function App() {
     };
     reader.readAsText(file);
   };
-  const [adminConfig, setAdminConfig] = useState<AdminConfig>({
-    isOpenAccess: true,
-    requireApproval: false,
-    maintenanceMode: false,
-    readOnlyMode: false,
-    allowedDomains: [],
-    blockedEmails: [],
-    maxDevicesPerUser: 5
-  });
-
-  // Fetch Admin Config
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'config', 'admin'), (snap) => {
-      if (snap.exists()) {
-        setAdminConfig(snap.data() as AdminConfig);
-      }
-    }, (error) => {
-      console.warn("Admin config fetching inhibited", error);
-      // Fail gracefully: use defaults already in state
-    });
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        setIsLoggingIn(true);
-        // Check for migration
-        const guestData = safeStorage.getItem('price_manager_state');
-        const wasGuest = safeStorage.getItem('ts_guest_mode') === 'true';
-        
-        if (wasGuest && guestData) {
-          try {
-            const parsed = JSON.parse(guestData);
-            if (parsed.items?.length > 0 || parsed.notes?.length > 0) {
-              const batch = writeBatch(db);
-              
-              // Migrate Items
-              if (parsed.items) {
-                for (const item of parsed.items) {
-                  const ref = doc(collection(db, 'users', user.uid, 'items'));
-                  const { id, ...cleanItem } = item;
-                  batch.set(ref, { ...cleanItem, lastUpdated: new Date().toISOString() });
-                }
-              }
-              
-              // Migrate Notes
-              if (parsed.notes) {
-                for (const note of parsed.notes) {
-                  const ref = doc(collection(db, 'users', user.uid, 'notes'));
-                  const { id, ...cleanNote } = note;
-                  batch.set(ref, { ...cleanNote, createdAt: new Date().toISOString() });
-                }
-              }
-
-              // Migrate Settings
-              if (parsed.settings) {
-                const settingsRef = doc(db, 'users', user.uid);
-                batch.set(settingsRef, parsed.settings, { merge: true });
-              }
-
-              await batch.commit();
-              // Clear guest mode after successful migration
-              safeStorage.removeItem('ts_guest_mode');
-            }
-          } catch (e) {
-            console.error("Migration failed", e);
-          }
-        }
-
         setState(prev => ({ 
           ...prev, 
-          user: { uid: user.uid, email: user.email },
-          isGuest: false
+          user: { uid: user.uid, email: user.email } 
         }));
-        safeStorage.removeItem('ts_guest_mode');
       } else {
         setState(prev => ({ ...prev, user: null }));
-        // If not in guest mode, we are definitely done initializing
-        if (safeStorage.getItem('ts_guest_mode') !== 'true') {
-          setIsInitializing(false);
-        }
       }
-      setIsLoggingIn(false);
     });
     return () => unsubscribe();
   }, []);
 
-  const handleGuestLogin = () => {
-    safeStorage.setItem('ts_guest_mode', 'true');
-    setState(prev => ({ ...prev, isGuest: true }));
-  };
-
-  const handleGoogleAuth = async () => {
-    try {
-      setIsLoggingIn(true);
-      await loginWithGoogle();
-    } catch (err) {
-      console.error("Login Error", err);
-      throw err;
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await auth.signOut();
-      safeStorage.removeItem('ts_guest_mode');
-      setState(prev => ({ ...prev, user: null, isGuest: false, items: [], notes: [] }));
-    } catch (err) {
-      console.error("Logout Error", err);
-    }
-  };
-
-  // Detect Client View Mode
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const mode = params.get('mode');
-    const shopId = params.get('shop');
-    
-    if (mode === 'client' && shopId) {
-      setState(prev => ({ 
-        ...prev, 
-        isClientView: true,
-        clientShopId: shopId 
-      }));
-    }
-  }, []);
-
   // --- Real-time Firestore Sync ---
   useEffect(() => {
-    const targetUserId = state.isClientView ? state.clientShopId : state.user?.uid;
-    const isCloudSyncEnabled = state.isClientView || (state.user && state.settings.autoCloudSync);
-
-    if (!targetUserId || !isCloudSyncEnabled) {
-      // Local storage fallback if not logged in, not in client mode, or cloud sync disabled
-      if (!state.isClientView) {
-        const saved = safeStorage.getItem('price_manager_state');
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            setState(prev => ({ 
-              ...prev, 
-              items: parsed.items || [], 
-              notes: parsed.notes || [],
-              settings: { ...prev.settings, ...parsed.settings }
-            }));
-          } catch (e) {
-            console.error("Local load failed", e);
-          }
+    if (!state.user || !state.settings.autoCloudSync) {
+      // Local storage fallback if not logged in or cloud sync disabled
+      const saved = localStorage.getItem('price_manager_state');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setState(prev => ({ 
+            ...prev, 
+            items: parsed.items || [], 
+            notes: parsed.notes || [],
+            settings: { ...prev.settings, ...parsed.settings }
+          }));
+        } catch (e) {
+          console.error("Local load failed", e);
         }
       }
-      setIsInitializing(false);
       return;
     }
 
-    const userDocRef = doc(db, 'users', targetUserId);
+    const userDocRef = doc(db, 'users', state.user.uid);
     
-    // Sync Settings (Only if owner or if we want client to see owner's basic settings like currency)
+    // Sync Settings
     const unsubSettings = onSnapshot(userDocRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        setState(prev => ({ 
-          ...prev, 
-          settings: { 
-            ...prev.settings, 
-            ...data,
-            // Force some settings for client view
-            isLocked: state.isClientView ? false : (data.isLocked ?? prev.settings.isLocked)
-          } 
-        }));
+        setState(prev => ({ ...prev, settings: { ...prev.settings, ...data } }));
       }
     }, (error) => {
-      if (!state.isClientView) handleFirestoreError(error, OperationType.GET, `users/${targetUserId}`);
+      handleFirestoreError(error, OperationType.GET, `users/${state.user.uid}`);
     });
 
     // Sync Items
-    const itemsRef = collection(db, 'users', targetUserId, 'items');
+    const itemsRef = collection(db, 'users', state.user.uid, 'items');
     const unsubItems = onSnapshot(query(itemsRef, orderBy('lastUpdated', 'desc')), (snap) => {
       const itemsList: Item[] = [];
       snap.forEach(doc => itemsList.push({ ...doc.data() as Item, id: doc.id }));
       setState(prev => ({ ...prev, items: itemsList }));
-      setIsInitializing(false);
     }, (error) => {
-      if (!state.isClientView) handleFirestoreError(error, OperationType.LIST, `users/${targetUserId}/items`);
-      setIsInitializing(false);
+      handleFirestoreError(error, OperationType.LIST, `users/${state.user.uid}/items`);
     });
 
-    // Sync Notes (Optional for client? Maybe they should only see "Public" notes? For now let's sync all as per request)
-    const notesRef = collection(db, 'users', targetUserId, 'notes');
+    // Sync Notes
+    const notesRef = collection(db, 'users', state.user.uid, 'notes');
     const unsubNotes = onSnapshot(query(notesRef, orderBy('createdAt', 'desc')), (snap) => {
       const notesList: Note[] = [];
       snap.forEach(doc => notesList.push({ ...doc.data() as Note, id: doc.id }));
       setState(prev => ({ ...prev, notes: notesList }));
     }, (error) => {
-      if (!state.isClientView) handleFirestoreError(error, OperationType.LIST, `users/${targetUserId}/notes`);
+      handleFirestoreError(error, OperationType.LIST, `users/${state.user.uid}/notes`);
     });
 
     return () => {
@@ -903,7 +707,7 @@ export default function App() {
       unsubItems();
       unsubNotes();
     };
-  }, [state.user, state.settings.autoCloudSync, state.isClientView, state.clientShopId]);
+  }, [state.user, state.settings.autoCloudSync]);
 
   // --- Effects ---
 
@@ -914,7 +718,7 @@ export default function App() {
       indigo: '99, 102, 241',
       emerald: '16, 185, 129',
       rose: '244, 63, 94',
-      accent: '245, 158, 11',
+      amber: '245, 158, 11',
       cyan: '6, 182, 212',
       slate: '100, 116, 139'
     };
@@ -953,26 +757,24 @@ export default function App() {
 
   // Separate Effect for Persistence
   useEffect(() => {
-    if (!state.isClientView) {
-      const isAuthMode = !!state.user && state.settings.autoCloudSync;
-      // We only want to persist to local storage if we are in Guest mode 
-      // or if cloud sync is explicitly disabled for the logged in user
-      if (!isAuthMode) {
-        const minimalState = {
-          items: state.items,
-          notes: state.notes,
-          settings: state.settings
-        };
-        safeStorage.setItem('price_manager_state', JSON.stringify(minimalState));
-      }
+    if (!state.user || !state.settings.autoCloudSync) {
+      localStorage.setItem('price_manager_state', JSON.stringify(state));
     }
-  }, [state.items, state.notes, state.settings, state.user, state.settings.autoCloudSync, state.isClientView]);
+  }, [state.items, state.notes, state.settings, state.user, state.settings.autoCloudSync]);
+
+  // Detect Client View Mode
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('mode') === 'client') {
+      setState(prev => ({ ...prev, isClientView: true }));
+    }
+  }, []);
 
   const t = UI_TEXT[state.settings.language];
   const precision = state.settings.pricePrecision || 0;
 
   const filteredItems = useMemo(() => {
-    const matches = state.items.filter(item => {
+    return state.items.filter(item => {
       const matchesSearch = 
         item.translations.en.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.translations.hi.includes(searchQuery) ||
@@ -982,17 +784,6 @@ export default function App() {
       const matchesCategory = !selectedCategory || item.categoryId === selectedCategory;
       
       return matchesSearch && matchesCategory;
-    });
-
-    // Stability Pass: Ensure keys are unique before rendering
-    const seen = new Set();
-    return matches.map(item => {
-      const isDuplicate = seen.has(item.id);
-      seen.add(item.id);
-      if (isDuplicate || !item.id) {
-        return { ...item, id: `${item.id || 'new'}-${Math.random().toString(36).substring(2, 9)}` };
-      }
-      return item;
     });
   }, [state.items, searchQuery, selectedCategory]);
 
@@ -1025,7 +816,7 @@ export default function App() {
         await addDoc(collection(db, 'users', state.user.uid, 'items'), newItem);
         setShowAddItem(false);
       } else {
-        const id = generateId();
+        const id = Date.now().toString();
         setState(prev => ({
           ...prev,
           items: [{ ...newItem, id }, ...prev.items]
@@ -1134,7 +925,7 @@ export default function App() {
         handleFirestoreError(error, OperationType.CREATE, `users/${state.user.uid}/notes`);
       }
     } else {
-      const id = generateId();
+      const id = Date.now().toString();
       setState(prev => ({
         ...prev,
         notes: [{ ...newNote, id }, ...prev.notes]
@@ -1191,37 +982,6 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [showTour, setShowTour] = useState(false);
 
-  const handleBulkDelete = useCallback(async () => {
-    if (selectedItemIds.length === 0) return;
-    
-    const confirmMessage = state.settings.language === 'en' 
-      ? `Are you sure you want to delete ${selectedItemIds.length} items?` 
-      : `${selectedItemIds.length} आइटम हटाना चाहते हैं?`;
-
-    if (confirm(confirmMessage)) {
-      const itemsToDelete = [...selectedItemIds];
-      
-      // Optimistic Update
-      setState(prev => ({
-        ...prev,
-        items: prev.items.filter(item => !itemsToDelete.includes(item.id))
-      }));
-      setSelectedItemIds([]);
-
-      try {
-        if (state.user && state.settings.autoCloudSync) {
-          const batch = writeBatch(db);
-          itemsToDelete.forEach(id => {
-            batch.delete(doc(db, 'users', state.user!.uid, 'items', id));
-          });
-          await batch.commit();
-        }
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, 'bulk-items');
-      }
-    }
-  }, [selectedItemIds, state.user, state.settings, t]);
-
   useEffect(() => {
     // Show tour for new users who haven't seen it
     if (state.settings.hasSeenOnboarding === false && !isInitializing) {
@@ -1241,13 +1001,7 @@ export default function App() {
   const handleEditTrigger = useCallback((item: Item) => {
     setEditingItem(item);
   }, []);
-  const totalValue = useMemo(() => {
-    return state.items.reduce((sum, item) => {
-      const buyPrice = Number(item.buyingPrice) || 0;
-      const qty = Number(item.quantity) || 0;
-      return sum + (buyPrice * qty);
-    }, 0);
-  }, [state.items]);
+  const totalValue = state.items.reduce((sum, item) => sum + (item.buyingPrice * item.quantity), 0);
 
   return (
     <div 
@@ -1259,16 +1013,12 @@ export default function App() {
     >
       <AnimatePresence>
         {isInitializing && <SplashScreen onComplete={() => setIsInitializing(false)} />}
-        {!isInitializing && !state.user && !state.isGuest && !state.isClientView && (
-          <AuthScreen 
-            onGuest={handleGuestLogin}
-            onGoogle={handleGoogleAuth}
-            isLoggingIn={isLoggingIn}
-          />
+        {!isInitializing && !state.user && !state.isClientView && (
+          <LoginScreen t={t} onLogin={(u) => setState(p => ({ ...p, user: u }))} />
         )}
       </AnimatePresence>
 
-      {!isInitializing && (state.user || state.isGuest || state.isClientView) && (
+      {!isInitializing && state.user && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -1365,41 +1115,33 @@ export default function App() {
       {/* Header */}
       <header 
         id="tour-header"
-        className="sticky top-0 z-40 bg-[var(--primary)]/95 backdrop-blur-xl px-4 sm:px-6 py-3 sm:py-4 text-[var(--primary-foreground)] shadow-2xl transition-colors border-b border-white/10"
+        className="sticky top-0 z-40 bg-[var(--primary)]/95 backdrop-blur-xl px-6 py-4 text-[var(--primary-foreground)] shadow-2xl transition-colors border-b border-white/10"
       >
         <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center gap-2 sm:gap-4">
+          <div className="flex items-center gap-4">
             <div className="relative group">
               <div className="absolute inset-0 bg-amber-500 blur-lg opacity-20 group-hover:opacity-40 transition-opacity" />
-              <Logo className="h-10 w-10 sm:h-14 sm:w-14" simplified />
+              <Logo className="h-14 w-14" />
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-black tracking-tighter text-white mb-0 leading-none flex items-baseline">
-                TS <span className="text-[10px] sm:text-xs font-bold opacity-60 ml-1 sm:ml-1.5 tracking-[0.2em] sm:tracking-[0.3em] uppercase">Price Manager</span>
+              <h1 className="text-2xl font-black tracking-tighter text-white mb-0 leading-none flex items-baseline">
+                TS <span className="text-xs font-bold opacity-60 ml-1.5 tracking-[0.3em] uppercase">Price Manager</span>
               </h1>
-              <div className="flex items-center gap-1.5 mt-1 sm:mt-1.5">
-                 <div className={cn("h-1 w-1 sm:h-1.5 sm:w-1.5 rounded-full ring-2 ring-white/10", state.isClientView ? "bg-blue-400" : state.user && state.settings.autoCloudSync ? "bg-green-400 animate-pulse" : "bg-slate-400")} />
-                 <p className="text-[7px] sm:text-[9px] uppercase tracking-[0.15em] sm:tracking-[0.2em] text-white/40 font-black">
-                   {state.isClientView ? 'Verified Guest View' : state.user && state.settings.autoCloudSync ? 'Authenticated Cloud session' : 'Standalone Local Hub'}
+              <div className="flex items-center gap-2 mt-1.5">
+                 <div className={cn("h-1.5 w-1.5 rounded-full ring-2 ring-white/10", state.isClientView ? "bg-blue-400" : state.user && state.settings.autoCloudSync ? "bg-green-400 animate-pulse" : "bg-slate-400")} />
+                 <p className="text-[9px] uppercase tracking-[0.2em] text-white/40 font-black">
+                   {state.isClientView ? 'Verified Guest View (Read Only)' : state.user && state.settings.autoCloudSync ? 'Authenticated Cloud session' : 'Standalone Local Hub'}
                  </p>
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* User Profile Info */}
-            {state.user && (
-              <div className="hidden md:flex flex-col items-end mr-2">
-                <span className="text-[9px] font-black uppercase tracking-widest text-[#d4af37]">{state.user.role || 'Partner'}</span>
-                <span className="text-[10px] font-bold text-white/60 truncate max-w-[120px]">{state.user.email}</span>
-              </div>
-            )}
-            
+          <div className="flex items-center gap-3">
             <button
                onClick={() => setShowHelp(true)}
-               className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl transition-all border border-white/10 bg-white/5 text-white/80 hover:bg-white/20"
+               className="flex h-9 w-9 items-center justify-center rounded-xl transition-all border border-white/10 bg-white/5 text-white/80 hover:bg-white/20"
                title={t.help}
             >
-               <HelpCircle size={16} className="sm:size-[18px]" />
+               <HelpCircle size={18} />
             </button>
             <div 
                id="tour-notes"
@@ -1551,7 +1293,7 @@ export default function App() {
                   {filteredItems.length > 0 ? (
                     filteredItems.map((item, index) => (
                       <motion.div
-                        key={`item-grid-${item.id}`}
+                        key={item.id}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95 }}
@@ -1649,7 +1391,7 @@ export default function App() {
               onRestore={handleRestore}
               onClearCache={() => {
                 if (confirm('Wipe everything?')) {
-                  safeStorage.clear();
+                  localStorage.clear();
                   window.location.reload();
                 }
               }}
@@ -1670,8 +1412,6 @@ export default function App() {
               deferredPrompt={deferredPrompt} 
               onInstall={handleInstallClick} 
               onShareWhatsApp={handleShareWhatsApp}
-              onLogout={handleLogout}
-              onGoogleAuth={handleGoogleAuth}
             />
           </motion.div>
         )}
@@ -1685,7 +1425,7 @@ export default function App() {
             <NavButton active={activeTab === 'home'} icon={<Home />} label={t.all || "Home"} onClick={() => setActiveTab('home')} />
             <NavButton active={activeTab === 'notes'} icon={<FileText />} label={t.notes || "Notes"} onClick={() => setActiveTab('notes')} />
             <NavButton active={activeTab === 'settings'} icon={<SettingsIcon />} label={t.settings || "Settings"} onClick={() => setActiveTab('settings')} />
-            <NavButton active={activeTab === 'profile'} icon={<UserIcon />} label={t.profile || "Profile"} onClick={() => setActiveTab('profile')} />
+            <NavButton active={activeTab === 'profile'} icon={<User />} label={t.profile || "Profile"} onClick={() => setActiveTab('profile')} />
           </div>
         </nav>
       )}
@@ -1707,7 +1447,7 @@ export default function App() {
                       const cat = DEFAULT_CATEGORIES.find(c => c.id === it?.categoryId);
                       return (
                         <motion.div 
-                          key={`compare-bubble-${id}-${index}`} 
+                          key={id} 
                           initial={{ x: -20, opacity: 0 }}
                           animate={{ x: 0, opacity: 1 }}
                           transition={{ delay: index * 0.1 }}
@@ -1753,15 +1493,6 @@ export default function App() {
                  >
                    <Edit2 size={16} className="mr-2" />
                    {t.bulkUpdate || "Bulk Update"}
-                 </Button>
-
-                 <Button 
-                   onClick={handleBulkDelete}
-                   variant="ghost"
-                   className="text-white hover:bg-red-500/20 hover:text-red-300 rounded-2xl px-6 h-12 text-[10px] font-black uppercase tracking-widest flex-1 md:flex-none border border-white/10"
-                 >
-                   <Trash2 size={16} className="mr-2" />
-                   {t.delete || "Delete"}
                  </Button>
                </div>
             </div>
@@ -1837,19 +1568,18 @@ export default function App() {
         {showInstallPrompt && (
           <InstallPrompt t={t} onInstall={handleInstallClick} />
         )}
-        {!state.isClientView && (
-          <div className="fixed left-6 bottom-32 z-[100] group">
-            <button
-              disabled
-              className="w-14 h-14 bg-slate-800 rounded-full shadow-lg border border-white/10 flex items-center justify-center text-slate-500 cursor-not-allowed transition-all opacity-50"
-            >
-              <Sparkles size={24} />
-            </button>
-            <div className="absolute left-16 top-1/2 -translate-y-1/2 bg-slate-900 border border-white/10 px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-2xl">
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">AI Assistant coming soon</span>
-            </div>
-          </div>
-        )}
+        <ChatAssistant 
+          items={state.items}
+          onAddItem={handleAddItem}
+          onUpdateItem={handleUpdateItem}
+          onDeleteItem={handleDeleteItem}
+          onAddNote={handleAddNote}
+          onExport={exportToExcel}
+          onToggleBuying={() => handleUpdateSettings({ showBuyingPrice: !state.settings.showBuyingPrice })}
+          showBuyingPrice={state.settings.showBuyingPrice}
+          precision={precision}
+          t={t}
+        />
       </AnimatePresence>
         </motion.div>
       )}
@@ -2069,8 +1799,8 @@ const ItemCard = React.memo(({ item, isLocked, language, precision, onEdit, onDe
         <div className="flex items-center gap-2">
            <span className="text-[8px] font-bold opacity-30 uppercase">Languages:</span>
            <div className="flex -space-x-1">
-            {LANGUAGES.map((l, idx) => (
-              <div key={`${l.id}-${idx}`} className="w-4 h-4 rounded-full border-2 border-[var(--card)] bg-[var(--background)] flex items-center justify-center text-[8px] opacity-40">
+            {LANGUAGES.map(l => (
+              <div key={l.id} className="w-4 h-4 rounded-full border-2 border-[var(--card)] bg-[var(--background)] flex items-center justify-center text-[8px] opacity-40">
                 {l.emoji}
               </div>
             ))}
@@ -2092,7 +1822,7 @@ function NavButton({ active, icon, label, onClick }: { active: boolean; icon: Re
       )}
     >
       <div className={cn("rounded-full p-1 transition-all", active && "bg-[var(--primary)]/10")}>
-        {React.cloneElement(icon as React.ReactElement<any>, { size: 24 })}
+        {React.cloneElement(icon as React.ReactElement, { size: 24 })}
       </div>
       <span className="text-[10px] font-bold uppercase tracking-tighter">{label}</span>
       {active && <motion.div layoutId="nav-dot" className="h-1 w-1 rounded-full bg-[var(--primary)]" />}
@@ -2133,9 +1863,9 @@ function HelpModal({ onClose, t }: { onClose: () => void; t: any }) {
             <p className="text-[8px] font-black uppercase tracking-widest opacity-40 mt-1">Enterprise Guide</p>
           </div>
           <div className="flex-1 p-4 flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-x-visible">
-            {tabs.map((tab, idx) => (
+            {tabs.map(tab => (
               <button
-                key={`${tab.id}-${idx}`}
+                key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
                 className={cn(
                   "flex items-center gap-3 px-4 py-3 rounded-xl transition-all whitespace-nowrap md:whitespace-normal text-left group",
@@ -2182,7 +1912,7 @@ function HelpModal({ onClose, t }: { onClose: () => void; t: any }) {
                   <div className="space-y-6">
                     <div className="grid gap-4">
                       {[t.qs1, t.qs2, t.qs3].map((text, i) => (
-                        <div key={`qs-item-${i}-${text.substring(0, 10)}`} className="flex gap-4 p-5 rounded-2xl bg-white/5 border border-white/5">
+                        <div key={i} className="flex gap-4 p-5 rounded-2xl bg-white/5 border border-white/5">
                           <div className="h-10 w-10 shrink-0 bg-[var(--primary)]/10 rounded-full flex items-center justify-center text-[var(--primary)] font-black">
                             {i + 1}
                           </div>
@@ -2381,7 +2111,7 @@ function OnboardingTour({ onClose, t }: { onClose: () => void; t: any }) {
 
             <div className="mt-6 flex justify-center gap-1.5">
               {steps.map((_, i) => (
-                <div key={`tour-indicator-${i}`} className={`h-1 rounded-full transition-all duration-500 ${i === step ? 'w-6 bg-[var(--primary)]' : 'w-1.5 bg-white/10'}`} />
+                <div key={i} className={`h-1 rounded-full transition-all duration-500 ${i === step ? 'w-6 bg-[var(--primary)]' : 'w-1.5 bg-white/10'}`} />
               ))}
             </div>
           </div>
@@ -2719,7 +2449,7 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
 
   const sectionVariants = {
     hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" as any } }
+    visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" } }
   };
 
   const quickQtys = [5, 10, 25, 50, 100];
@@ -2872,8 +2602,8 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
                    </button>
                  </div>
                  <div className="flex flex-wrap gap-1.5 pt-2">
-                   {quickQtys.map((q, idx) => (
-                     <button key={`qty-${q}-${idx}`} onClick={() => setFormData(prev => ({ ...prev, quantity: q }))} className="px-3 py-1.5 rounded-lg bg-[var(--background)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">{q} {formData.unit}</button>
+                   {quickQtys.map(q => (
+                     <button key={q} onClick={() => setFormData(prev => ({ ...prev, quantity: q }))} className="px-3 py-1.5 rounded-lg bg-[var(--background)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">{q} {formData.unit}</button>
                    ))}
                  </div>
                </div>
@@ -2934,8 +2664,8 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
              </div>
              
              <div className="grid grid-cols-4 gap-2">
-                {quickAmounts.map((amt, idx) => (
-                  <button key={`amt-${amt}-${idx}`} onClick={() => setFormData(prev => ({ ...prev, retailPrice: amt }))} className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">₹{amt}</button>
+                {quickAmounts.map(amt => (
+                  <button key={amt} onClick={() => setFormData(prev => ({ ...prev, retailPrice: amt }))} className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">₹{amt}</button>
                 ))}
              </div>
           </motion.div>
@@ -3036,9 +2766,9 @@ function NotificationsView({
       </header>
 
       <div className="grid grid-cols-1 gap-3">
-        {allNotifications.map((notif, idx) => (
+        {allNotifications.map((notif) => (
           <motion.div
-            key={`${notif.type}-${notif.id}-${idx}`}
+            key={notif.id}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             onClick={() => notif.type === 'price' ? onViewItem(notif.itemId) : onViewNote(notif.id)}
@@ -3413,40 +3143,43 @@ function SettingsScreen({
   );
 }
 
-function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareWhatsApp, onLogout, onGoogleAuth }: { 
+function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareWhatsApp }: { 
   state: AppState; 
   t: any; 
   deferredPrompt: any; 
   onInstall: () => void;
   onShareWhatsApp: () => void;
-  onLogout: () => void;
-  onGoogleAuth: () => void;
 }) {
+  const handleAuth = async () => {
+    if (state.user) {
+      await auth.signOut();
+    } else {
+      await loginWithGoogle();
+    }
+  };
+
   return (
     <div className="space-y-8 pb-32 animate-in fade-in slide-in-from-bottom-6 duration-1000 max-w-2xl mx-auto px-4 sm:px-0">
       {/* Dynamic Visual Header */}
-      <div className={cn(
-        "relative overflow-hidden rounded-[3rem] p-10 text-white shadow-2xl min-h-[250px] flex flex-col justify-end group transition-all duration-700",
-        state.user ? "bg-[var(--primary)] shadow-[var(--primary)]/20" : "bg-gradient-to-br from-slate-800 to-slate-900 shadow-slate-900/50"
-      )}>
+      <div className="relative overflow-hidden rounded-[3rem] bg-[var(--primary)] p-10 text-white shadow-2xl shadow-[var(--primary)]/20 min-h-[250px] flex flex-col justify-end group">
          <div className="absolute top-0 right-0 p-8 opacity-10 rotate-12 transition-transform group-hover:scale-110 group-hover:rotate-0 duration-700">
-            <UserIcon size={200} />
+            <User size={200} />
          </div>
          <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent" />
          
          <div className="relative z-10 space-y-6">
             <div className="flex items-center gap-5">
                <div className="h-20 w-20 rounded-[2rem] bg-white/10 border border-white/20 backdrop-blur-xl flex items-center justify-center shadow-2xl transition-transform group-hover:scale-105">
-                  <UserIcon size={40} className="text-white" />
+                  <User size={40} className="text-white" />
                </div>
                <div>
                   <h2 className="text-4xl font-black uppercase tracking-tight leading-none truncate max-w-[200px] sm:max-w-md">
-                    {state.user ? (state.user.email?.split('@')[0] || 'Merchant') : state.isGuest ? 'Guest Merchant' : 'SYSTEM ADMIN'}
+                    {state.user ? (state.user.email?.split('@')[0] || 'Merchant') : 'SYSTEM ADMIN'}
                   </h2>
                   <div className="mt-2 flex items-center gap-2">
-                     <span className={cn("h-2 w-2 rounded-full", state.user ? "bg-green-400 animate-pulse" : "bg-amber-400")} />
+                     <span className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
                      <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-70">
-                       {state.user ? t.liveNode : state.isGuest ? 'Local-Only Mode' : t.localSandbox}
+                       {state.user ? t.liveNode : t.localSandbox}
                      </p>
                   </div>
                </div>
@@ -3455,23 +3188,13 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareWhatsApp, o
             <div className="flex gap-8 pt-4">
                <div>
                   <p className="text-[9px] font-black uppercase tracking-widest opacity-50 mb-1">{t.authorization}</p>
-                  {state.user ? (
-                    <button 
-                      onClick={onLogout}
-                      className="flex items-center gap-2 bg-white/10 hover:bg-white text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full transition-all text-white hover:text-red-500 shadow-lg active:scale-95"
-                    >
-                       <LogOut size={14} />
-                       {t.terminateSession}
-                    </button>
-                  ) : (
-                    <button 
-                      onClick={onGoogleAuth}
-                      className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full transition-all text-white shadow-lg active:scale-95"
-                    >
-                       <LogIn size={14} />
-                       Connect to Cloud
-                    </button>
-                  )}
+                  <button 
+                    onClick={handleAuth}
+                    className="flex items-center gap-2 bg-white/10 hover:bg-white text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full transition-all text-white hover:text-[var(--primary)] shadow-lg active:scale-95"
+                  >
+                     {state.user ? <LogOut size={14} /> : <LogIn size={14} />}
+                     {state.user ? t.terminateSession : t.cloudEntry}
+                  </button>
                </div>
                <div className="h-10 w-px bg-white/20" />
                <div>
@@ -3511,7 +3234,7 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareWhatsApp, o
             </div>
          </button>
 
-         {!deferredPrompt && !safeStorage.getItem('pwa_prompt_seen') && (
+         {!deferredPrompt && !localStorage.getItem('pwa_prompt_seen') && (
             <div className="p-4 bg-white/5 border border-dashed border-white/10 rounded-2xl">
                <p className="text-[9px] font-black uppercase tracking-widest opacity-30 text-center">
                   To open this without Chrome address bar: Click 3-dots menu <span className="text-[var(--primary)]">⋮</span> and select <span className="text-[var(--primary)]">"Install App"</span>
@@ -3539,11 +3262,7 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareWhatsApp, o
 
             <button 
               onClick={() => {
-                  if (!state.user) {
-                    alert("Please log in first to generate your share link.");
-                    return;
-                  }
-                  const message = encodeURIComponent(`Check out our LIVE inventory and prices: ${window.location.origin}?mode=client&shop=${state.user.uid}`);
+                  const message = encodeURIComponent(`Check out our LIVE inventory and prices: ${window.location.origin}?mode=client`);
                   window.open(`https://wa.me/?text=${message}`, '_blank');
               }}
               className="flex items-center justify-between p-6 bg-[var(--card)] border border-[var(--border)] rounded-[2rem] hover:border-green-500/30 hover:bg-green-500/5 transition-all group"
@@ -3825,9 +3544,9 @@ function NotesDashboard({
                      />
                    </div>
                    <div className="flex gap-1 overflow-x-auto no-scrollbar pb-1">
-                      {categories.map((cat, idx) => (
+                      {categories.map(cat => (
                         <button
-                          key={`${cat}-${idx}`}
+                          key={cat}
                           onClick={() => setFilter(cat)}
                           className={cn(
                             "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all shrink-0",
@@ -3853,9 +3572,9 @@ function NotesDashboard({
         isPreview ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
       )}>
         <AnimatePresence mode="popLayout">
-          {displayNotes.length > 0 ? displayNotes.map((note) => (
+          {displayNotes.length > 0 ? displayNotes.map(note => (
             <NoteCard 
-               key={`note-dashboard-item-${note.id}`} 
+               key={note.id} 
                note={note} 
                onUpdate={onUpdate} 
                onDelete={onDelete} 
@@ -4076,6 +3795,248 @@ function NoteFormModal({ onClose, onSave, t }: { onClose: () => void; onSave: (d
   );
 }
 
+function LoginScreen({ onLogin, t }: { onLogin: (user: any) => void; t: any }) {
+  const [authMode, setAuthMode] = useState<'email' | 'phone' | 'google'>('email');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
+  const [confirmationResult, setConfirmationResult] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
+
+  const handleEmailLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      const user = await signInWithEmailAndPassword(auth, email, password);
+      onLogin(user.user);
+    } catch (error) {
+      alert(t.loginError);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePhoneSignIn = async () => {
+    setIsLoading(true);
+    try {
+      const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible'
+      });
+      const result = await signInWithPhoneNumber(auth, phone, verifier);
+      setConfirmationResult(result);
+      alert(t.otpSent);
+    } catch (error) {
+      alert(t.loginError);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const verifyOtp = async () => {
+    setIsLoading(true);
+    try {
+      const result = await confirmationResult.confirm(otp);
+      onLogin(result.user);
+    } catch (error) {
+      alert(t.loginError);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
+    try {
+      const user = await loginWithGoogle();
+      onLogin(user);
+    } catch (error) {
+      alert(t.loginError);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-[#0a0a0f] overflow-hidden">
+      {/* Animated Background */}
+      <div className="absolute inset-0 z-0">
+        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-indigo-500/20 blur-[120px] rounded-full animate-pulse" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-amber-500/10 blur-[120px] rounded-full animate-pulse delay-1000" />
+      </div>
+
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-md relative z-10 px-6"
+      >
+        <div className="text-center mb-8">
+           <Logo className="h-24 w-24 mx-auto mb-4" />
+           <h1 className="text-3xl font-black tracking-tight text-white">{t.loginTitle}</h1>
+           <p className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-400/80 mt-2">{t.loginSubtitle}</p>
+        </div>
+
+        <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-8 shadow-2xl">
+           <AnimatePresence mode="wait">
+              {authMode === 'email' ? (
+                <motion.form 
+                  key="email"
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 10 }}
+                  onSubmit={handleEmailLogin} 
+                  className="space-y-5"
+                >
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">{t.emailLabel}</label>
+                    <div className="relative">
+                       <User className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" size={18} />
+                       <input 
+                         type="email" 
+                         required
+                         className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 text-sm text-white focus:border-indigo-500 transition-all"
+                         value={email}
+                         onChange={e => setEmail(e.target.value)}
+                         placeholder="admin@enterprise.com"
+                       />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center px-1">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-white/40">{t.passwordLabel}</label>
+                      <button type="button" className="text-[9px] font-black uppercase tracking-widest text-indigo-400">{t.forgotPassword}</button>
+                    </div>
+                    <div className="relative">
+                       <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" size={18} />
+                       <input 
+                         type={showPassword ? "text" : "password"} 
+                         required
+                         className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pl-12 pr-12 text-sm text-white focus:border-indigo-500 transition-all"
+                         value={password}
+                         onChange={e => setPassword(e.target.value)}
+                         placeholder="••••••••"
+                       />
+                       <button 
+                         type="button" 
+                         onClick={() => setShowPassword(!showPassword)}
+                         className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20 hover:text-white"
+                       >
+                         {showPassword ? <Unlock size={18} /> : <Lock size={18} />}
+                       </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 px-1">
+                    <button 
+                      type="button"
+                      onClick={() => setRememberMe(!rememberMe)}
+                      className={`h-5 w-5 rounded-md border flex items-center justify-center transition-all ${rememberMe ? 'bg-indigo-500 border-indigo-500' : 'bg-white/5 border-white/10'}`}
+                    >
+                      {rememberMe && <Check size={12} className="text-white" />}
+                    </button>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white/40">{t.rememberMe}</span>
+                  </div>
+
+                  <Button 
+                    type="submit" 
+                    disabled={isLoading}
+                    className="w-full h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-xs font-black uppercase tracking-[0.2em] shadow-xl shadow-indigo-500/20"
+                  >
+                    {isLoading ? t.authenticating : t.loginBtn}
+                  </Button>
+                </motion.form>
+              ) : authMode === 'phone' ? (
+                <motion.div 
+                  key="phone"
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 10 }}
+                  className="space-y-5"
+                >
+                  {!confirmationResult ? (
+                    <div className="space-y-4">
+                       <div className="space-y-2">
+                         <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">{t.phoneLabel}</label>
+                         <div className="relative">
+                            <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" size={18} />
+                            <input 
+                              type="tel" 
+                              className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 text-sm text-white focus:border-indigo-500 transition-all"
+                              value={phone}
+                              onChange={e => setPhone(e.target.value)}
+                              placeholder="+91 98765 43210"
+                            />
+                         </div>
+                       </div>
+                       <Button 
+                         onClick={handlePhoneSignIn}
+                         disabled={isLoading}
+                         className="w-full h-14 rounded-2xl bg-amber-500 hover:bg-amber-600 text-black text-xs font-black uppercase tracking-[0.2em]"
+                       >
+                         {isLoading ? t.verifying : t.sendOtp}
+                       </Button>
+                       <div id="recaptcha-container"></div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                       <div className="space-y-2">
+                         <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">OTP CODE</label>
+                         <input 
+                           type="text" 
+                           className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-4 text-center tracking-[1em] text-xl font-black text-white focus:border-indigo-500 transition-all"
+                           value={otp}
+                           onChange={e => setOtp(e.target.value)}
+                           placeholder="000000"
+                         />
+                       </div>
+                       <Button 
+                         onClick={verifyOtp}
+                         disabled={isLoading}
+                         className="w-full h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-xs font-black uppercase tracking-[0.2em]"
+                       >
+                         {t.verifyOtp}
+                       </Button>
+                    </div>
+                  )}
+                </motion.div>
+              ) : null}
+           </AnimatePresence>
+
+           <div className="mt-8 pt-8 border-t border-white/5 space-y-4">
+              <Button 
+                variant="outline" 
+                onClick={handleGoogleLogin}
+                className="w-full h-14 border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-white/5"
+              >
+                 <Globe size={18} className="text-blue-400" />
+                 {t.googleBtn}
+              </Button>
+
+              <div className="flex gap-4">
+                 <Button 
+                   onClick={() => setAuthMode(authMode === 'phone' ? 'email' : 'phone')}
+                   variant="ghost" 
+                   className="flex-1 rounded-xl text-[9px] font-black uppercase tracking-widest opacity-60 hover:opacity-100"
+                 >
+                   {authMode === 'phone' ? t.loginBtn : t.otpBtn}
+                 </Button>
+                 <Button 
+                    variant="ghost" 
+                    className="flex-1 rounded-xl text-[9px] font-black uppercase tracking-widest opacity-60 hover:opacity-100"
+                 >
+                    {t.signUp}
+                 </Button>
+              </div>
+           </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 function InstallPrompt({ t, onInstall }: { t: any; onInstall: () => void }) {
   return (
     <motion.div 
@@ -4104,7 +4065,7 @@ function InstallPrompt({ t, onInstall }: { t: any; onInstall: () => void }) {
             <Button 
               variant="ghost" 
               onClick={() => {
-                safeStorage.setItem('pwa_prompt_seen', 'true');
+                localStorage.setItem('pwa_prompt_seen', 'true');
                 // Could also use a state to hide it
               }}
               className="px-4 text-white/50 hover:text-white text-[10px] font-black uppercase tracking-widest"

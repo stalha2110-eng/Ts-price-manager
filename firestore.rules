@@ -45,24 +45,25 @@ service cloud.firestore {
     }
 
     // Collections
-    match /config/admin {
-      allow read: if true; // Public access to config for app behavior
-      allow write: if false; // Only manageable via Firebase Console or Admin SDK for now
-    }
-
     match /users/{userId} {
-      allow get: if isOwner(userId) && isValidId(userId);
-      allow create: if isOwner(userId) && isValidId(userId) && isValidSettings(incoming());
-      allow update: if isOwner(userId) && isValidId(userId) && isValidSettings(incoming());
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidSettings(incoming());
+      allow update: if isOwner(userId) && isValidSettings(incoming());
 
       match /items/{itemId} {
-        allow list, get: if isValidId(userId); // Public read for client mode link
-        allow create, update, delete: if isOwner(userId) && isValidId(itemId) && isValidItem(incoming());
+        allow list: if isOwner(userId);
+        allow get: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidItem(incoming());
+        allow update: if isOwner(userId) && isValidItem(incoming());
+        allow delete: if isOwner(userId);
       }
 
       match /notes/{noteId} {
-        allow list, get: if isValidId(userId); // Public read for client mode link
-        allow create, update, delete: if isOwner(userId) && isValidId(noteId) && isValidNote(incoming());
+        allow list: if isOwner(userId);
+        allow get: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidNote(incoming());
+        allow update: if isOwner(userId) && isValidNote(incoming());
+        allow delete: if isOwner(userId);
       }
     }
   }

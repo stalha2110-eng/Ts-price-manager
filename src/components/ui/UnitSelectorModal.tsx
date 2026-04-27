@@ -72,7 +72,7 @@ export function UnitSelectorModal({ onClose, onSelect, currentUnit }: UnitSelect
                 <div className="grid grid-cols-2 gap-2">
                   {group.values.map(val => (
                     <button
-                      key={`${group.label}-${val}`}
+                      key={val}
                       onClick={() => {
                         onSelect(val);
                         onClose();

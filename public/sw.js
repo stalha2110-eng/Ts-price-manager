@@ -1,8 +1,9 @@
-const CACHE_NAME = 'ts-price-manager-v1';
+const CACHE_NAME = 'ts-price-manager-v5';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
-  '/manifest.json'
+  '/manifest.json',
+  '/logo.png'
 ];
 
 self.addEventListener('install', (event) => {
@@ -18,9 +19,9 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
+        cacheNames.map((cache) => {
+          if (cache !== CACHE_NAME) {
+            return caches.delete(cache);
           }
         })
       );
@@ -29,10 +30,22 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Stale-while-revalidate strategy
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+
   event.respondWith(
-    caches.match(event.request).then((response) => {
-      return response || fetch(event.request);
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.match(event.request).then((cachedResponse) => {
+        const fetchedResponse = fetch(event.request).then((networkResponse) => {
+          if (networkResponse.status === 200) {
+            cache.put(event.request, networkResponse.clone());
+          }
+          return networkResponse;
+        });
+
+        return cachedResponse || fetchedResponse;
+      });
     })
   );
 });
