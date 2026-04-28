@@ -971,7 +971,9 @@ export default function App() {
   // --- Handlers ---
   const handleUpdateSettings = useCallback(async (updates: Partial<AppSettings>) => {
     try {
-      if (state.user && state.settings.autoCloudSync) {
+      // Always sync settings to cloud if user is logged in, even if data sync is off.
+      // This ensures that the toggle for cloud sync itself (and other UI preferences) can be persisted.
+      if (state.user) {
         await setDoc(doc(db, 'users', state.user.uid), updates, { merge: true });
       }
       
@@ -982,7 +984,7 @@ export default function App() {
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${state.user.uid}`);
     }
-  }, [state.user, state.settings.autoCloudSync]);
+  }, [state.user]);
 
   const handleAddItem = useCallback(async (data: Omit<Item, 'id' | 'lastUpdated'>) => {
     const newItem = {
