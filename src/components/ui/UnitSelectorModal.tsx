@@ -64,15 +64,15 @@ export function UnitSelectorModal({ onClose, onSelect, currentUnit }: UnitSelect
 
         <div className="flex-1 overflow-y-auto p-4 space-y-6 no-scrollbar">
           {filteredUnits.length > 0 ? (
-            filteredUnits.map((group, idx) => (
-              <div key={`unit-group-${group.label}-${idx}`} className="space-y-3">
+            filteredUnits.map(group => (
+              <div key={group.label} className="space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-widest opacity-40 flex items-center gap-2">
                   {getIcon(group.label)} {group.label}
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
-                  {group.values.map((val, vIdx) => (
+                  {group.values.map(val => (
                     <button
-                      key={`unit-val-${group.label}-${val}-${vIdx}`}
+                      key={`${group.label}-${val}`}
                       onClick={() => {
                         onSelect(val);
                         onClose();

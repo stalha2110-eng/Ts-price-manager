@@ -440,20 +440,8 @@ function NotificationBar({
 }
 
 function SplashScreen({ onComplete }: { onComplete: () => void }) {
-  const [status, setStatus] = useState("Initializing System...");
-
   useEffect(() => {
-    const statusSequence = [
-      { time: 0, text: "Booting Intelligence..." },
-      { time: 400, text: "Securing Connection..." },
-      { time: 800, text: "Syncing Cloud Assets..." }
-    ];
-
-    statusSequence.forEach(({ time, text }) => {
-      setTimeout(() => setStatus(text), time);
-    });
-
-    // Shorter delay for faster app entry while still keeping brand visibility
+    // Faster timeout for better UX
     const timer = setTimeout(onComplete, 1200);
     return () => clearTimeout(timer);
   }, [onComplete]);
@@ -491,24 +479,18 @@ function SplashScreen({ onComplete }: { onComplete: () => void }) {
              <span className="text-amber-500">PRICE</span> 
              <span className="bg-clip-text text-transparent bg-gradient-to-r from-white/70 to-white">MANAGER</span>
           </h1>
-          <p className="mt-2 text-[10px] font-black uppercase tracking-[0.3em] text-white/40">
-            {status}
+          <p className="mt-3 text-[9px] font-black uppercase tracking-[0.6em] text-amber-500/50">
+            Enterprise Cloud v2.6.2
           </p>
         </motion.div>
         
-        <div className="mt-12 w-48 h-1 bg-white/5 rounded-full overflow-hidden relative">
+        <div className="mt-14 w-40 h-1 bg-white/5 rounded-full overflow-hidden relative">
           <motion.div 
             className="absolute inset-y-0 left-0 bg-gradient-to-r from-amber-600 to-amber-400"
             initial={{ width: "0%" }}
             animate={{ width: "100%" }}
-            transition={{ duration: 1.5, ease: "easeInOut" }}
+            transition={{ duration: 1.2, ease: "easeInOut" }}
           />
-        </div>
-
-        <div className="mt-8 flex items-center gap-2 opacity-20">
-          <div className="h-1 w-1 rounded-full bg-white animate-bounce" />
-          <div className="h-1 w-1 rounded-full bg-white animate-bounce [animation-delay:0.2s]" />
-          <div className="h-1 w-1 rounded-full bg-white animate-bounce [animation-delay:0.4s]" />
         </div>
       </motion.div>
     </motion.div>
@@ -529,8 +511,6 @@ export default function App() {
   const [showAddItem, setShowAddItem] = useState(false);
   const [showBulkUpdate, setShowBulkUpdate] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const [splashTimerDone, setSplashTimerDone] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -736,14 +716,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Safety timeout for auth check to prevent loading hang
-    const safetyTimer = setTimeout(() => {
-      setIsAuthChecking(false);
-    }, 2500);
-
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      clearTimeout(safetyTimer);
-      setIsAuthChecking(false);
       if (user) {
         setIsLoggingIn(true);
         // Check for migration
@@ -797,7 +770,10 @@ export default function App() {
         safeStorage.removeItem('ts_guest_mode');
       } else {
         setState(prev => ({ ...prev, user: null }));
-        // Removed manual setIsInitializing(false) - SplashScreen handles transition
+        // If not in guest mode, we are definitely done initializing
+        if (safeStorage.getItem('ts_guest_mode') !== 'true') {
+          setIsInitializing(false);
+        }
       }
       setIsLoggingIn(false);
     });
@@ -846,37 +822,39 @@ export default function App() {
     }
   }, []);
 
-  // Final check for Splash Screen completion
-  useEffect(() => {
-    if (splashTimerDone && !isAuthChecking) {
-      // Transition immediately to main view
-      setIsInitializing(false);
-    }
-  }, [splashTimerDone, isAuthChecking]);
-
-  // Global safety fallback - if app is still loading after 6 seconds, force it to show
-  useEffect(() => {
-    const globalTimeout = setTimeout(() => {
-      if (isInitializing) {
-        console.warn("Global initialization timeout - forcing app load");
-        setIsInitializing(false);
-      }
-    }, 6000);
-    return () => clearTimeout(globalTimeout);
-  }, [isInitializing]);
-
   // --- Real-time Firestore Sync ---
   useEffect(() => {
     const targetUserId = state.isClientView ? state.clientShopId : state.user?.uid;
-    if (!targetUserId) return;
+    const isCloudSyncEnabled = state.isClientView || (state.user && state.settings.autoCloudSync);
+
+    if (!targetUserId || !isCloudSyncEnabled) {
+      // Local storage fallback if not logged in, not in client mode, or cloud sync disabled
+      if (!state.isClientView) {
+        const saved = safeStorage.getItem('price_manager_state');
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            setState(prev => ({ 
+              ...prev, 
+              items: parsed.items || [], 
+              notes: parsed.notes || [],
+              settings: { ...prev.settings, ...parsed.settings }
+            }));
+          } catch (e) {
+            console.error("Local load failed", e);
+          }
+        }
+      }
+      setIsInitializing(false);
+      return;
+    }
 
     const userDocRef = doc(db, 'users', targetUserId);
     
-    // Sync Settings: Always sync settings if user is logged in (or in client view)
-    // This allows toggling cloud sync smoothly and persisting preferences
+    // Sync Settings (Only if owner or if we want client to see owner's basic settings like currency)
     const unsubSettings = onSnapshot(userDocRef, (snap) => {
       if (snap.exists()) {
-        const data = snap.data() as Partial<AppSettings>;
+        const data = snap.data();
         setState(prev => ({ 
           ...prev, 
           settings: { 
@@ -891,48 +869,27 @@ export default function App() {
       if (!state.isClientView) handleFirestoreError(error, OperationType.GET, `users/${targetUserId}`);
     });
 
-    // Cloud Data Sync (Items & Notes)
-    let unsubItems = () => {};
-    let unsubNotes = () => {};
+    // Sync Items
+    const itemsRef = collection(db, 'users', targetUserId, 'items');
+    const unsubItems = onSnapshot(query(itemsRef, orderBy('lastUpdated', 'desc')), (snap) => {
+      const itemsList: Item[] = [];
+      snap.forEach(doc => itemsList.push({ ...doc.data() as Item, id: doc.id }));
+      setState(prev => ({ ...prev, items: itemsList }));
+      setIsInitializing(false);
+    }, (error) => {
+      if (!state.isClientView) handleFirestoreError(error, OperationType.LIST, `users/${targetUserId}/items`);
+      setIsInitializing(false);
+    });
 
-    const isCloudSyncEnabled = state.isClientView || state.settings.autoCloudSync;
-
-    if (isCloudSyncEnabled) {
-      // Sync Items
-      const itemsRef = collection(db, 'users', targetUserId, 'items');
-      unsubItems = onSnapshot(query(itemsRef, orderBy('lastUpdated', 'desc')), (snap) => {
-        const itemsList: Item[] = [];
-        snap.forEach(doc => itemsList.push({ ...doc.data() as Item, id: doc.id }));
-        setState(prev => ({ ...prev, items: itemsList }));
-      }, (error) => {
-        if (!state.isClientView) handleFirestoreError(error, OperationType.LIST, `users/${targetUserId}/items`);
-      });
-
-      // Sync Notes
-      const notesRef = collection(db, 'users', targetUserId, 'notes');
-      unsubNotes = onSnapshot(query(notesRef, orderBy('createdAt', 'desc')), (snap) => {
-        const notesList: Note[] = [];
-        snap.forEach(doc => notesList.push({ ...doc.data() as Note, id: doc.id }));
-        setState(prev => ({ ...prev, notes: notesList }));
-      }, (error) => {
-        if (!state.isClientView) handleFirestoreError(error, OperationType.LIST, `users/${targetUserId}/notes`);
-      });
-    } else if (!state.isClientView) {
-      // Local storage fallback for data when cloud sync is disabled
-      const saved = safeStorage.getItem('price_manager_state');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          setState(prev => ({ 
-            ...prev, 
-            items: parsed.items || [], 
-            notes: parsed.notes || []
-          }));
-        } catch (e) {
-          console.error("Local load failed", e);
-        }
-      }
-    }
+    // Sync Notes (Optional for client? Maybe they should only see "Public" notes? For now let's sync all as per request)
+    const notesRef = collection(db, 'users', targetUserId, 'notes');
+    const unsubNotes = onSnapshot(query(notesRef, orderBy('createdAt', 'desc')), (snap) => {
+      const notesList: Note[] = [];
+      snap.forEach(doc => notesList.push({ ...doc.data() as Note, id: doc.id }));
+      setState(prev => ({ ...prev, notes: notesList }));
+    }, (error) => {
+      if (!state.isClientView) handleFirestoreError(error, OperationType.LIST, `users/${targetUserId}/notes`);
+    });
 
     return () => {
       unsubSettings();
@@ -1269,7 +1226,7 @@ export default function App() {
       )}
     >
       <AnimatePresence>
-        {isInitializing && <SplashScreen onComplete={() => setSplashTimerDone(true)} />}
+        {isInitializing && <SplashScreen onComplete={() => setIsInitializing(false)} />}
         {!isInitializing && !state.user && !state.isGuest && !state.isClientView && (
           <AuthScreen 
             onGuest={handleGuestLogin}
@@ -1517,9 +1474,9 @@ export default function App() {
                 >
                   {t.all}
                 </Button>
-                {state.categories.map((cat, idx) => (
+                {state.categories.map(cat => (
                   <Button 
-                    key={`cat-${cat.id}-${idx}`}
+                    key={cat.id}
                     variant={selectedCategory === cat.id ? 'primary' : 'outline'}
                     size="sm"
                     className="whitespace-nowrap px-6 rounded-xl border-white/5"
@@ -1562,7 +1519,7 @@ export default function App() {
                   {filteredItems.length > 0 ? (
                     filteredItems.map((item, index) => (
                       <motion.div
-                        key={`item-${item.id}-${index}`}
+                        key={item.id}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95 }}
@@ -2827,8 +2784,8 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
                </div>
 
                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                 {LANGUAGES.map((lang, idx) => (
-                   <div key={`lang-${lang.id}-${idx}`} className="flex items-center gap-2 rounded-xl bg-[var(--card)] border border-[var(--border)] p-3 text-[10px] shadow-sm">
+                 {LANGUAGES.map(lang => (
+                   <div key={lang.id} className="flex items-center gap-2 rounded-xl bg-[var(--card)] border border-[var(--border)] p-3 text-[10px] shadow-sm">
                      <span className="opacity-80">{lang.emoji}</span>
                      <span className="flex-1 font-bold opacity-30 truncate">
                        {formData.translations[lang.id] || '---'}
@@ -2838,9 +2795,9 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
                </div>
 
                <div className="flex gap-2 overflow-x-auto no-scrollbar py-2">
-                 {categories.map((cat, idx) => (
+                 {categories.map(cat => (
                    <button
-                     key={`form-cat-${cat.id}-${idx}`}
+                     key={cat.id}
                      onClick={() => setFormData(prev => ({ ...prev, categoryId: cat.id }))}
                      className={cn(
                        "flex items-center gap-3 rounded-xl border-2 px-5 py-3 transition-all shrink-0 font-black text-[10px] uppercase",
@@ -3050,9 +3007,9 @@ function NotificationsView({
       </header>
 
       <div className="grid grid-cols-1 gap-3">
-        {allNotifications.map((notif, idx) => (
+        {allNotifications.map((notif) => (
           <motion.div
-            key={`notif-${notif.type}-${notif.id}-${idx}`}
+            key={`${notif.type}-${notif.id}`}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             onClick={() => notif.type === 'price' ? onViewItem(notif.itemId) : onViewNote(notif.id)}
@@ -3673,8 +3630,8 @@ function RecentPriceChanges({ items, t, precision }: { items: Item[]; t: any; pr
          <RotateCcw size={14} /> {t.recentPriceChanges}
        </div>
        <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
-         {recentChanges.map((item, idx) => (
-           <div key={`recent-${item.id}-${idx}`} className="flex-shrink-0 w-64 card p-4 border-white/5 bg-[var(--primary)]/5 rounded-2xl">
+         {recentChanges.map(item => (
+           <div key={item.id} className="flex-shrink-0 w-64 card p-4 border-white/5 bg-[var(--primary)]/5 rounded-2xl">
               <div className="flex items-center justify-between mb-3">
                  <div className="h-8 w-8 rounded-lg bg-[var(--background)] border border-[var(--border)] flex items-center justify-center text-xs">
                    {DEFAULT_CATEGORIES.find(c => c.id === item.categoryId)?.icon}
