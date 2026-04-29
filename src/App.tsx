@@ -441,8 +441,8 @@ function NotificationBar({
 
 function SplashScreen({ onComplete }: { onComplete: () => void }) {
   useEffect(() => {
-    // Standard professional delay for logo visibility
-    const timer = setTimeout(onComplete, 1500);
+    // Reduced delay for faster perceived loading while maintaining professional feel
+    const timer = setTimeout(onComplete, 1200);
     return () => clearTimeout(timer);
   }, [onComplete]);
 
@@ -719,63 +719,67 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setIsAuthChecking(false);
-      if (user) {
-        setIsLoggingIn(true);
-        // Check for migration
-        const guestData = safeStorage.getItem('price_manager_state');
-        const wasGuest = safeStorage.getItem('ts_guest_mode') === 'true';
-        
-        if (wasGuest && guestData) {
-          try {
-            const parsed = JSON.parse(guestData);
-            if (parsed.items?.length > 0 || parsed.notes?.length > 0) {
-              const batch = writeBatch(db);
-              
-              // Migrate Items
-              if (parsed.items) {
-                for (const item of parsed.items) {
-                  const ref = doc(collection(db, 'users', user.uid, 'items'));
-                  const { id, ...cleanItem } = item;
-                  batch.set(ref, { ...cleanItem, lastUpdated: new Date().toISOString() });
+      try {
+        if (user) {
+          setIsLoggingIn(true);
+          // Check for migration
+          const guestData = safeStorage.getItem('price_manager_state');
+          const wasGuest = safeStorage.getItem('ts_guest_mode') === 'true';
+          
+          if (wasGuest && guestData) {
+            try {
+              const parsed = JSON.parse(guestData);
+              if (parsed.items?.length > 0 || parsed.notes?.length > 0) {
+                const batch = writeBatch(db);
+                
+                // Migrate Items
+                if (parsed.items) {
+                  for (const item of parsed.items) {
+                    const ref = doc(collection(db, 'users', user.uid, 'items'));
+                    const { id, ...cleanItem } = item;
+                    batch.set(ref, { ...cleanItem, lastUpdated: new Date().toISOString() });
+                  }
                 }
-              }
-              
-              // Migrate Notes
-              if (parsed.notes) {
-                for (const note of parsed.notes) {
-                  const ref = doc(collection(db, 'users', user.uid, 'notes'));
-                  const { id, ...cleanNote } = note;
-                  batch.set(ref, { ...cleanNote, createdAt: new Date().toISOString() });
+                
+                // Migrate Notes
+                if (parsed.notes) {
+                  for (const note of parsed.notes) {
+                    const ref = doc(collection(db, 'users', user.uid, 'notes'));
+                    const { id, ...cleanNote } = note;
+                    batch.set(ref, { ...cleanNote, createdAt: new Date().toISOString() });
+                  }
                 }
-              }
 
-              // Migrate Settings
-              if (parsed.settings) {
-                const settingsRef = doc(db, 'users', user.uid);
-                batch.set(settingsRef, parsed.settings, { merge: true });
-              }
+                // Migrate Settings
+                if (parsed.settings) {
+                  const settingsRef = doc(db, 'users', user.uid);
+                  batch.set(settingsRef, parsed.settings, { merge: true });
+                }
 
-              await batch.commit();
-              // Clear guest mode after successful migration
-              safeStorage.removeItem('ts_guest_mode');
+                await batch.commit();
+                // Clear guest mode after successful migration
+                safeStorage.removeItem('ts_guest_mode');
+              }
+            } catch (e) {
+              console.error("Migration failed", e);
             }
-          } catch (e) {
-            console.error("Migration failed", e);
           }
-        }
 
-        setState(prev => ({ 
-          ...prev, 
-          user: { uid: user.uid, email: user.email },
-          isGuest: false
-        }));
-        safeStorage.removeItem('ts_guest_mode');
-      } else {
-        setState(prev => ({ ...prev, user: null }));
-        // Removed manual setIsInitializing(false) - SplashScreen handles transition
+          setState(prev => ({ 
+            ...prev, 
+            user: { uid: user.uid, email: user.email },
+            isGuest: false
+          }));
+          safeStorage.removeItem('ts_guest_mode');
+        } else {
+          setState(prev => ({ ...prev, user: null }));
+        }
+      } catch (err) {
+        console.error("Auth callback error", err);
+      } finally {
+        setIsLoggingIn(false);
+        setIsAuthChecking(false); // Move to final step to prevent login flash
       }
-      setIsLoggingIn(false);
     });
     return () => unsubscribe();
   }, []);
@@ -824,11 +828,21 @@ export default function App() {
 
   // Final check for Splash Screen completion
   useEffect(() => {
+    // Fail-safe: if auth checking doesn't respond in 5 seconds, proceed anyway
+    const failSafe = setTimeout(() => {
+      if (isAuthChecking) {
+        console.warn("Auth check timed out, proceeding...");
+        setIsAuthChecking(false);
+      }
+    }, 5000);
+
     if (splashTimerDone && !isAuthChecking) {
+      clearTimeout(failSafe);
       // Small additional delay for smoothness
-      const timer = setTimeout(() => setIsInitializing(false), 200);
+      const timer = setTimeout(() => setIsInitializing(false), 150);
       return () => clearTimeout(timer);
     }
+    return () => clearTimeout(failSafe);
   }, [splashTimerDone, isAuthChecking]);
 
   // --- Real-time Firestore Sync ---

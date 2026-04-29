@@ -19,11 +19,24 @@
         <style>
           @keyframes spin { to { transform: rotate(360deg); } }
         </style>
-        <p style="margin-top: 20px; font-weight: bold; letter-spacing: 0.1em; opacity: 0.5; font-size: 12px;">LOADING SYSTEM...</p>
+        <p style="margin-top: 20px; font-weight: bold; letter-spacing: 0.1em; opacity: 0.5; font-size: 12px; transition: opacity 0.5s;" id="load-msg">LOADING SYSTEM...</p>
+        <div id="re-load" style="display: none; margin-top: 20px;">
+           <button onclick="window.location.reload()" style="background: #f59e0b; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer;">RELOAD APPLICATION</button>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
+      // If JS doesn't replace the content within 8 seconds, something might be wrong
+      setTimeout(() => {
+        const msg = document.getElementById('load-msg');
+        const btn = document.getElementById('re-load');
+        if (msg && btn) {
+          msg.textContent = 'TAKING LONGER THAN USUAL...';
+          btn.style.display = 'block';
+        }
+      }, 10000);
+
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js').then(reg => {
