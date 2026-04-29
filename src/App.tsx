@@ -440,9 +440,21 @@ function NotificationBar({
 }
 
 function SplashScreen({ onComplete }: { onComplete: () => void }) {
+  const [status, setStatus] = useState("Initializing System...");
+
   useEffect(() => {
-    // Standard professional delay for logo visibility
-    const timer = setTimeout(onComplete, 1500);
+    const statusSequence = [
+      { time: 0, text: "Booting Intelligence..." },
+      { time: 400, text: "Securing Connection..." },
+      { time: 800, text: "Syncing Cloud Assets..." }
+    ];
+
+    statusSequence.forEach(({ time, text }) => {
+      setTimeout(() => setStatus(text), time);
+    });
+
+    // Shorter delay for faster app entry while still keeping brand visibility
+    const timer = setTimeout(onComplete, 1200);
     return () => clearTimeout(timer);
   }, [onComplete]);
 
@@ -479,18 +491,24 @@ function SplashScreen({ onComplete }: { onComplete: () => void }) {
              <span className="text-amber-500">PRICE</span> 
              <span className="bg-clip-text text-transparent bg-gradient-to-r from-white/70 to-white">MANAGER</span>
           </h1>
-          <p className="mt-3 text-[9px] font-black uppercase tracking-[0.6em] text-amber-500/50">
-            Enterprise Cloud v2.6.2
+          <p className="mt-2 text-[10px] font-black uppercase tracking-[0.3em] text-white/40">
+            {status}
           </p>
         </motion.div>
         
-        <div className="mt-14 w-40 h-1 bg-white/5 rounded-full overflow-hidden relative">
+        <div className="mt-12 w-48 h-1 bg-white/5 rounded-full overflow-hidden relative">
           <motion.div 
             className="absolute inset-y-0 left-0 bg-gradient-to-r from-amber-600 to-amber-400"
             initial={{ width: "0%" }}
             animate={{ width: "100%" }}
-            transition={{ duration: 1.2, ease: "easeInOut" }}
+            transition={{ duration: 1.5, ease: "easeInOut" }}
           />
+        </div>
+
+        <div className="mt-8 flex items-center gap-2 opacity-20">
+          <div className="h-1 w-1 rounded-full bg-white animate-bounce" />
+          <div className="h-1 w-1 rounded-full bg-white animate-bounce [animation-delay:0.2s]" />
+          <div className="h-1 w-1 rounded-full bg-white animate-bounce [animation-delay:0.4s]" />
         </div>
       </motion.div>
     </motion.div>
@@ -720,11 +738,8 @@ export default function App() {
   useEffect(() => {
     // Safety timeout for auth check to prevent loading hang
     const safetyTimer = setTimeout(() => {
-      if (isAuthChecking) {
-        console.warn("Auth check timed out, proceeding...");
-        setIsAuthChecking(false);
-      }
-    }, 4000);
+      setIsAuthChecking(false);
+    }, 2500);
 
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       clearTimeout(safetyTimer);
@@ -834,11 +849,21 @@ export default function App() {
   // Final check for Splash Screen completion
   useEffect(() => {
     if (splashTimerDone && !isAuthChecking) {
-      // Small additional delay for smoothness
-      const timer = setTimeout(() => setIsInitializing(false), 200);
-      return () => clearTimeout(timer);
+      // Transition immediately to main view
+      setIsInitializing(false);
     }
   }, [splashTimerDone, isAuthChecking]);
+
+  // Global safety fallback - if app is still loading after 6 seconds, force it to show
+  useEffect(() => {
+    const globalTimeout = setTimeout(() => {
+      if (isInitializing) {
+        console.warn("Global initialization timeout - forcing app load");
+        setIsInitializing(false);
+      }
+    }, 6000);
+    return () => clearTimeout(globalTimeout);
+  }, [isInitializing]);
 
   // --- Real-time Firestore Sync ---
   useEffect(() => {
