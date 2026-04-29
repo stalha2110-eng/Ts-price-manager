@@ -441,8 +441,8 @@ function NotificationBar({
 
 function SplashScreen({ onComplete }: { onComplete: () => void }) {
   useEffect(() => {
-    // Faster timeout for better UX
-    const timer = setTimeout(onComplete, 1200);
+    // Standard professional delay for logo visibility
+    const timer = setTimeout(onComplete, 1500);
     return () => clearTimeout(timer);
   }, [onComplete]);
 
@@ -511,6 +511,8 @@ export default function App() {
   const [showAddItem, setShowAddItem] = useState(false);
   const [showBulkUpdate, setShowBulkUpdate] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [splashTimerDone, setSplashTimerDone] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -716,7 +718,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Safety timeout for auth check to prevent loading hang
+    const safetyTimer = setTimeout(() => {
+      if (isAuthChecking) {
+        console.warn("Auth check timed out, proceeding...");
+        setIsAuthChecking(false);
+      }
+    }, 4000);
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      clearTimeout(safetyTimer);
+      setIsAuthChecking(false);
       if (user) {
         setIsLoggingIn(true);
         // Check for migration
@@ -770,10 +782,7 @@ export default function App() {
         safeStorage.removeItem('ts_guest_mode');
       } else {
         setState(prev => ({ ...prev, user: null }));
-        // If not in guest mode, we are definitely done initializing
-        if (safeStorage.getItem('ts_guest_mode') !== 'true') {
-          setIsInitializing(false);
-        }
+        // Removed manual setIsInitializing(false) - SplashScreen handles transition
       }
       setIsLoggingIn(false);
     });
@@ -822,39 +831,27 @@ export default function App() {
     }
   }, []);
 
+  // Final check for Splash Screen completion
+  useEffect(() => {
+    if (splashTimerDone && !isAuthChecking) {
+      // Small additional delay for smoothness
+      const timer = setTimeout(() => setIsInitializing(false), 200);
+      return () => clearTimeout(timer);
+    }
+  }, [splashTimerDone, isAuthChecking]);
+
   // --- Real-time Firestore Sync ---
   useEffect(() => {
     const targetUserId = state.isClientView ? state.clientShopId : state.user?.uid;
-    const isCloudSyncEnabled = state.isClientView || (state.user && state.settings.autoCloudSync);
-
-    if (!targetUserId || !isCloudSyncEnabled) {
-      // Local storage fallback if not logged in, not in client mode, or cloud sync disabled
-      if (!state.isClientView) {
-        const saved = safeStorage.getItem('price_manager_state');
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            setState(prev => ({ 
-              ...prev, 
-              items: parsed.items || [], 
-              notes: parsed.notes || [],
-              settings: { ...prev.settings, ...parsed.settings }
-            }));
-          } catch (e) {
-            console.error("Local load failed", e);
-          }
-        }
-      }
-      setIsInitializing(false);
-      return;
-    }
+    if (!targetUserId) return;
 
     const userDocRef = doc(db, 'users', targetUserId);
     
-    // Sync Settings (Only if owner or if we want client to see owner's basic settings like currency)
+    // Sync Settings: Always sync settings if user is logged in (or in client view)
+    // This allows toggling cloud sync smoothly and persisting preferences
     const unsubSettings = onSnapshot(userDocRef, (snap) => {
       if (snap.exists()) {
-        const data = snap.data();
+        const data = snap.data() as Partial<AppSettings>;
         setState(prev => ({ 
           ...prev, 
           settings: { 
@@ -869,27 +866,48 @@ export default function App() {
       if (!state.isClientView) handleFirestoreError(error, OperationType.GET, `users/${targetUserId}`);
     });
 
-    // Sync Items
-    const itemsRef = collection(db, 'users', targetUserId, 'items');
-    const unsubItems = onSnapshot(query(itemsRef, orderBy('lastUpdated', 'desc')), (snap) => {
-      const itemsList: Item[] = [];
-      snap.forEach(doc => itemsList.push({ ...doc.data() as Item, id: doc.id }));
-      setState(prev => ({ ...prev, items: itemsList }));
-      setIsInitializing(false);
-    }, (error) => {
-      if (!state.isClientView) handleFirestoreError(error, OperationType.LIST, `users/${targetUserId}/items`);
-      setIsInitializing(false);
-    });
+    // Cloud Data Sync (Items & Notes)
+    let unsubItems = () => {};
+    let unsubNotes = () => {};
 
-    // Sync Notes (Optional for client? Maybe they should only see "Public" notes? For now let's sync all as per request)
-    const notesRef = collection(db, 'users', targetUserId, 'notes');
-    const unsubNotes = onSnapshot(query(notesRef, orderBy('createdAt', 'desc')), (snap) => {
-      const notesList: Note[] = [];
-      snap.forEach(doc => notesList.push({ ...doc.data() as Note, id: doc.id }));
-      setState(prev => ({ ...prev, notes: notesList }));
-    }, (error) => {
-      if (!state.isClientView) handleFirestoreError(error, OperationType.LIST, `users/${targetUserId}/notes`);
-    });
+    const isCloudSyncEnabled = state.isClientView || state.settings.autoCloudSync;
+
+    if (isCloudSyncEnabled) {
+      // Sync Items
+      const itemsRef = collection(db, 'users', targetUserId, 'items');
+      unsubItems = onSnapshot(query(itemsRef, orderBy('lastUpdated', 'desc')), (snap) => {
+        const itemsList: Item[] = [];
+        snap.forEach(doc => itemsList.push({ ...doc.data() as Item, id: doc.id }));
+        setState(prev => ({ ...prev, items: itemsList }));
+      }, (error) => {
+        if (!state.isClientView) handleFirestoreError(error, OperationType.LIST, `users/${targetUserId}/items`);
+      });
+
+      // Sync Notes
+      const notesRef = collection(db, 'users', targetUserId, 'notes');
+      unsubNotes = onSnapshot(query(notesRef, orderBy('createdAt', 'desc')), (snap) => {
+        const notesList: Note[] = [];
+        snap.forEach(doc => notesList.push({ ...doc.data() as Note, id: doc.id }));
+        setState(prev => ({ ...prev, notes: notesList }));
+      }, (error) => {
+        if (!state.isClientView) handleFirestoreError(error, OperationType.LIST, `users/${targetUserId}/notes`);
+      });
+    } else if (!state.isClientView) {
+      // Local storage fallback for data when cloud sync is disabled
+      const saved = safeStorage.getItem('price_manager_state');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setState(prev => ({ 
+            ...prev, 
+            items: parsed.items || [], 
+            notes: parsed.notes || []
+          }));
+        } catch (e) {
+          console.error("Local load failed", e);
+        }
+      }
+    }
 
     return () => {
       unsubSettings();
@@ -1226,7 +1244,7 @@ export default function App() {
       )}
     >
       <AnimatePresence>
-        {isInitializing && <SplashScreen onComplete={() => setIsInitializing(false)} />}
+        {isInitializing && <SplashScreen onComplete={() => setSplashTimerDone(true)} />}
         {!isInitializing && !state.user && !state.isGuest && !state.isClientView && (
           <AuthScreen 
             onGuest={handleGuestLogin}
@@ -1474,9 +1492,9 @@ export default function App() {
                 >
                   {t.all}
                 </Button>
-                {state.categories.map(cat => (
+                {state.categories.map((cat, idx) => (
                   <Button 
-                    key={cat.id}
+                    key={`cat-${cat.id}-${idx}`}
                     variant={selectedCategory === cat.id ? 'primary' : 'outline'}
                     size="sm"
                     className="whitespace-nowrap px-6 rounded-xl border-white/5"
@@ -1519,7 +1537,7 @@ export default function App() {
                   {filteredItems.length > 0 ? (
                     filteredItems.map((item, index) => (
                       <motion.div
-                        key={item.id}
+                        key={`item-${item.id}-${index}`}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95 }}
@@ -2784,8 +2802,8 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
                </div>
 
                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                 {LANGUAGES.map(lang => (
-                   <div key={lang.id} className="flex items-center gap-2 rounded-xl bg-[var(--card)] border border-[var(--border)] p-3 text-[10px] shadow-sm">
+                 {LANGUAGES.map((lang, idx) => (
+                   <div key={`lang-${lang.id}-${idx}`} className="flex items-center gap-2 rounded-xl bg-[var(--card)] border border-[var(--border)] p-3 text-[10px] shadow-sm">
                      <span className="opacity-80">{lang.emoji}</span>
                      <span className="flex-1 font-bold opacity-30 truncate">
                        {formData.translations[lang.id] || '---'}
@@ -2795,9 +2813,9 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
                </div>
 
                <div className="flex gap-2 overflow-x-auto no-scrollbar py-2">
-                 {categories.map(cat => (
+                 {categories.map((cat, idx) => (
                    <button
-                     key={cat.id}
+                     key={`form-cat-${cat.id}-${idx}`}
                      onClick={() => setFormData(prev => ({ ...prev, categoryId: cat.id }))}
                      className={cn(
                        "flex items-center gap-3 rounded-xl border-2 px-5 py-3 transition-all shrink-0 font-black text-[10px] uppercase",
@@ -3007,9 +3025,9 @@ function NotificationsView({
       </header>
 
       <div className="grid grid-cols-1 gap-3">
-        {allNotifications.map((notif) => (
+        {allNotifications.map((notif, idx) => (
           <motion.div
-            key={`${notif.type}-${notif.id}`}
+            key={`notif-${notif.type}-${notif.id}-${idx}`}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             onClick={() => notif.type === 'price' ? onViewItem(notif.itemId) : onViewNote(notif.id)}
@@ -3630,8 +3648,8 @@ function RecentPriceChanges({ items, t, precision }: { items: Item[]; t: any; pr
          <RotateCcw size={14} /> {t.recentPriceChanges}
        </div>
        <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
-         {recentChanges.map(item => (
-           <div key={item.id} className="flex-shrink-0 w-64 card p-4 border-white/5 bg-[var(--primary)]/5 rounded-2xl">
+         {recentChanges.map((item, idx) => (
+           <div key={`recent-${item.id}-${idx}`} className="flex-shrink-0 w-64 card p-4 border-white/5 bg-[var(--primary)]/5 rounded-2xl">
               <div className="flex items-center justify-between mb-3">
                  <div className="h-8 w-8 rounded-lg bg-[var(--background)] border border-[var(--border)] flex items-center justify-center text-xs">
                    {DEFAULT_CATEGORIES.find(c => c.id === item.categoryId)?.icon}
