@@ -51,6 +51,7 @@ import {
   PlusCircle,
   X,
   Minimize2,
+  Share2,
   Type,
   Maximize2,
   Mic,
@@ -78,7 +79,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { Button } from './components/ui/Button';
 import { PINScreen } from './components/ui/PINScreen';
 import { UnitSelectorModal } from './components/ui/UnitSelectorModal';
@@ -166,13 +167,41 @@ const INITIAL_SETTINGS: AppSettings = {
   deviceName: getDeviceName(),
 };
 
-const INITIAL_STATE: AppState = {
-  items: [],
-  notes: [],
-  categories: DEFAULT_CATEGORIES,
-  settings: INITIAL_SETTINGS,
-  user: null,
+const getInitialState = (): AppState => {
+  const savedSettings = localStorage.getItem('price_manager_settings');
+  const savedState = localStorage.getItem('price_manager_state');
+  
+  let settings = INITIAL_SETTINGS;
+  if (savedSettings) {
+    try {
+      settings = { ...INITIAL_SETTINGS, ...JSON.parse(savedSettings) };
+    } catch (e) {
+      console.error("Failed to parse saved settings", e);
+    }
+  }
+
+  let items = [];
+  let notes = [];
+  if (savedState) {
+    try {
+      const parsed = JSON.parse(savedState);
+      items = parsed.items || [];
+      notes = parsed.notes || [];
+    } catch (e) {
+      console.error("Failed to parse saved state", e);
+    }
+  }
+
+  return {
+    items,
+    notes,
+    categories: DEFAULT_CATEGORIES,
+    settings,
+    user: null,
+  };
 };
+
+const INITIAL_STATE: AppState = getInitialState();
 
 interface Alert {
   id: string;
@@ -464,6 +493,9 @@ export default function App() {
   const [notesExpanded, setNotesExpanded] = useState(true);
   const [showAddNote, setShowAddNote] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
 
   // Deletion state
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
@@ -511,48 +543,150 @@ export default function App() {
   };
 
   // --- Data Management ---
-  const exportToExcel = () => {
-    const data = state.items.map(item => ({
-      Name: item.name,
-      Category: state.categories.find(c => c.id === item.categoryId)?.name || 'Unknown',
-      Quantity: `${item.quantity} ${item.unit}`,
-      'Buying Price': `₹${item.buyingPrice}/${item.buyingPriceUnit}`,
-      'Wholesale Price': `₹${item.wholesalePrice}/${item.wholesalePriceUnit}`,
-      'Retail Price': `₹${item.retailPrice}/${item.retailPriceUnit}`,
-      'Last Updated': new Date(item.lastUpdated).toLocaleString()
-    }));
+  const exportToExcel = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    
+    try {
+      // Simulate slight delay for UI feedback
+      await new Promise(resolve => setTimeout(resolve, 800));
 
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Inventory');
-    XLSX.writeFile(wb, `TS_PRICE_MANAGER_Inventory_${new Date().toISOString().split('T')[0]}.xlsx`);
+      const data = state.items.map(item => ({
+        'Product Name': item.translations[state.settings.language] || item.translations.en,
+        'Retail Price': `₹${formatNumber(item.retailPrice, state.settings.pricePrecision)}/${item.retailPriceUnit}`,
+        'Wholesale Price': `₹${formatNumber(item.wholesalePrice, state.settings.pricePrecision)}/${item.wholesalePriceUnit}`
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(data);
+      
+      // Auto-adjust column widths
+      const colWidths = [
+        { wch: 30 }, // Product Name
+        { wch: 15 }, // Retail Price
+        { wch: 15 }  // Wholesale Price
+      ];
+      ws['!cols'] = colWidths;
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Product List');
+      
+      XLSX.writeFile(wb, `TS_PRICE_LIST_${new Date().toISOString().split('T')[0]}.xlsx`);
+      alert("Excel export successful!");
+    } catch (error) {
+      console.error("Excel export failed", error);
+      alert("Failed to export Excel. Please try again.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
-  const exportToPDF = () => {
-    const doc = new jsPDF();
-    doc.setFontSize(20);
-    doc.text('TS PRICE MANAGER - Inventory Report', 14, 22);
-    doc.setFontSize(11);
-    doc.setTextColor(100);
-    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
+  const exportToPDF = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    
+    try {
+      // Simulate slight delay for UI feedback
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-    const tableData = state.items.map(item => [
-      item.name,
-      state.categories.find(c => c.id === item.categoryId)?.name || 'N/A',
-      `${item.quantity} ${item.unit}`,
-      `₹${item.retailPrice}`,
-      `₹${item.wholesalePrice}`
-    ]);
+      const doc = new jsPDF();
+      
+      // Header
+      doc.setFillColor(31, 41, 55); // Dark Slate
+      doc.rect(0, 0, 210, 40, 'F');
+      
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(24);
+      doc.setFont('helvetica', 'bold');
+      doc.text('TS PRICE MANAGER', 14, 20);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text('PROFESSIONAL PRODUCT PRICE LIST', 14, 28);
+      
+      doc.setTextColor(200, 200, 200);
+      doc.text(`Generated: ${new Date().toLocaleString()}`, 150, 28);
 
-    (doc as any).autoTable({
-      startY: 35,
-      head: [['Item Name', 'Category', 'Stock', 'Retail', 'Wholesale']],
-      body: tableData,
-      theme: 'grid',
-      headStyles: { fillStyle: '#1e3a8a', textColor: 255 },
-    });
+      const tableData = state.items.map(item => [
+        item.translations[state.settings.language] || item.translations.en,
+        `₹${formatNumber(item.retailPrice, state.settings.pricePrecision)}/${item.retailPriceUnit}`,
+        `₹${formatNumber(item.wholesalePrice, state.settings.pricePrecision)}/${item.wholesalePriceUnit}`
+      ]);
 
-    doc.save(`TS_PRICE_MANAGER_Inventory_${new Date().toISOString().split('T')[0]}.pdf`);
+      autoTable(doc, {
+        startY: 50,
+        head: [['Product Name', 'Retail Price', 'Wholesale Price']],
+        body: tableData,
+        theme: 'striped',
+        headStyles: { 
+          fillColor: [79, 70, 229], // Indigo
+          textColor: 255,
+          fontSize: 10,
+          fontStyle: 'bold',
+          halign: 'left'
+        },
+        columnStyles: {
+          0: { cellWidth: 100 },
+          1: { halign: 'right' },
+          2: { halign: 'right' }
+        },
+        alternateRowStyles: {
+          fillColor: [249, 250, 251]
+        },
+        margin: { top: 50 },
+        styles: {
+          fontSize: 9,
+          cellPadding: 4
+        }
+      });
+
+      // Footer
+      const pageCount = (doc as any).internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(150);
+        doc.text(`Page ${i} of ${pageCount} | TS Price Manager Core System`, 14, doc.internal.pageSize.height - 10);
+      }
+
+      doc.save(`TS_PRICE_LIST_${new Date().toISOString().split('T')[0]}.pdf`);
+      alert("PDF export successful!");
+    } catch (error) {
+      console.error("PDF export failed", error);
+      alert("Failed to export PDF. Please try again.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleShareProductList = async () => {
+    if (isSharing) return;
+    setIsSharing(true);
+
+    try {
+      if (state.items.length === 0) {
+        alert("Product list is empty!");
+        return;
+      }
+
+      let message = "*Product List*\n\n";
+      state.items.forEach((item, index) => {
+        const name = item.translations[state.settings.language] || item.translations.en;
+        message += `${index + 1}. *${name}*\nRetail Price: ₹${formatNumber(item.retailPrice, state.settings.pricePrecision)}/${item.retailPriceUnit}\nWholesale Price: ₹${formatNumber(item.wholesalePrice, state.settings.pricePrecision)}/${item.wholesalePriceUnit}\n\n`;
+      });
+      message += "Thank you.";
+
+      const encodedMessage = encodeURIComponent(message);
+      const whatsappUrl = `https://wa.me/?text=${encodedMessage}`;
+      
+      // Try to open WhatsApp
+      window.open(whatsappUrl, '_blank');
+      
+    } catch (error) {
+      console.error("Sharing failed", error);
+      alert("Failed to share product list.");
+    } finally {
+      setIsSharing(false);
+    }
   };
 
   const importData = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -623,21 +757,6 @@ export default function App() {
   // --- Real-time Firestore Sync ---
   useEffect(() => {
     if (!state.user || !state.settings.autoCloudSync) {
-      // Local storage fallback if not logged in or cloud sync disabled
-      const saved = localStorage.getItem('price_manager_state');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          setState(prev => ({ 
-            ...prev, 
-            items: parsed.items || [], 
-            notes: parsed.notes || [],
-            settings: { ...prev.settings, ...parsed.settings }
-          }));
-        } catch (e) {
-          console.error("Local load failed", e);
-        }
-      }
       return;
     }
 
@@ -731,10 +850,14 @@ export default function App() {
 
   // Separate Effect for Persistence
   useEffect(() => {
+    // Always persist settings to localStorage for consistent boot-up
+    localStorage.setItem('price_manager_settings', JSON.stringify(state.settings));
+    
+    // Only persist full state if cloud sync is off or user is guest
     if (!state.user || !state.settings.autoCloudSync) {
       localStorage.setItem('price_manager_state', JSON.stringify(state));
     }
-  }, [state.items, state.notes, state.settings, state.user, state.settings.autoCloudSync]);
+  }, [state.items, state.notes, state.settings, state.user]);
 
   const t = UI_TEXT[state.settings.language];
   const precision = state.settings.pricePrecision || 0;
@@ -755,20 +878,44 @@ export default function App() {
 
   // --- Handlers ---
   const handleUpdateSettings = useCallback(async (updates: Partial<AppSettings>) => {
+    if (isSyncing) return;
+    
+    // Set syncing flag if autoCloudSync is being toggled
+    const isTogglingSync = 'autoCloudSync' in updates;
+    if (isTogglingSync) setIsSyncing(true);
+
     try {
-      if (state.user && state.settings.autoCloudSync) {
-        await setDoc(doc(db, 'users', state.user.uid), updates, { merge: true });
-      }
-      
+      // Local state update first (Responsive UI)
       setState(prev => ({
         ...prev,
         settings: { ...prev.settings, ...updates }
       }));
+
+      // Cloud Persistence
+      if (state.user && (updates.autoCloudSync ?? state.settings.autoCloudSync)) {
+        await setDoc(doc(db, 'users', state.user.uid), updates, { merge: true });
+      }
+
+      // If we just enabled sync, ensure local storage doesn't conflict
+      if (updates.autoCloudSync === true) {
+        alert("Cloud Synchronization Enabled Successfully.");
+      } else if (updates.autoCloudSync === false) {
+        alert("Cloud Synchronization Disabled. Data will be saved locally.");
+      }
+
     } catch (e) {
       console.error("Settings update failed", e);
       alert(t.error + ": " + (e instanceof Error ? e.message : 'Unknown error'));
+      
+      // Rollback local state if cloud sync was intended but failed
+      setState(prev => ({ ...prev })); 
+    } finally {
+      if (isTogglingSync) {
+        // Minimum delay for animation visibility
+        setTimeout(() => setIsSyncing(false), 600);
+      }
     }
-  }, [state.user, state.settings.autoCloudSync, t.error]);
+  }, [state.user, state.settings.autoCloudSync, t.error, isSyncing]);
 
   const handleAddItem = useCallback(async (data: Omit<Item, 'id' | 'lastUpdated'>) => {
     try {
@@ -1314,32 +1461,34 @@ export default function App() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 20 }}
           >
-            <SettingsScreen 
-              state={state} 
-              t={t} 
-              onUpdate={handleUpdateSettings} 
-              onShowHelp={() => setShowHelp(true)}
-              onResetPIN={() => {
-                if (state.settings.pin) {
-                  setIsVerifyingOldPIN(true);
-                  setShowChangePIN(true);
-                } else {
-                  setIsVerifyingOldPIN(false);
-                  setShowChangePIN(true);
-                }
-              }}
-              onExportExcel={exportToExcel}
-              onExportPDF={exportToPDF}
-              onImport={importData}
-              onBackup={handleBackup}
-              onRestore={handleRestore}
-              onClearCache={() => {
-                if (confirm('Wipe everything?')) {
-                  localStorage.clear();
-                  window.location.reload();
-                }
-              }}
-            />
+          <SettingsScreen 
+            state={state} 
+            t={t} 
+            onUpdate={handleUpdateSettings} 
+            onShowHelp={() => setShowHelp(true)}
+            onResetPIN={() => {
+              if (state.settings.pin) {
+                setIsVerifyingOldPIN(true);
+                setShowChangePIN(true);
+              } else {
+                setIsVerifyingOldPIN(false);
+                setShowChangePIN(true);
+              }
+            }}
+            onExportExcel={exportToExcel}
+            onExportPDF={exportToPDF}
+            onImport={importData}
+            onBackup={handleBackup}
+            onRestore={handleRestore}
+            onClearCache={() => {
+              if (confirm('Wipe everything?')) {
+                localStorage.clear();
+                window.location.reload();
+              }
+            }}
+            isSyncing={isSyncing}
+            isExporting={isExporting}
+          />
           </motion.div>
         )}
 
@@ -1350,7 +1499,14 @@ export default function App() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 20 }}
           >
-            <ProfileScreen state={state} t={t} deferredPrompt={deferredPrompt} onInstall={handleInstallClick} />
+            <ProfileScreen 
+              state={state} 
+              t={t} 
+              deferredPrompt={deferredPrompt} 
+              onInstall={handleInstallClick} 
+              onShareProductList={handleShareProductList}
+              isSharing={isSharing}
+            />
           </motion.div>
         )}
         </AnimatePresence>
@@ -2518,7 +2674,8 @@ function NotificationsView({
 
 function SettingsScreen({ 
   state, t, onUpdate, onShowHelp, onResetPIN,
-  onExportExcel, onExportPDF, onImport, onBackup, onRestore, onClearCache 
+  onExportExcel, onExportPDF, onImport, onBackup, onRestore, onClearCache,
+  isSyncing, isExporting
 }: { 
   state: AppState; t: any; onUpdate: (u: any) => void; onShowHelp: () => void; onResetPIN: () => void;
   onExportExcel: () => void;
@@ -2527,6 +2684,8 @@ function SettingsScreen({
   onBackup: () => void;
   onRestore: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onClearCache: () => void;
+  isSyncing: boolean;
+  isExporting: boolean;
 }) {
   const accentOptions = [
     { id: 'indigo', color: '#6366f1' },
@@ -2684,20 +2843,32 @@ function SettingsScreen({
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-8 border-t border-[var(--border)]">
+            <div className="flex items-center justify-between pt-8 border-t border-[var(--border)] overflow-hidden">
               <div>
                 <h4 className="font-black uppercase tracking-tight text-sm">{t.cloudSync}</h4>
                 <p className="text-[10px] opacity-40 font-black mt-1 uppercase tracking-widest leading-relaxed">{t.firebaseSync}</p>
               </div>
-              <button 
-                onClick={() => onUpdate({ autoCloudSync: !state.settings.autoCloudSync })}
-                className={cn(
-                  "h-8 w-16 rounded-full transition-all relative overflow-hidden ring-1 ring-white/10 shadow-inner",
-                  state.settings.autoCloudSync ? "bg-blue-500" : "bg-slate-800"
+              <div className="flex items-center gap-3">
+                {isSyncing && (
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                    className="text-[var(--primary)]"
+                  >
+                    <RefreshCw size={16} />
+                  </motion.div>
                 )}
-              >
-                <div className={cn("absolute top-1 left-1 h-6 w-6 rounded-full bg-white shadow-xl transition-all", state.settings.autoCloudSync ? "translate-x-8" : "")} />
-              </button>
+                <button 
+                  disabled={isSyncing}
+                  onClick={() => onUpdate({ autoCloudSync: !state.settings.autoCloudSync })}
+                  className={cn(
+                    "h-8 w-16 rounded-full transition-all relative overflow-hidden ring-1 ring-white/10 shadow-inner disabled:opacity-50",
+                    state.settings.autoCloudSync ? "bg-blue-500" : "bg-slate-800"
+                  )}
+                >
+                  <div className={cn("absolute top-1 left-1 h-6 w-6 rounded-full bg-white shadow-xl transition-all", state.settings.autoCloudSync ? "translate-x-8" : "")} />
+                </button>
+              </div>
             </div>
             
             <div className="flex items-center justify-between pt-8 border-t border-[var(--border)]">
@@ -2729,11 +2900,23 @@ function SettingsScreen({
             <div className="card p-6 rounded-[2rem] border-white/5 space-y-6">
                <h4 className="text-xs font-black uppercase tracking-widest opacity-40">{t.exportVectors}</h4>
                <div className="flex flex-col gap-3">
-                  <Button onClick={onExportExcel} variant="outline" className="justify-start gap-3 rounded-xl py-6 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10">
-                    <FileSpreadsheet size={18} /> <span className="text-[10px] font-black uppercase">Export Data to Excel</span>
+                  <Button 
+                    onClick={onExportExcel} 
+                    disabled={isExporting}
+                    variant="outline" 
+                    className="justify-start gap-3 rounded-xl py-6 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10 disabled:opacity-50"
+                  >
+                    {isExporting ? <RefreshCw size={18} className="animate-spin" /> : <FileSpreadsheet size={18} />} 
+                    <span className="text-[10px] font-black uppercase">{isExporting ? 'Processing...' : 'Export Data to Excel'}</span>
                   </Button>
-                  <Button onClick={onExportPDF} variant="outline" className="justify-start gap-3 rounded-xl py-6 border-red-500/20 text-red-500 hover:bg-red-500/10">
-                    <FilePdf size={18} /> <span className="text-[10px] font-black uppercase">Export Data to PDF</span>
+                  <Button 
+                    onClick={onExportPDF} 
+                    disabled={isExporting}
+                    variant="outline" 
+                    className="justify-start gap-3 rounded-xl py-6 border-red-500/20 text-red-500 hover:bg-red-500/10 disabled:opacity-50"
+                  >
+                    {isExporting ? <RefreshCw size={18} className="animate-spin" /> : <FilePdf size={18} />} 
+                    <span className="text-[10px] font-black uppercase">{isExporting ? 'Processing...' : 'Export Data to PDF'}</span>
                   </Button>
                </div>
             </div>
@@ -2843,7 +3026,14 @@ function SettingsScreen({
   );
 }
 
-function ProfileScreen({ state, t, deferredPrompt, onInstall }: { state: AppState; t: any; deferredPrompt: any; onInstall: () => void }) {
+function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareProductList, isSharing }: { 
+  state: AppState; 
+  t: any; 
+  deferredPrompt: any; 
+  onInstall: () => void;
+  onShareProductList: () => void;
+  isSharing: boolean;
+}) {
   const handleAuth = async () => {
     if (state.user) {
       await auth.signOut();
@@ -2929,32 +3119,39 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall }: { state: AppStat
          {/* Secondary Hub Actions */}
          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <button 
-              onClick={() => {
-                  const message = encodeURIComponent(`Check out TS PRICE MANAGER: ${window.location.host}`);
-                  window.open(`https://wa.me/?text=${message}`, '_blank');
-              }}
-              className="flex items-center justify-between p-6 bg-[var(--card)] border border-[var(--border)] rounded-[2rem] hover:border-green-500/30 hover:bg-green-500/5 transition-all group"
+              disabled={isSharing}
+              onClick={onShareProductList}
+              className="flex items-center justify-between p-6 bg-[var(--card)] border border-[var(--border)] rounded-[2rem] hover:border-green-500/30 hover:bg-green-500/5 transition-all group disabled:opacity-50"
             >
                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-2xl bg-green-500/10 text-green-500 flex items-center justify-center transition-colors group-hover:bg-green-500 group-hover:text-white">
-                     <MessageSquare size={22} />
+                  <div className={cn(
+                    "h-12 w-12 rounded-2xl flex items-center justify-center transition-colors group-hover:bg-green-500 group-hover:text-white",
+                    isSharing ? "bg-green-500 text-white" : "bg-green-500/10 text-green-500"
+                  )}>
+                     {isSharing ? <RefreshCw size={22} className="animate-spin" /> : <MessageSquare size={22} />}
                   </div>
                   <div className="text-left">
-                     <p className="text-sm font-black uppercase group-hover:text-green-500 transition-colors">{t.clientShare}</p>
-                     <p className="text-[8px] font-bold opacity-40 uppercase tracking-widest">{t.whatsappBroadcast}</p>
+                     <p className="text-sm font-black uppercase group-hover:text-green-500 transition-colors">Share Product List</p>
+                     <p className="text-[8px] font-bold opacity-40 uppercase tracking-widest">{t.whatsappBroadcast || "WhatsApp Broadcast"}</p>
                   </div>
                </div>
                <ChevronRight size={16} className="opacity-20 group-hover:translate-x-1 transition-transform" />
             </button>
- 
-            <button className="flex items-center justify-between p-6 bg-[var(--card)] border border-[var(--border)] rounded-[2rem] hover:border-blue-500/30 hover:bg-blue-500/5 transition-all group">
+
+            <button 
+              onClick={() => {
+                  const message = encodeURIComponent(`Check out TS PRICE MANAGER: ${window.location.host}`);
+                  window.open(`https://wa.me/?text=${message}`, '_blank');
+              }}
+              className="flex items-center justify-between p-6 bg-[var(--card)] border border-[var(--border)] rounded-[2rem] hover:border-blue-500/30 hover:bg-blue-500/5 transition-all group"
+            >
                <div className="flex items-center gap-4">
                   <div className="h-12 w-12 rounded-2xl bg-blue-500/10 text-blue-500 flex items-center justify-center transition-colors group-hover:bg-blue-500 group-hover:text-white">
-                     <Database size={22} />
+                     <Share2 size={22} />
                   </div>
                   <div className="text-left">
-                     <p className="text-sm font-black uppercase group-hover:text-blue-500 transition-colors">{t.dataEngine}</p>
-                     <p className="text-[8px] font-bold opacity-40 uppercase tracking-widest">{t.cloudBackup}</p>
+                     <p className="text-sm font-black uppercase group-hover:text-blue-500 transition-colors">{t.clientShare}</p>
+                     <p className="text-[8px] font-bold opacity-40 uppercase tracking-widest">{t.appShareHint || "Invite other merchants"}</p>
                   </div>
                </div>
                <ChevronRight size={16} className="opacity-20 group-hover:translate-x-1 transition-transform" />
