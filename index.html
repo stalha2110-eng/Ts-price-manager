@@ -10,43 +10,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="TS Price" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
   </head>
   <body>
-    <div id="root">
-      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #0a0c10; color: white; font-family: sans-serif;">
-        <div style="width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #f59e0b; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-        <style>
-          @keyframes spin { to { transform: rotate(360deg); } }
-        </style>
-        <p style="margin-top: 20px; font-weight: bold; letter-spacing: 0.1em; opacity: 0.5; font-size: 12px; transition: opacity 0.5s;" id="load-msg">LOADING SYSTEM...</p>
-        <div id="re-load" style="display: none; margin-top: 20px;">
-           <button onclick="window.location.reload()" style="background: #f59e0b; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer;">RELOAD APPLICATION</button>
-        </div>
-      </div>
-    </div>
+    <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      // If JS doesn't replace the content within 8 seconds, something might be wrong
-      setTimeout(() => {
-        const msg = document.getElementById('load-msg');
-        const btn = document.getElementById('re-load');
-        if (msg && btn) {
-          msg.textContent = 'TAKING LONGER THAN USUAL...';
-          btn.style.display = 'block';
-        }
-      }, 10000);
-
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').then(reg => {
-            console.log('SW registered:', reg);
-          }).catch(err => {
-            console.log('SW registration failed:', err);
-          });
-        });
-      }
-    </script>
   </body>
 </html>
 

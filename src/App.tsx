@@ -21,7 +21,7 @@ import {
   Settings as SettingsIcon, 
   Plus, 
   Home, 
-  User as UserIcon, 
+  User, 
   Lock, 
   Unlock, 
   ArrowLeft,
@@ -34,8 +34,6 @@ import {
   Briefcase,
   Smartphone,
   ShieldCheck,
-  Shield,
-  Lightbulb,
   FileText,
   Cloud,
   CheckCircle2,
@@ -76,31 +74,21 @@ import {
   Tag,
   Paperclip,
   Zap,
-  Check,
-  Share2
+  Check
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import 'jspdf-autotable';
 import { Button } from './components/ui/Button';
 import { PINScreen } from './components/ui/PINScreen';
 import { UnitSelectorModal } from './components/ui/UnitSelectorModal';
-import { AuthScreen } from './components/AuthScreen';
 import { 
   db, 
   auth, 
   loginWithGoogle, 
   onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signInWithPhoneNumber,
-  RecaptchaVerifier,
-  User as FirebaseUser,
-  OperationType,
-  handleFirestoreError
+  User as FirebaseUser
 } from './firebase';
-import { ChatAssistant } from './components/ChatAssistant';
-import { Logo } from './components/Logo';
-import { writeBatch } from 'firebase/firestore';
 import { 
   doc, 
   setDoc, 
@@ -113,7 +101,7 @@ import {
   updateDoc, 
   deleteDoc, 
   Timestamp,
-  serverTimestamp,
+  serverTimestamp 
 } from 'firebase/firestore';
 import { 
   AppState, 
@@ -123,9 +111,7 @@ import {
   LanguageType, 
   ThemeType,
   Translations,
-  Note,
-  User,
-  AdminConfig
+  Note
 } from './types';
 import { 
   DEFAULT_CATEGORIES, 
@@ -139,62 +125,25 @@ import {
   formatCurrency, 
   formatNumber 
 } from './lib/utils';
-import { translateItemName, generatePriceAdvisory, getSmartNoteCategorization, parseItemDescription, analyzeNotes, analyzeInventory, processChatCommand, geminiService } from './services/geminiService';
-
-// Safe localStorage wrapper
-const safeStorage = {
-  getItem: (key: string) => {
-    try {
-      return localStorage.getItem(key);
-    } catch (e) {
-      console.warn("Storage access denied", e);
-      return null;
-    }
-  },
-  setItem: (key: string, value: string) => {
-    try {
-      localStorage.setItem(key, value);
-    } catch (e) {
-      console.warn("Storage write failed", e);
-    }
-  },
-  removeItem: (key: string) => {
-    try {
-      localStorage.removeItem(key);
-    } catch (e) {
-      console.warn("Storage remove failed", e);
-    }
-  },
-  clear: () => {
-    try {
-      localStorage.clear();
-    } catch (e) {
-      console.warn("Storage clear failed", e);
-    }
-  }
-};
+import { translateItemName, generatePriceAdvisory, getSmartNoteCategorization } from './services/geminiService';
 
 // Global device ID generation
 const getDeviceId = () => {
-  let id = safeStorage.getItem('ts_device_id');
+  let id = localStorage.getItem('ts_device_id');
   if (!id) {
     id = Math.random().toString(36).substring(2, 11);
-    safeStorage.setItem('ts_device_id', id);
+    localStorage.setItem('ts_device_id', id);
   }
   return id;
 };
 
 const getDeviceName = () => {
-  try {
-    const ua = navigator.userAgent;
-    if (/android/i.test(ua)) return "Android Device";
-    if (/iPad|iPhone|iPod/.test(ua)) return "iOS Device";
-    if (/Windows/i.test(ua)) return "Windows PC";
-    if (/Macintosh/i.test(ua)) return "MacBook";
-    return "Web Browser";
-  } catch (e) {
-    return "Unknown Device";
-  }
+  const ua = navigator.userAgent;
+  if (/android/i.test(ua)) return "Android Device";
+  if (/iPad|iPhone|iPod/.test(ua)) return "iOS Device";
+  if (/Windows/i.test(ua)) return "Windows PC";
+  if (/Macintosh/i.test(ua)) return "MacBook";
+  return "Web Browser";
 };
 
 // --- Default State ---
@@ -215,7 +164,6 @@ const INITIAL_SETTINGS: AppSettings = {
   dismissedNotifications: [],
   deviceId: getDeviceId(),
   deviceName: getDeviceName(),
-  showBuyingPrice: false,
 };
 
 const INITIAL_STATE: AppState = {
@@ -224,8 +172,6 @@ const INITIAL_STATE: AppState = {
   categories: DEFAULT_CATEGORIES,
   settings: INITIAL_SETTINGS,
   user: null,
-  isClientView: false,
-  clientShopId: undefined
 };
 
 interface Alert {
@@ -391,7 +337,7 @@ function NotificationBar({
               <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-2xl p-2 space-y-1 max-h-[400px] overflow-y-auto no-scrollbar mt-1">
                  {alerts.map((alert) => (
                    <div 
-                    key={`alert-${alert.type}-${alert.id}-${alert.timestamp}`}
+                     key={alert.id + alert.timestamp}
                      className={cn(
                        "flex items-center gap-4 p-4 rounded-xl hover:bg-[var(--primary)]/5 transition-all cursor-pointer group/item border border-transparent hover:border-[var(--primary)]/10",
                        alert.priority === 'Urgent' ? "bg-red-500/5 shadow-inner" : ""
@@ -441,55 +387,53 @@ function NotificationBar({
 
 function SplashScreen({ onComplete }: { onComplete: () => void }) {
   useEffect(() => {
-    // Reduced delay for faster perceived loading while maintaining professional feel
-    const timer = setTimeout(onComplete, 1200);
+    const timer = setTimeout(onComplete, 2500);
     return () => clearTimeout(timer);
   }, [onComplete]);
 
   return (
     <motion.div 
       initial={{ opacity: 1 }}
-      exit={{ opacity: 0, scale: 1.1, filter: "blur(10px)" }}
-      transition={{ duration: 0.5 }}
+      exit={{ opacity: 0, y: -20 }}
       className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#0a0c10]"
     >
       <motion.div
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
+        transition={{ duration: 0.8, ease: "easeOut" }}
         className="flex flex-col items-center"
       >
         <div className="relative mb-8">
           <motion.div 
-            className="absolute inset-0 bg-amber-500 blur-[80px] opacity-30"
-            animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }}
-            transition={{ duration: 2, repeat: Infinity }}
+            className="absolute inset-0 bg-amber-500 blur-[60px] opacity-20"
+            animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }}
+            transition={{ duration: 3, repeat: Infinity }}
           />
-          <Logo className="h-44 w-44" />
+          <div className="relative h-40 w-40 rounded-[2.5rem] bg-gradient-to-br from-slate-800 to-slate-900 p-1 border border-white/10 shadow-2xl overflow-hidden">
+             <img src="/logo.png" alt="TS" className="h-full w-full object-contain" />
+          </div>
         </div>
 
         <motion.div
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.2, duration: 0.4 }}
+          transition={{ delay: 0.4, duration: 0.6 }}
           className="text-center"
         >
-          <h1 className="text-4xl font-black tracking-tighter text-white flex items-center gap-3">
-             <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">TS</span> 
-             <span className="text-amber-500">PRICE</span> 
-             <span className="bg-clip-text text-transparent bg-gradient-to-r from-white/70 to-white">MANAGER</span>
+          <h1 className="text-4xl font-black tracking-tighter text-white">
+            TS <span className="text-amber-500">PRICE</span> MANAGER
           </h1>
-          <p className="mt-3 text-[9px] font-black uppercase tracking-[0.6em] text-amber-500/50">
-            Enterprise Cloud v2.6.2
+          <p className="mt-2 text-[10px] font-black uppercase tracking-[0.5em] text-white/30">
+            Enterprise Pricing Core v2.5
           </p>
         </motion.div>
         
-        <div className="mt-14 w-40 h-1 bg-white/5 rounded-full overflow-hidden relative">
+        <div className="mt-12 w-48 h-1 bg-white/5 rounded-full overflow-hidden">
           <motion.div 
-            className="absolute inset-y-0 left-0 bg-gradient-to-r from-amber-600 to-amber-400"
+            className="h-full bg-amber-500"
             initial={{ width: "0%" }}
             animate={{ width: "100%" }}
-            transition={{ duration: 1.2, ease: "easeInOut" }}
+            transition={{ duration: 2, ease: "easeInOut" }}
           />
         </div>
       </motion.div>
@@ -509,10 +453,7 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
   const [showAddItem, setShowAddItem] = useState(false);
-  const [showBulkUpdate, setShowBulkUpdate] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const [splashTimerDone, setSplashTimerDone] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -523,29 +464,32 @@ export default function App() {
   const [notesExpanded, setNotesExpanded] = useState(true);
   const [showAddNote, setShowAddNote] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // Initialize guest status
-  useEffect(() => {
-    const guestMode = safeStorage.getItem('ts_guest_mode') === 'true';
-    if (guestMode && !state.user) {
-      setState(prev => ({ ...prev, isGuest: true }));
-    }
-  }, []);
+  // Deletion state
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    show: boolean;
+    type: 'single' | 'multiple';
+    targetId?: string;
+  }>({ show: false, type: 'single' });
 
   // PWA Install Logic
   useEffect(() => {
     const handleBeforeInstall = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
+      // Automatically show welcome or install banner if it's the first visit
+      const hasSeenInstall = localStorage.getItem('ts_install_seen');
+      if (!hasSeenInstall) {
+        setShowWelcome(true);
+      }
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
     
     window.addEventListener('appinstalled', () => {
       setDeferredPrompt(null);
-      safeStorage.setItem('pwa_prompt_seen', 'true');
+      localStorage.setItem('ts_install_seen', 'true');
+      console.log('PWA was installed');
     });
 
     return () => {
@@ -553,32 +497,16 @@ export default function App() {
     };
   }, []);
 
-  // Show contextual install prompt after user is logged in for a while
-  useEffect(() => {
-    if (state.user && deferredPrompt && !safeStorage.getItem('pwa_prompt_seen')) {
-      const timer = setTimeout(() => {
-        setShowInstallPrompt(true);
-      }, 30000); // 30 seconds after login
-      return () => clearTimeout(timer);
-    }
-  }, [state.user, deferredPrompt]);
-
   const handleInstallClick = async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        setDeferredPrompt(null);
-        setShowInstallPrompt(false);
-        safeStorage.setItem('pwa_prompt_seen', 'true');
-      }
-    } else {
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-      if (isIOS) {
-        alert("To install on iPhone: \n1. Click the 'Share' icon (square with arrow) at the bottom.\n2. Scroll down and click 'Add to Home Screen'.");
-      } else {
-        alert("To install: \n1. Click the 3-dots menu (⋮) in your browser corner.\n2. Select 'Install App' or 'Add to Home Screen'.");
-      }
+    if (!deferredPrompt) {
+      alert(t.installApp + ": " + t.error);
+      return;
+    }
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+      localStorage.setItem('ts_install_seen', 'true');
     }
   };
 
@@ -616,12 +544,12 @@ export default function App() {
       `₹${item.wholesalePrice}`
     ]);
 
-    autoTable(doc, {
+    (doc as any).autoTable({
       startY: 35,
       head: [['Item Name', 'Category', 'Stock', 'Retail', 'Wholesale']],
       body: tableData,
       theme: 'grid',
-      headStyles: { fillColor: '#1e3a8a', textColor: 255 },
+      headStyles: { fillStyle: '#1e3a8a', textColor: 255 },
     });
 
     doc.save(`TS_PRICE_MANAGER_Inventory_${new Date().toISOString().split('T')[0]}.pdf`);
@@ -632,28 +560,17 @@ export default function App() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
         if (json.items && Array.isArray(json.items)) {
-          if (confirm(t.confirmImport || 'Importing will merge with current data. Proceed?')) {
-            if (state.user && state.settings.autoCloudSync) {
-               const batch = writeBatch(db);
-               for (const item of json.items) {
-                  const itemsRef = collection(db, 'users', state.user.uid, 'items');
-                  const itemRef = doc(itemsRef);
-                  const { id, ...cleanItem } = item;
-                  batch.set(itemRef, { ...cleanItem, lastUpdated: new Date().toISOString() });
-               }
-               await batch.commit();
-            } else {
-               setState(prev => ({ ...prev, items: [...prev.items, ...json.items] }));
-            }
+          if (confirm('Importing will merge with current data. Proceed?')) {
+            setState(prev => ({ ...prev, items: [...prev.items, ...json.items] }));
             alert('Import successful!');
           }
         }
       } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, `users/${state?.user?.uid}/import`);
+        alert('Invalid file format. Please upload a valid JSON backup.');
       }
     };
     reader.readAsText(file);
@@ -679,15 +596,7 @@ export default function App() {
         const json = JSON.parse(event.target?.result as string);
         if (json.settings && json.items) {
           if (confirm('Restoring will overwrite current settings and items. Proceed?')) {
-            // Sanitize items to remove duplicates
-            const uniqueItems = Array.from(new Map(json.items.map((it: any) => [it.id, it])).values());
-            const uniqueNotes = Array.from(new Map((json.notes || []).map((n: any) => [n.id, n])).values());
-            
-            setState({
-              ...json,
-              items: uniqueItems,
-              notes: uniqueNotes
-            });
+            setState(json);
             alert('System Restored!');
           }
         }
@@ -697,229 +606,82 @@ export default function App() {
     };
     reader.readAsText(file);
   };
-  const [adminConfig, setAdminConfig] = useState<AdminConfig>({
-    isOpenAccess: true,
-    requireApproval: false,
-    maintenanceMode: false,
-    readOnlyMode: false,
-    allowedDomains: [],
-    blockedEmails: [],
-    maxDevicesPerUser: 5
-  });
-
-  // Fetch Admin Config
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'config', 'admin'), (snap) => {
-      if (snap.exists()) {
-        setAdminConfig(snap.data() as AdminConfig);
-      }
-    });
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      try {
-        if (user) {
-          setIsLoggingIn(true);
-          // Check for migration
-          const guestData = safeStorage.getItem('price_manager_state');
-          const wasGuest = safeStorage.getItem('ts_guest_mode') === 'true';
-          
-          if (wasGuest && guestData) {
-            try {
-              const parsed = JSON.parse(guestData);
-              if (parsed.items?.length > 0 || parsed.notes?.length > 0) {
-                const batch = writeBatch(db);
-                
-                // Migrate Items
-                if (parsed.items) {
-                  for (const item of parsed.items) {
-                    const ref = doc(collection(db, 'users', user.uid, 'items'));
-                    const { id, ...cleanItem } = item;
-                    batch.set(ref, { ...cleanItem, lastUpdated: new Date().toISOString() });
-                  }
-                }
-                
-                // Migrate Notes
-                if (parsed.notes) {
-                  for (const note of parsed.notes) {
-                    const ref = doc(collection(db, 'users', user.uid, 'notes'));
-                    const { id, ...cleanNote } = note;
-                    batch.set(ref, { ...cleanNote, createdAt: new Date().toISOString() });
-                  }
-                }
-
-                // Migrate Settings
-                if (parsed.settings) {
-                  const settingsRef = doc(db, 'users', user.uid);
-                  batch.set(settingsRef, parsed.settings, { merge: true });
-                }
-
-                await batch.commit();
-                // Clear guest mode after successful migration
-                safeStorage.removeItem('ts_guest_mode');
-              }
-            } catch (e) {
-              console.error("Migration failed", e);
-            }
-          }
-
-          setState(prev => ({ 
-            ...prev, 
-            user: { uid: user.uid, email: user.email },
-            isGuest: false
-          }));
-          safeStorage.removeItem('ts_guest_mode');
-        } else {
-          setState(prev => ({ ...prev, user: null }));
-        }
-      } catch (err) {
-        console.error("Auth callback error", err);
-      } finally {
-        setIsLoggingIn(false);
-        setIsAuthChecking(false); // Move to final step to prevent login flash
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setState(prev => ({ 
+          ...prev, 
+          user: { uid: user.uid, email: user.email } 
+        }));
+      } else {
+        setState(prev => ({ ...prev, user: null }));
       }
     });
     return () => unsubscribe();
   }, []);
 
-  const handleGuestLogin = () => {
-    safeStorage.setItem('ts_guest_mode', 'true');
-    setState(prev => ({ ...prev, isGuest: true }));
-  };
-
-  const handleGoogleAuth = async () => {
-    try {
-      setIsLoggingIn(true);
-      await loginWithGoogle();
-    } catch (err) {
-      console.error("Login Error", err);
-      throw err;
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await auth.signOut();
-      safeStorage.removeItem('ts_guest_mode');
-      setState(prev => ({ ...prev, user: null, isGuest: false, items: [], notes: [] }));
-    } catch (err) {
-      console.error("Logout Error", err);
-    }
-  };
-
-  // Detect Client View Mode
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const mode = params.get('mode');
-    const shopId = params.get('shop');
-    
-    if (mode === 'client' && shopId) {
-      setState(prev => ({ 
-        ...prev, 
-        isClientView: true,
-        clientShopId: shopId 
-      }));
-    }
-  }, []);
-
-  // Final check for Splash Screen completion
-  useEffect(() => {
-    // Fail-safe: if auth checking doesn't respond in 5 seconds, proceed anyway
-    const failSafe = setTimeout(() => {
-      if (isAuthChecking) {
-        console.warn("Auth check timed out, proceeding...");
-        setIsAuthChecking(false);
-      }
-    }, 5000);
-
-    if (splashTimerDone && !isAuthChecking) {
-      clearTimeout(failSafe);
-      // Small additional delay for smoothness
-      const timer = setTimeout(() => setIsInitializing(false), 150);
-      return () => clearTimeout(timer);
-    }
-    return () => clearTimeout(failSafe);
-  }, [splashTimerDone, isAuthChecking]);
-
   // --- Real-time Firestore Sync ---
   useEffect(() => {
-    const targetUserId = state.isClientView ? state.clientShopId : state.user?.uid;
-    if (!targetUserId) return;
-
-    const userDocRef = doc(db, 'users', targetUserId);
-    
-    // Sync Settings: Always sync settings if user is logged in (or in client view)
-    // This allows toggling cloud sync smoothly and persisting preferences
-    const unsubSettings = onSnapshot(userDocRef, (snap) => {
-      if (snap.exists()) {
-        const data = snap.data() as Partial<AppSettings>;
-        setState(prev => ({ 
-          ...prev, 
-          settings: { 
-            ...prev.settings, 
-            ...data,
-            // Force some settings for client view
-            isLocked: state.isClientView ? false : (data.isLocked ?? prev.settings.isLocked)
-          } 
-        }));
-      }
-    }, (error) => {
-      if (!state.isClientView) handleFirestoreError(error, OperationType.GET, `users/${targetUserId}`);
-    });
-
-    // Cloud Data Sync (Items & Notes)
-    let unsubItems = () => {};
-    let unsubNotes = () => {};
-
-    const isCloudSyncEnabled = state.isClientView || state.settings.autoCloudSync;
-
-    if (isCloudSyncEnabled) {
-      // Sync Items
-      const itemsRef = collection(db, 'users', targetUserId, 'items');
-      unsubItems = onSnapshot(query(itemsRef, orderBy('lastUpdated', 'desc')), (snap) => {
-        const itemsList: Item[] = [];
-        snap.forEach(doc => itemsList.push({ ...doc.data() as Item, id: doc.id }));
-        setState(prev => ({ ...prev, items: itemsList }));
-      }, (error) => {
-        if (!state.isClientView) handleFirestoreError(error, OperationType.LIST, `users/${targetUserId}/items`);
-      });
-
-      // Sync Notes
-      const notesRef = collection(db, 'users', targetUserId, 'notes');
-      unsubNotes = onSnapshot(query(notesRef, orderBy('createdAt', 'desc')), (snap) => {
-        const notesList: Note[] = [];
-        snap.forEach(doc => notesList.push({ ...doc.data() as Note, id: doc.id }));
-        setState(prev => ({ ...prev, notes: notesList }));
-      }, (error) => {
-        if (!state.isClientView) handleFirestoreError(error, OperationType.LIST, `users/${targetUserId}/notes`);
-      });
-    } else if (!state.isClientView) {
-      // Local storage fallback for data when cloud sync is disabled
-      const saved = safeStorage.getItem('price_manager_state');
+    if (!state.user || !state.settings.autoCloudSync) {
+      // Local storage fallback if not logged in or cloud sync disabled
+      const saved = localStorage.getItem('price_manager_state');
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
           setState(prev => ({ 
             ...prev, 
             items: parsed.items || [], 
-            notes: parsed.notes || []
+            notes: parsed.notes || [],
+            settings: { ...prev.settings, ...parsed.settings }
           }));
         } catch (e) {
           console.error("Local load failed", e);
         }
       }
+      return;
     }
+
+    const userDocRef = doc(db, 'users', state.user.uid);
+    
+    // Sync Settings
+    const unsubSettings = onSnapshot(userDocRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setState(prev => ({ ...prev, settings: { ...prev.settings, ...data } }));
+      }
+    }, (error) => {
+      console.error("Settings sync error:", error);
+    });
+
+    // Sync Items
+    const itemsRef = collection(db, 'users', state.user.uid, 'items');
+    const unsubItems = onSnapshot(query(itemsRef, orderBy('lastUpdated', 'desc')), (snap) => {
+      const itemsList: Item[] = [];
+      snap.forEach(doc => itemsList.push({ ...doc.data() as Item, id: doc.id }));
+      setState(prev => ({ ...prev, items: itemsList }));
+    }, (error) => {
+      console.error("Items sync error:", error);
+      if (error.code === 'permission-denied') {
+        alert("Firestore Permission Denied. Please check your account permissions.");
+      }
+    });
+
+    // Sync Notes
+    const notesRef = collection(db, 'users', state.user.uid, 'notes');
+    const unsubNotes = onSnapshot(query(notesRef, orderBy('createdAt', 'desc')), (snap) => {
+      const notesList: Note[] = [];
+      snap.forEach(doc => notesList.push({ ...doc.data() as Note, id: doc.id }));
+      setState(prev => ({ ...prev, notes: notesList }));
+    }, (error) => {
+      console.error("Notes sync error:", error);
+    });
 
     return () => {
       unsubSettings();
       unsubItems();
       unsubNotes();
     };
-  }, [state.user, state.settings.autoCloudSync, state.isClientView, state.clientShopId]);
+  }, [state.user, state.settings.autoCloudSync]);
 
   // --- Effects ---
 
@@ -930,7 +692,7 @@ export default function App() {
       indigo: '99, 102, 241',
       emerald: '16, 185, 129',
       rose: '244, 63, 94',
-      accent: '245, 158, 11',
+      amber: '245, 158, 11',
       cyan: '6, 182, 212',
       slate: '100, 116, 139'
     };
@@ -969,10 +731,10 @@ export default function App() {
 
   // Separate Effect for Persistence
   useEffect(() => {
-    if (!state.isClientView && (!state.user || !state.settings.autoCloudSync)) {
-      safeStorage.setItem('price_manager_state', JSON.stringify(state));
+    if (!state.user || !state.settings.autoCloudSync) {
+      localStorage.setItem('price_manager_state', JSON.stringify(state));
     }
-  }, [state.items, state.notes, state.settings, state.user, state.settings.autoCloudSync, state.isClientView]);
+  }, [state.items, state.notes, state.settings, state.user, state.settings.autoCloudSync]);
 
   const t = UI_TEXT[state.settings.language];
   const precision = state.settings.pricePrecision || 0;
@@ -994,9 +756,7 @@ export default function App() {
   // --- Handlers ---
   const handleUpdateSettings = useCallback(async (updates: Partial<AppSettings>) => {
     try {
-      // Always sync settings to cloud if user is logged in, even if data sync is off.
-      // This ensures that the toggle for cloud sync itself (and other UI preferences) can be persisted.
-      if (state.user) {
+      if (state.user && state.settings.autoCloudSync) {
         await setDoc(doc(db, 'users', state.user.uid), updates, { merge: true });
       }
       
@@ -1004,38 +764,41 @@ export default function App() {
         ...prev,
         settings: { ...prev.settings, ...updates }
       }));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `users/${state.user.uid}`);
+    } catch (e) {
+      console.error("Settings update failed", e);
+      alert(t.error + ": " + (e instanceof Error ? e.message : 'Unknown error'));
     }
-  }, [state.user]);
+  }, [state.user, state.settings.autoCloudSync, t.error]);
 
   const handleAddItem = useCallback(async (data: Omit<Item, 'id' | 'lastUpdated'>) => {
-    const newItem = {
-      ...data,
-      lastUpdated: new Date().toISOString(),
-      priceChangedAt: new Date().toISOString(),
-      lastChangedBy: state.settings.deviceName
-    };
-    
     try {
+      const id = Date.now().toString();
+      const newItem = {
+        ...data,
+        id,
+        lastUpdated: new Date().toISOString(),
+        priceChangedAt: new Date().toISOString()
+      };
+      
+      // Optimistic update
+      setState(prev => ({
+        ...prev,
+        items: [newItem, ...prev.items]
+      }));
+      setShowAddItem(false);
+
       if (state.user && state.settings.autoCloudSync) {
         await addDoc(collection(db, 'users', state.user.uid, 'items'), newItem);
-        setShowAddItem(false);
-      } else {
-        const id = Date.now().toString();
-        setState(prev => ({
-          ...prev,
-          items: [{ ...newItem, id }, ...prev.items]
-        }));
-        setShowAddItem(false);
       }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `users/${state.user.uid}/items`);
+    } catch (e) {
+      console.error("Add item failed", e);
+      alert(t.error + ": " + (e instanceof Error ? e.message : 'Sync Error. Saved locally.'));
     }
-  }, [state.user, state.settings.autoCloudSync, state.settings.deviceName]);
+  }, [state.user, state.settings.autoCloudSync, t.error]);
 
   const handleUpdateItem = useCallback(async (id: string, data: Partial<Item>) => {
-    const existingItem = state.items.find(i => i.id === id);
+    try {
+      const existingItem = state.items.find(i => i.id === id);
       const updates: any = { 
         ...data, 
         lastUpdated: new Date().toISOString() 
@@ -1052,58 +815,53 @@ export default function App() {
         updates.lastChangedBy = state.settings.deviceName;
       }
 
-    try {
-      if (state.user && state.settings.autoCloudSync) {
-        await updateDoc(doc(db, 'users', state.user.uid, 'items', id), updates);
-      } else {
-        setState(prev => ({
-          ...prev,
-          items: prev.items.map(item => item.id === id ? { ...item, ...updates } : item)
-        }));
-      }
-      setEditingItem(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `users/${state.user.uid}/items/${id}`);
-    }
-  }, [state.items, state.user, state.settings.autoCloudSync, state.settings.deviceName]);
-
-  const handleShareWhatsApp = useCallback(() => {
-    if (state.items.length === 0) {
-      alert("No items to share.");
-      return;
-    }
-    
-    let message = `*TS PRICE MANAGER - ITEM LIST*\n\n`;
-    state.items.forEach((item, index) => {
-      const name = item.translations[state.settings.language] || item.name;
-      message += `${index + 1}. *${name}*\n`;
-      message += `   Unit: ${item.unit}\n`;
-      message += `   Retail: ₹${item.retailPrice}\n`;
-      message += `   Wholesale: ₹${item.wholesalePrice}\n\n`;
-    });
-    message += `_Shared via TS Price Manager_`;
-    
-    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-    window.open(whatsappUrl, '_blank');
-  }, [state.items, state.settings.language]);
-
-  const handleDeleteItem = useCallback(async (id: string) => {
-    if (confirm(t.delete + '?')) {
-      // Optimistically update local state first for instant feedback
+      // Optimistic update
       setState(prev => ({
         ...prev,
-        items: prev.items.filter(item => item.id !== id)
+        items: prev.items.map(item => item.id === id ? { ...item, ...updates } : item)
       }));
+      setEditingItem(null);
 
       if (state.user && state.settings.autoCloudSync) {
-        try {
+        await updateDoc(doc(db, 'users', state.user.uid, 'items', id), updates);
+      }
+    } catch (e) {
+      console.error("Update failed", e);
+      alert(t.error + ": " + (e instanceof Error ? e.message : 'Sync Error. Saved locally.'));
+    }
+  }, [state.items, state.user, state.settings.autoCloudSync, state.settings.deviceName, t.error]);
+
+  const handleDeleteItem = useCallback(async (id: string) => {
+    setDeleteConfirmation({ show: true, type: 'single', targetId: id });
+  }, []);
+
+  const confirmDeletion = async () => {
+    const { type, targetId } = deleteConfirmation;
+    const idsToDelete = type === 'single' ? [targetId!] : selectedItemIds;
+
+    // Optimistically update local state
+    setState(prev => ({
+      ...prev,
+      items: prev.items.filter(item => !idsToDelete.includes(item.id))
+    }));
+    
+    if (type === 'multiple') {
+      setSelectedItemIds([]);
+    }
+
+    if (state.user && state.settings.autoCloudSync) {
+      try {
+        for (const id of idsToDelete) {
           await deleteDoc(doc(db, 'users', state.user.uid, 'items', id));
-        } catch (error) {
-          handleFirestoreError(error, OperationType.DELETE, `users/${state.user.uid}/items/${id}`);
         }
+      } catch (e) {
+        console.error("Cloud delete failed", e);
+        alert(t.error + ": Permission Denied on Cloud. Some items may reappear.");
       }
     }
-  }, [state.user, state.settings.autoCloudSync, t.delete, t.error]);
+    
+    setDeleteConfirmation({ show: false, type: 'single' });
+  };
   
   const handleAddNote = useCallback(async (data: Omit<Note, 'id' | 'createdAt' | 'status'>) => {
     // AI: Smart Priority Detection
@@ -1117,56 +875,63 @@ export default function App() {
       console.error("AI Prioritization failed", e);
     }
 
+    const id = Date.now().toString();
     const newNote = {
       ...data,
+      id,
       priority: finalPriority,
       createdAt: new Date().toISOString(),
       status: 'Active' as const,
     };
 
+    // Optimistic update
+    setState(prev => ({
+      ...prev,
+      notes: [newNote, ...prev.notes]
+    }));
+    setShowAddNote(false);
+    setActiveTab('notes');
+    alert("Note synchronized with Local Matrix.");
+
     if (state.user && state.settings.autoCloudSync) {
       try {
         await addDoc(collection(db, 'users', state.user.uid, 'notes'), newNote);
-      } catch (error) {
-        handleFirestoreError(error, OperationType.CREATE, `users/${state.user.uid}/notes`);
+      } catch (e) {
+        console.error("Cloud sync failed", e);
+        alert("Alert: Cloud synchronization failed. Data persisted locally.");
       }
-    } else {
-      const id = Date.now().toString();
-      setState(prev => ({
-        ...prev,
-        notes: [{ ...newNote, id }, ...prev.notes]
-      }));
     }
-    setShowAddNote(false);
   }, [state.user, state.settings.autoCloudSync]);
 
   const handleUpdateNote = async (id: string, updates: Partial<Note>) => {
+    // Optimistic update
+    setState(prev => ({
+      ...prev,
+      notes: prev.notes.map(n => n.id === id ? { ...n, ...updates } : n)
+    }));
+
     if (state.user && state.settings.autoCloudSync) {
       try {
         await updateDoc(doc(db, 'users', state.user.uid, 'notes', id), updates);
-      } catch (error) {
-        handleFirestoreError(error, OperationType.UPDATE, `users/${state.user.uid}/notes/${id}`);
+      } catch (e) {
+        console.error("Cloud sync failed", e);
       }
-    } else {
-      setState(prev => ({
-        ...prev,
-        notes: prev.notes.map(n => n.id === id ? { ...n, ...updates } : n)
-      }));
     }
   };
 
   const handleDeleteNote = async (id: string) => {
+    // Optimistic update
+    setState(prev => ({
+      ...prev,
+      notes: prev.notes.filter(n => n.id !== id)
+    }));
+
     if (state.user && state.settings.autoCloudSync) {
       try {
         await deleteDoc(doc(db, 'users', state.user.uid, 'notes', id));
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, `users/${state.user.uid}/notes/${id}`);
+      } catch (e) {
+        console.error("Cloud sync failed", e);
       }
-    } else {
-      setState(prev => ({
-        ...prev,
-        notes: prev.notes.filter(n => n.id !== id)
-      }));
     }
   };
 
@@ -1187,37 +952,6 @@ export default function App() {
   const [showComparison, setShowComparison] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showTour, setShowTour] = useState(false);
-
-  const handleBulkDelete = useCallback(async () => {
-    if (selectedItemIds.length === 0) return;
-    
-    const confirmMessage = state.settings.language === 'en' 
-      ? `Are you sure you want to delete ${selectedItemIds.length} items?` 
-      : `${selectedItemIds.length} आइटम हटाना चाहते हैं?`;
-
-    if (confirm(confirmMessage)) {
-      const itemsToDelete = [...selectedItemIds];
-      
-      // Optimistic Update
-      setState(prev => ({
-        ...prev,
-        items: prev.items.filter(item => !itemsToDelete.includes(item.id))
-      }));
-      setSelectedItemIds([]);
-
-      try {
-        if (state.user && state.settings.autoCloudSync) {
-          const batch = writeBatch(db);
-          itemsToDelete.forEach(id => {
-            batch.delete(doc(db, 'users', state.user!.uid, 'items', id));
-          });
-          await batch.commit();
-        }
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, 'bulk-items');
-      }
-    }
-  }, [selectedItemIds, state.user, state.settings, t]);
 
   useEffect(() => {
     // Show tour for new users who haven't seen it
@@ -1249,23 +983,10 @@ export default function App() {
       )}
     >
       <AnimatePresence>
-        {isInitializing && <SplashScreen onComplete={() => setSplashTimerDone(true)} />}
-        {!isInitializing && !state.user && !state.isGuest && !state.isClientView && (
-          <AuthScreen 
-            onGuest={handleGuestLogin}
-            onGoogle={handleGoogleAuth}
-            isLoggingIn={isLoggingIn}
-          />
-        )}
+        {isInitializing && <SplashScreen onComplete={() => setIsInitializing(false)} />}
       </AnimatePresence>
 
-      {!isInitializing && (state.user || state.isGuest || state.isClientView) && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="relative z-10"
-        >
-          {/* Dynamic Background Elements for Specific Themes */}
+      {/* Dynamic Background Elements for Specific Themes */}
       {state.settings.theme === 'premium_dynamic' && (
         <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
           <motion.div 
@@ -1356,41 +1077,38 @@ export default function App() {
       {/* Header */}
       <header 
         id="tour-header"
-        className="sticky top-0 z-40 bg-[var(--primary)]/95 backdrop-blur-xl px-4 sm:px-6 py-3 sm:py-4 text-[var(--primary-foreground)] shadow-2xl transition-colors border-b border-white/10"
+        className="sticky top-0 z-40 bg-[var(--primary)]/95 backdrop-blur-xl px-6 py-4 text-[var(--primary-foreground)] shadow-2xl transition-colors border-b border-white/10"
       >
         <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center gap-2 sm:gap-4">
+          <div className="flex items-center gap-4">
             <div className="relative group">
               <div className="absolute inset-0 bg-amber-500 blur-lg opacity-20 group-hover:opacity-40 transition-opacity" />
-              <Logo className="h-10 w-10 sm:h-14 sm:w-14" simplified />
+              <div className="relative overflow-hidden h-14 w-14 rounded-2xl bg-white flex items-center justify-center p-1.5 border-2 border-[var(--primary)] shadow-2xl transform group-hover:scale-105 transition-transform">
+                 <img src="/logo.png" alt="TS" className="w-full h-full object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} />
+                 <div className="hidden flex h-full w-full items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 shadow-inner">
+                   <Package size={28} className="text-white" />
+                 </div>
+              </div>
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-black tracking-tighter text-white mb-0 leading-none flex items-baseline">
-                TS <span className="text-[10px] sm:text-xs font-bold opacity-60 ml-1 sm:ml-1.5 tracking-[0.2em] sm:tracking-[0.3em] uppercase">Price Manager</span>
+              <h1 className="text-2xl font-black tracking-tighter text-white mb-0 leading-none flex items-baseline">
+                TS <span className="text-xs font-bold opacity-60 ml-1.5 tracking-[0.3em] uppercase">Price Manager</span>
               </h1>
-              <div className="flex items-center gap-1.5 mt-1 sm:mt-1.5">
-                 <div className={cn("h-1 w-1 sm:h-1.5 sm:w-1.5 rounded-full ring-2 ring-white/10", state.isClientView ? "bg-blue-400" : state.user && state.settings.autoCloudSync ? "bg-green-400 animate-pulse" : "bg-slate-400")} />
-                 <p className="text-[7px] sm:text-[9px] uppercase tracking-[0.15em] sm:tracking-[0.2em] text-white/40 font-black">
-                   {state.isClientView ? 'Verified Guest View' : state.user && state.settings.autoCloudSync ? 'Authenticated Cloud session' : 'Standalone Local Hub'}
+              <div className="flex items-center gap-2 mt-1.5">
+                 <div className={cn("h-1.5 w-1.5 rounded-full ring-2 ring-white/10", state.user && state.settings.autoCloudSync ? "bg-green-400 animate-pulse" : "bg-slate-400")} />
+                 <p className="text-[9px] uppercase tracking-[0.2em] text-white/40 font-black">
+                   {state.user && state.settings.autoCloudSync ? 'Authenticated Cloud session' : 'Standalone Local Hub'}
                  </p>
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* User Profile Info */}
-            {state.user && (
-              <div className="hidden md:flex flex-col items-end mr-2">
-                <span className="text-[9px] font-black uppercase tracking-widest text-[#d4af37]">{state.user.role || 'Partner'}</span>
-                <span className="text-[10px] font-bold text-white/60 truncate max-w-[120px]">{state.user.email}</span>
-              </div>
-            )}
-            
+          <div className="flex items-center gap-3">
             <button
                onClick={() => setShowHelp(true)}
-               className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl transition-all border border-white/10 bg-white/5 text-white/80 hover:bg-white/20"
+               className="flex h-9 w-9 items-center justify-center rounded-xl transition-all border border-white/10 bg-white/5 text-white/80 hover:bg-white/20"
                title={t.help}
             >
-               <HelpCircle size={16} className="sm:size-[18px]" />
+               <HelpCircle size={18} />
             </button>
             <div 
                id="tour-notes"
@@ -1457,7 +1175,7 @@ export default function App() {
             <RecentPriceChanges items={state.items} t={t} precision={precision} />
 
             {/* Quick Metrics Hub */}
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="card p-6 bg-gradient-to-br from-[var(--card)] to-transparent border-white/5">
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40 mb-2">{t.totalItems}</p>
                 <div className="flex items-baseline gap-2">
@@ -1471,16 +1189,6 @@ export default function App() {
                    <p className="text-2xl font-black tracking-tight">
                      {formatCurrency(totalValue, state.settings.currency, precision)}
                    </p>
-                </div>
-              </div>
-              <div className="col-span-2 lg:col-span-1 card p-6 bg-indigo-500/5 border-indigo-500/20 flex flex-col justify-between overflow-hidden relative group">
-                <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 blur-[40px] rounded-full group-hover:scale-150 transition-transform" />
-                <div className="relative z-10">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Sparkles size={14} className="text-indigo-400 animate-pulse" />
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">AI Operational Summary</p>
-                  </div>
-                  <InventoryAIInsight items={state.items} />
                 </div>
               </div>
             </div>
@@ -1497,9 +1205,9 @@ export default function App() {
                 >
                   {t.all}
                 </Button>
-                {state.categories.map((cat, idx) => (
+                {state.categories.map(cat => (
                   <Button 
-                    key={`cat-${cat.id}-${idx}`}
+                    key={cat.id}
                     variant={selectedCategory === cat.id ? 'primary' : 'outline'}
                     size="sm"
                     className="whitespace-nowrap px-6 rounded-xl border-white/5"
@@ -1542,7 +1250,7 @@ export default function App() {
                   {filteredItems.length > 0 ? (
                     filteredItems.map((item, index) => (
                       <motion.div
-                        key={`item-${item.id}-${index}`}
+                        key={item.id}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95 }}
@@ -1559,7 +1267,6 @@ export default function App() {
                           isSelected={selectedItemIds.includes(item.id)}
                           onSelect={() => toggleItemSelection(item.id)}
                           t={t}
-                          isReadOnly={state.isClientView}
                         />
                       </motion.div>
                     ))
@@ -1568,22 +1275,10 @@ export default function App() {
                       key="empty"
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="col-span-full flex flex-col items-center justify-center py-24 text-center card border-dashed border-white/10"
+                      className="col-span-full flex flex-col items-center justify-center py-20 text-center card border-dashed opacity-30 border-white/10"
                     >
-                      <div className="h-24 w-24 rounded-full bg-white/5 flex items-center justify-center mb-6">
-                        <Package size={40} className="opacity-20" />
-                      </div>
-                      <p className="font-black uppercase tracking-widest text-xs opacity-60 max-w-[200px] leading-loose">{t.emptyList}</p>
-                      <div className="mt-8">
-                        <Button 
-                          variant="outline" 
-                          onClick={() => setShowHelp(true)}
-                          className="rounded-2xl border-white/10 text-[10px] font-black uppercase tracking-widest h-12 px-8 hover:bg-[var(--primary)]/10 hover:border-[var(--primary)]/50 transition-all group"
-                        >
-                          <BookOpen size={16} className="mr-3 text-[var(--primary)] group-hover:scale-110 transition-transform" />
-                          {t.helpQuickStart || "View Guide"}
-                        </Button>
-                      </div>
+                      <Package size={48} className="mb-4 opacity-50" />
+                      <p className="font-black uppercase tracking-widest text-xs">{t.emptyList}</p>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -1640,7 +1335,7 @@ export default function App() {
               onRestore={handleRestore}
               onClearCache={() => {
                 if (confirm('Wipe everything?')) {
-                  safeStorage.clear();
+                  localStorage.clear();
                   window.location.reload();
                 }
               }}
@@ -1655,31 +1350,21 @@ export default function App() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 20 }}
           >
-            <ProfileScreen 
-              state={state} 
-              t={t} 
-              deferredPrompt={deferredPrompt} 
-              onInstall={handleInstallClick} 
-              onShareWhatsApp={handleShareWhatsApp}
-              onLogout={handleLogout}
-              onGoogleAuth={handleGoogleAuth}
-            />
+            <ProfileScreen state={state} t={t} deferredPrompt={deferredPrompt} onInstall={handleInstallClick} />
           </motion.div>
         )}
-      </AnimatePresence>
-    </main>
+        </AnimatePresence>
+      </main>
 
       {/* Bottom Nav */}
-      {!state.isClientView && (
-        <nav id="tour-nav" className="fixed bottom-0 left-0 right-0 z-50 border-t border-[var(--border)] bg-[var(--card)] px-4 py-2 backdrop-blur-md">
-          <div className="mx-auto flex max-w-lg items-center justify-between">
-            <NavButton active={activeTab === 'home'} icon={<Home />} label={t.all || "Home"} onClick={() => setActiveTab('home')} />
-            <NavButton active={activeTab === 'notes'} icon={<FileText />} label={t.notes || "Notes"} onClick={() => setActiveTab('notes')} />
-            <NavButton active={activeTab === 'settings'} icon={<SettingsIcon />} label={t.settings || "Settings"} onClick={() => setActiveTab('settings')} />
-            <NavButton active={activeTab === 'profile'} icon={<UserIcon />} label={t.profile || "Profile"} onClick={() => setActiveTab('profile')} />
-          </div>
-        </nav>
-      )}
+      <nav id="tour-nav" className="fixed bottom-0 left-0 right-0 z-50 border-t border-[var(--border)] bg-[var(--card)] px-4 py-2 backdrop-blur-md">
+        <div className="mx-auto flex max-w-lg items-center justify-between">
+          <NavButton active={activeTab === 'home'} icon={<Home />} label={t.all || "Home"} onClick={() => setActiveTab('home')} />
+          <NavButton active={activeTab === 'notes'} icon={<FileText />} label={t.notes || "Notes"} onClick={() => setActiveTab('notes')} />
+          <NavButton active={activeTab === 'settings'} icon={<SettingsIcon />} label={t.settings || "Settings"} onClick={() => setActiveTab('settings')} />
+          <NavButton active={activeTab === 'profile'} icon={<User />} label={t.profile || "Profile"} onClick={() => setActiveTab('profile')} />
+        </div>
+      </nav>
 
       {/* Comparison Bottom Bar - Enhanced Visibility */}
       <AnimatePresence>
@@ -1698,7 +1383,7 @@ export default function App() {
                       const cat = DEFAULT_CATEGORIES.find(c => c.id === it?.categoryId);
                       return (
                         <motion.div 
-                          key={`compare-${id}-${index}`} 
+                          key={id} 
                           initial={{ x: -20, opacity: 0 }}
                           animate={{ x: 0, opacity: 1 }}
                           transition={{ delay: index * 0.1 }}
@@ -1727,6 +1412,15 @@ export default function App() {
                  >
                    {t.clear || "Clear"}
                  </Button>
+
+                 <Button 
+                   variant="ghost"
+                   onClick={() => setDeleteConfirmation({ show: true, type: 'multiple' })}
+                   className="text-white hover:bg-red-500/20 hover:text-red-300 rounded-2xl px-6 font-black uppercase text-[10px] tracking-widest h-12 flex-1 md:flex-none"
+                 >
+                   <Trash2 size={18} className="mr-2" />
+                   Delete
+                 </Button>
                  
                  <Button 
                    onClick={() => setShowComparison(true)}
@@ -1736,24 +1430,6 @@ export default function App() {
                    <TrendingUp size={18} className="mr-2" />
                    {t.compare || "Compare"}
                  </Button>
-
-                 <Button 
-                   onClick={() => setShowBulkUpdate(true)}
-                   variant="outline"
-                   className="border-white/20 text-white hover:bg-white/10 rounded-2xl px-6 h-12 text-[10px] font-black uppercase tracking-widest flex-1 md:flex-none"
-                 >
-                   <Edit2 size={16} className="mr-2" />
-                   {t.bulkUpdate || "Bulk Update"}
-                 </Button>
-
-                 <Button 
-                   onClick={handleBulkDelete}
-                   variant="ghost"
-                   className="text-white hover:bg-red-500/20 hover:text-red-300 rounded-2xl px-6 h-12 text-[10px] font-black uppercase tracking-widest flex-1 md:flex-none border border-white/10"
-                 >
-                   <Trash2 size={16} className="mr-2" />
-                   {t.delete || "Delete"}
-                 </Button>
                </div>
             </div>
           </motion.div>
@@ -1761,7 +1437,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Floating Action Buttons */}
-      {!state.isClientView && activeTab === 'home' && (
+      {activeTab === 'home' && (
         <Button 
           className="fixed bottom-24 right-6 h-14 w-14 rounded-full shadow-2xl accent-glow"
           onClick={() => setShowAddItem(true)}
@@ -1769,7 +1445,7 @@ export default function App() {
           <Plus size={32} />
         </Button>
       )}
-      {!state.isClientView && activeTab === 'notes' && (
+      {activeTab === 'notes' && (
         <Button 
           className="fixed bottom-24 right-6 h-14 w-14 rounded-full shadow-2xl accent-glow bg-amber-500 hover:bg-amber-600"
           onClick={() => setShowAddNote(true)}
@@ -1825,35 +1501,90 @@ export default function App() {
             t={t}
           />
         )}
-        {showInstallPrompt && (
-          <InstallPrompt t={t} onInstall={handleInstallClick} />
-        )}
-        {!state.isClientView && (
-          <ChatAssistant 
-            items={state.items}
-            onAddItem={handleAddItem}
-            onUpdateItem={handleUpdateItem}
-            onDeleteItem={handleDeleteItem}
-            onAddNote={handleAddNote}
-            onExport={exportToExcel}
-            onToggleBuying={() => handleUpdateSettings({ showBuyingPrice: !state.settings.showBuyingPrice })}
-            showBuyingPrice={state.settings.showBuyingPrice}
-            precision={precision}
+        {deleteConfirmation.show && (
+          <DeleteConfirmationModal
+            onClose={() => setDeleteConfirmation({ show: false, type: 'single' })}
+            onConfirm={confirmDeletion}
+            count={deleteConfirmation.type === 'single' ? 1 : selectedItemIds.length}
             t={t}
-            user={state.user}
-            isGuest={state.isGuest}
           />
         )}
       </AnimatePresence>
-        </motion.div>
-      )}
     </div>
+  );
+}
+
+function DeleteConfirmationModal({ onClose, onConfirm, count, t }: { 
+  onClose: () => void; 
+  onConfirm: () => void; 
+  count: number;
+  t: any;
+}) {
+  const [inputValue, setInputValue] = useState('');
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm"
+    >
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        className="w-full max-w-sm card p-8 space-y-6 shadow-[0_30px_60px_rgba(0,0,0,0.5)] border-red-500/20"
+      >
+        <div className="flex flex-col items-center text-center space-y-4">
+          <div className="h-16 w-16 rounded-3xl bg-red-500/10 text-red-500 flex items-center justify-center shadow-inner">
+            <Trash2 size={32} />
+          </div>
+          <div>
+            <h3 className="text-xl font-black uppercase tracking-tight">Purge Confirmation</h3>
+            <p className="text-[10px] font-black uppercase tracking-widest opacity-40 mt-1">Caution: Irreversible Op</p>
+          </div>
+          <p className="text-xs font-medium opacity-60 leading-relaxed">
+            You are about to delete <strong>{count} {count === 1 ? 'item' : 'items'}</strong> from the database, cloud, and local device.
+          </p>
+          <div className="w-full p-4 rounded-2xl bg-red-500/5 border border-red-500/10 space-y-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-red-500/60">
+              Type <span className="text-red-500">"yes"</span> to authorize
+            </p>
+            <input 
+              autoFocus
+              className="w-full bg-[var(--background)] border border-red-500/20 rounded-xl px-4 py-3 text-center font-black uppercase tracking-[0.2em] focus:border-red-500 outline-none transition-all"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value.toLowerCase())}
+              placeholder="..."
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <Button 
+            variant="ghost" 
+            onClick={onClose}
+            className="flex-1 rounded-2xl h-12 text-[10px] font-black uppercase tracking-widest opacity-40 hover:opacity-100"
+          >
+            Abort
+          </Button>
+          <Button 
+            variant="primary"
+            disabled={inputValue !== 'yes'}
+            onClick={onConfirm}
+            className="flex-1 rounded-2xl h-12 bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/20 disabled:opacity-30 disabled:scale-100"
+          >
+            Confirm
+          </Button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
 // --- Sub-Components ---
 
-const ItemCard = React.memo(({ item, isLocked, language, precision, onEdit, onDelete, t, onUpdateItem, isSelected, onSelect, isReadOnly }: { 
+const ItemCard = React.memo(({ item, isLocked, language, precision, onEdit, onDelete, t, onUpdateItem, isSelected, onSelect }: { 
   item: Item; 
   isLocked: boolean; 
   language: LanguageType;
@@ -1864,14 +1595,13 @@ const ItemCard = React.memo(({ item, isLocked, language, precision, onEdit, onDe
   onUpdateItem: (id: string, updates: Partial<Item>) => void;
   isSelected: boolean;
   onSelect: () => void;
-  isReadOnly?: boolean;
 }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const category = DEFAULT_CATEGORIES.find(c => c.id === item.categoryId);
   const name = item.translations[language] || item.translations.en;
 
   const handleAIAdvice = async () => {
-    if (isGenerating || isReadOnly) return;
+    if (isGenerating) return;
     setIsGenerating(true);
     try {
       const advice = await generatePriceAdvisory(item);
@@ -1926,32 +1656,30 @@ const ItemCard = React.memo(({ item, isLocked, language, precision, onEdit, onDe
               </div>
             </div>
           </div>
-          {!isReadOnly && (
-            <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEdit();
-                }} 
-                className="h-9 w-9 rounded-full hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"
-              >
-                <Edit2 size={18} />
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete();
-                }} 
-                className="h-9 w-9 rounded-full hover:bg-red-500/10 hover:text-red-500"
-              >
-                <Trash2 size={18} />
-              </Button>
-            </div>
-          )}
+          <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit();
+              }} 
+              className="h-9 w-9 rounded-full hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]"
+            >
+              <Edit2 size={18} />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }} 
+              className="h-9 w-9 rounded-full hover:bg-red-500/10 hover:text-red-500"
+            >
+              <Trash2 size={18} />
+            </Button>
+          </div>
         </div>
         
         <div className="mt-6 grid grid-cols-3 gap-2">
@@ -1969,50 +1697,53 @@ const ItemCard = React.memo(({ item, isLocked, language, precision, onEdit, onDe
             <p className="text-[8px] opacity-40">/ {item.wholesalePriceUnit}</p>
           </div>
 
-          {!isReadOnly && (
-            <>
-              {/* Cost (Buy) */}
-              <div className="rounded-xl bg-[var(--background)]/50 p-3 border border-[var(--border)] transition-colors group-hover:border-[var(--primary)]/20 shadow-inner">
-                <p className="text-[9px] font-black uppercase tracking-widest opacity-40 mb-1">{t.buy}</p>
-                <div className="flex flex-col">
-                  {isLocked ? (
-                    <div className="h-5 flex items-center">
-                      <Lock size={12} className="opacity-40 animate-pulse" />
-                    </div>
-                  ) : (
-                    <>
-                      <p className="text-sm font-bold text-[var(--foreground)] truncate">₹{formatNumber(item.buyingPrice, precision)}</p>
-                      <p className="text-[8px] opacity-40">/ {item.buyingPriceUnit}</p>
-                    </>
-                  )}
+          {/* Cost (Buy) */}
+          <div className="rounded-xl bg-[var(--background)]/50 p-3 border border-[var(--border)] transition-colors group-hover:border-[var(--primary)]/20 shadow-inner">
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-40 mb-1">{t.buy}</p>
+            <div className="flex flex-col">
+              {isLocked ? (
+                <div className="h-5 flex items-center">
+                  <Lock size={12} className="opacity-40 animate-pulse" />
                 </div>
-              </div>
+              ) : (
+                <>
+                  <p className="text-sm font-bold text-[var(--foreground)] truncate">₹{formatNumber(item.buyingPrice, precision)}</p>
+                  <p className="text-[8px] opacity-40">/ {item.buyingPriceUnit}</p>
+                </>
+              )}
+            </div>
+          </div>
 
-              {/* Profit Margin (Calculated) */}
-              <div className="rounded-xl bg-green-500/5 p-3 border border-green-500/20 transition-colors group-hover:bg-green-500/10 shadow-inner">
-                <p className="text-[9px] font-black uppercase tracking-widest text-green-600 opacity-70 mb-1">{t.margin}</p>
-                <div className="flex flex-col">
-                  {isLocked ? (
-                    <div className="h-5 flex items-center">
-                      <Lock size={12} className="opacity-40 animate-pulse" />
-                    </div>
-                  ) : (
-                    <>
-                      <p className="text-sm font-bold text-green-600 truncate">₹{formatNumber(item.retailPrice - item.buyingPrice, precision)}</p>
-                      <p className="text-[8px] text-green-500 font-bold">
-                        {item.buyingPrice > 0 ? `+${formatNumber(((item.retailPrice - item.buyingPrice) / item.buyingPrice) * 100, 1)}%` : '---'}
-                      </p>
-                    </>
-                  )}
+          {/* Profit Margin (Calculated) */}
+          <div className="rounded-xl bg-green-500/5 p-3 border border-green-500/20 transition-colors group-hover:bg-green-500/10 shadow-inner">
+            <p className="text-[9px] font-black uppercase tracking-widest text-green-600 opacity-70 mb-1">{t.margin}</p>
+            <div className="flex flex-col">
+              {isLocked ? (
+                <div className="h-5 flex items-center">
+                  <Lock size={12} className="opacity-40 animate-pulse" />
                 </div>
-              </div>
-            </>
-          )}
+              ) : (
+                <>
+                  <p className="text-sm font-bold text-green-600 truncate">₹{formatNumber(item.retailPrice - item.buyingPrice, precision)}</p>
+                  <p className="text-[8px] text-green-500 font-bold">
+                    {item.buyingPrice > 0 ? `+${formatNumber(((item.retailPrice - item.buyingPrice) / item.buyingPrice) * 100, 1)}%` : '---'}
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
         </div>
 
+        {/* Notes / Extra Info Section */}
+        {item.notes && (
+          <div className="mt-4 p-3 bg-indigo-500/5 rounded-xl border border-indigo-500/10 space-y-1">
+            <p className="text-[8px] font-black uppercase tracking-widest opacity-40">Extra Info</p>
+            <p className="text-[10px] font-medium leading-relaxed opacity-70 italic">"{item.notes}"</p>
+          </div>
+        )}
+
         {/* AI Advisory Section */}
-        {!isReadOnly && (
-          <div className="mt-4 pt-4 border-t border-white/5">
+        <div className="mt-4 pt-4 border-t border-white/5">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1.5">
               <Sparkles size={14} className="text-amber-500" />
@@ -2052,7 +1783,6 @@ const ItemCard = React.memo(({ item, isLocked, language, precision, onEdit, onDe
             <p className="text-[10px] opacity-30 italic px-1">{t.getAiAdvice}</p>
           )}
         </div>
-      )}
       </div>
       
       {/* Bottom info bar */}
@@ -2086,7 +1816,7 @@ function NavButton({ active, icon, label, onClick }: { active: boolean; icon: Re
       )}
     >
       <div className={cn("rounded-full p-1 transition-all", active && "bg-[var(--primary)]/10")}>
-        {React.cloneElement(icon as React.ReactElement<any>, { size: 24 })}
+        {React.cloneElement(icon as React.ReactElement, { size: 24 })}
       </div>
       <span className="text-[10px] font-bold uppercase tracking-tighter">{label}</span>
       {active && <motion.div layoutId="nav-dot" className="h-1 w-1 rounded-full bg-[var(--primary)]" />}
@@ -2098,14 +1828,9 @@ function NavButton({ active, icon, label, onClick }: { active: boolean; icon: Re
  * HelpModal Sub-component
  */
 function HelpModal({ onClose, t }: { onClose: () => void; t: any }) {
-  const [activeTab, setActiveTab] = useState<'tips' | 'quickstart' | 'analytics' | 'cloud' | 'security'>('quickstart');
-
-  const tabs = [
-    { id: 'quickstart', label: t.helpQuickStart, icon: <Zap size={18} /> },
-    { id: 'analytics', label: t.helpAnalytics, icon: <TrendingUp size={18} /> },
-    { id: 'cloud', label: t.helpCloud, icon: <Cloud size={18} /> },
-    { id: 'security', label: t.helpSecurity, icon: <Shield size={18} /> },
-    { id: 'tips', label: t.helpTips, icon: <Lightbulb size={18} /> },
+  const faqs = [
+    { q: t.faq1Q, a: t.faq1A },
+    { q: t.faq2Q, a: t.faq2A },
   ];
 
   return (
@@ -2118,156 +1843,54 @@ function HelpModal({ onClose, t }: { onClose: () => void; t: any }) {
       <motion.div 
         initial={{ scale: 0.9, y: 20 }}
         animate={{ scale: 1, y: 0 }}
-        className="w-full max-w-4xl bg-[var(--background)] rounded-[2.5rem] border border-[var(--border)] shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[85vh]"
+        className="w-full max-w-2xl bg-[var(--background)] rounded-[2.5rem] border border-[var(--border)] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
       >
-        {/* Sidebar */}
-        <div className="w-full md:w-64 bg-white/5 border-r border-[var(--border)] flex flex-col">
-          <div className="p-8 border-b border-[var(--border)]">
-            <h2 className="text-xl font-black tracking-tight">{t.help}</h2>
-            <p className="text-[8px] font-black uppercase tracking-widest opacity-40 mt-1">Enterprise Guide</p>
+        <div className="p-8 border-b border-[var(--border)] flex items-center justify-between bg-gradient-to-r from-[var(--primary)]/10 to-transparent">
+          <div>
+            <h2 className="text-2xl font-black tracking-tight">{t.help}</h2>
+            <p className="text-[10px] font-black uppercase tracking-widest opacity-40 mt-1">Enterprise Support & Documentation</p>
           </div>
-          <div className="flex-1 p-4 flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-x-visible">
-            {tabs.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={cn(
-                  "flex items-center gap-3 px-4 py-3 rounded-xl transition-all whitespace-nowrap md:whitespace-normal text-left group",
-                  activeTab === tab.id 
-                    ? "bg-[var(--primary)] text-white shadow-lg" 
-                    : "hover:bg-white/5 opacity-60 hover:opacity-100"
-                )}
-              >
-                <div className={cn(
-                  "h-8 w-8 rounded-lg flex items-center justify-center transition-colors",
-                  activeTab === tab.id ? "bg-white/20" : "bg-white/5 group-hover:bg-white/10"
-                )}>
-                  {tab.icon}
-                </div>
-                <span className="text-xs font-bold">{tab.label}</span>
-              </button>
-            ))}
-          </div>
+          <Button variant="outline" size="icon" onClick={onClose} className="rounded-full h-10 w-10 border-white/10">
+            <X size={20} />
+          </Button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-white/[0.02]">
-          <div className="p-8 border-b border-[var(--border)] flex items-center justify-between">
-            <div>
-              <h3 className="font-black uppercase text-xs tracking-widest text-[var(--primary)]">
-                {tabs.find(p => p.id === activeTab)?.label}
-              </h3>
+        <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+          <section className="space-y-4">
+            <div className="flex items-center gap-3 text-[var(--primary)]">
+              <BookOpen size={20} />
+              <h3 className="font-bold uppercase text-xs tracking-widest">Getting Started</h3>
             </div>
-            <Button variant="outline" size="icon" onClick={onClose} className="rounded-full h-8 w-8 border-white/10">
-              <X size={16} />
-            </Button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={activeTab}
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                className="space-y-6"
-              >
-                {activeTab === 'quickstart' && (
-                  <div className="space-y-6">
-                    <div className="grid gap-4">
-                      {[t.qs1, t.qs2, t.qs3].map((text, i) => (
-                        <div key={i} className="flex gap-4 p-5 rounded-2xl bg-white/5 border border-white/5">
-                          <div className="h-10 w-10 shrink-0 bg-[var(--primary)]/10 rounded-full flex items-center justify-center text-[var(--primary)] font-black">
-                            {i + 1}
-                          </div>
-                          <p className="text-sm font-medium leading-relaxed opacity-80">{text}</p>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="p-6 rounded-3xl bg-amber-500/10 border border-amber-500/20 flex gap-4 items-start">
-                       <AlertCircle className="text-amber-500 shrink-0 mt-0.5" size={20} />
-                       <div className="space-y-1">
-                         <p className="font-bold text-xs uppercase text-amber-500">Important</p>
-                         <p className="text-xs opacity-60 leading-relaxed italic">Always remember your verify PIN. If you forget it, you will have to clear app data which might result in loss if not synced to cloud.</p>
-                       </div>
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === 'analytics' && (
-                  <div className="space-y-6">
-                    <p className="text-sm opacity-60 leading-relaxed">{t.analyticsDesc}</p>
-                    <div className="p-6 rounded-3xl bg-emerald-500/5 border border-emerald-500/20 space-y-4">
-                       <h4 className="font-black text-[10px] uppercase tracking-widest opacity-40">Pro Insight</h4>
-                       <div className="flex items-center gap-4">
-                          <div className="h-12 w-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-emerald-500">
-                             <TrendingUp size={24} />
-                          </div>
-                          <p className="text-xs font-semibold">Monitor the "Low Stock" badge in your dashbaord to prevent missed sales opportunities.</p>
-                       </div>
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === 'cloud' && (
-                   <div className="space-y-6">
-                     <p className="text-sm opacity-60 leading-relaxed">{t.cloudDesc}</p>
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="p-5 rounded-3xl bg-white/5 border border-white/5 space-y-2">
-                           <p className="font-bold text-xs">Offline Support</p>
-                           <p className="text-[10px] opacity-40">App caches all data locally. You can bill customers even without internet.</p>
-                        </div>
-                        <div className="p-5 rounded-3xl bg-white/5 border border-white/5 space-y-2">
-                           <p className="font-bold text-xs">Conflicts</p>
-                           <p className="text-[10px] opacity-40">Last saved device wins. Make sure to stay online for instant multi-user sync.</p>
-                        </div>
-                     </div>
-                   </div>
-                )}
-
-                {activeTab === 'security' && (
-                   <div className="space-y-6">
-                     <p className="text-sm opacity-60 leading-relaxed">{t.securityDesc}</p>
-                     <div className="p-6 rounded-[2rem] bg-amber-500 text-black space-y-2">
-                        <div className="flex items-center gap-2">
-                           <Lock size={16} />
-                           <p className="font-black text-xs uppercase">Stealth Mode</p>
-                        </div>
-                        <p className="text-xs font-bold leading-tight">Enable "Stealth Mode" in settings to automatically hide cost prices whenever the app opens.</p>
-                     </div>
-                   </div>
-                )}
-
-                {activeTab === 'tips' && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="p-6 rounded-3xl bg-white/5 border border-white/5 hover:border-[var(--primary)]/30 transition-all cursor-default">
-                       <p className="font-black text-xs text-[var(--primary)] mb-2 uppercase">Search Hacks</p>
-                       <p className="text-xs opacity-60">Try searching for <strong>"Chini"</strong> or <strong>"Sugar"</strong> - the engine understands both if added correctly.</p>
-                    </div>
-                    <div className="p-6 rounded-3xl bg-white/5 border border-white/5 hover:border-[var(--primary)]/30 transition-all cursor-default">
-                       <p className="font-black text-xs text-[var(--primary)] mb-2 uppercase">Bulk Compare</p>
-                       <p className="text-xs opacity-60">Hold an item to select multiple, then tap <strong>"Compare"</strong> for a split view analysis.</p>
-                    </div>
-                  </div>
-                )}
-              </motion.div>
-            </AnimatePresence>
-          </div>
-          
-          <div className="p-8 border-t border-[var(--border)] bg-white/[0.02] flex items-center justify-between">
-            <div className="flex items-center gap-3">
-               <div className="h-10 w-10 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center text-[var(--primary)]">
-                  <ShieldCheck size={20} />
-               </div>
-               <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest">Enterprise Secured</p>
-                  <p className="text-[8px] opacity-40 font-bold">End-to-End Encryption Enabled</p>
-               </div>
+            <div className="grid gap-4">
+              {faqs.map((faq, i) => (
+                <div key={i} className="p-5 rounded-2xl bg-white/5 border border-white/5 hover:border-[var(--primary)]/20 transition-all">
+                  <p className="font-black text-sm mb-2 text-[var(--primary)]">Q: {faq.q}</p>
+                  <p className="text-xs opacity-60 leading-relaxed font-medium">{faq.a}</p>
+                </div>
+              ))}
             </div>
-            <button onClick={onClose} className="text-[10px] font-black uppercase tracking-widest opacity-40 hover:opacity-100 transition-opacity">
-              Close Guide
-            </button>
-          </div>
+          </section>
+
+          <section className="space-y-4">
+            <div className="flex items-center gap-3 text-emerald-500">
+              <Zap size={20} />
+              <h3 className="font-bold uppercase text-xs tracking-widest">Pro Tips</h3>
+            </div>
+            <ul className="space-y-3">
+              <li className="flex gap-3 text-xs opacity-60">
+                <span className="text-emerald-500 font-bold">•</span>
+                <span>Use the <strong>"Compare"</strong> feature to view price differences between items side-by-side.</span>
+              </li>
+              <li className="flex gap-3 text-xs opacity-60">
+                <span className="text-emerald-500 font-bold">•</span>
+                <span>Enable <strong>Lock</strong> to hide cost prices when showing customers the screen.</span>
+              </li>
+              <li className="flex gap-3 text-xs opacity-60">
+                <span className="text-emerald-500 font-bold">•</span>
+                <span>Each item can have a <strong>"Margin Spread"</strong> which updates live as you edit prices.</span>
+              </li>
+            </ul>
+          </section>
         </div>
       </motion.div>
     </motion.div>
@@ -2304,12 +1927,6 @@ function OnboardingTour({ onClose, t }: { onClose: () => void; t: any }) {
       desc: t.step3Desc,
       target: 'tour-notes',
       icon: <Bell className="text-emerald-500" size={32} />
-    },
-    {
-      title: "Comparison Engine",
-      desc: "Select multiple items and compare prices side-by-side to make better buying choices.",
-      target: 'tour-nav',
-      icon: <RefreshCw className="text-indigo-500" size={32} />
     }
   ];
 
@@ -2385,119 +2002,6 @@ function OnboardingTour({ onClose, t }: { onClose: () => void; t: any }) {
   );
 }
 
-function BulkPriceUpdateModal({ selectedItems, onClose, onSave, t, language }: {
-  selectedItems: Item[];
-  onClose: () => void;
-  onSave: (ids: string[], updates: { retailPrice?: number; wholesalePrice?: number; buyingPrice?: number }) => void;
-  t: any;
-  language: LanguageType;
-}) {
-  const [updates, setUpdates] = useState({
-    retailPrice: '',
-    wholesalePrice: '',
-    buyingPrice: ''
-  });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const finalUpdates: any = {};
-    if (updates.retailPrice !== '') finalUpdates.retailPrice = Number(updates.retailPrice);
-    if (updates.wholesalePrice !== '') finalUpdates.wholesalePrice = Number(updates.wholesalePrice);
-    if (updates.buyingPrice !== '') finalUpdates.buyingPrice = Number(updates.buyingPrice);
-
-    if (Object.keys(finalUpdates).length === 0) {
-      alert("No changes specified");
-      return;
-    }
-
-    onSave(selectedItems.map(i => i.id), finalUpdates);
-  };
-
-  return (
-    <motion.div 
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/90 backdrop-blur-2xl"
-    >
-      <motion.div 
-        initial={{ scale: 0.95, opacity: 0, y: 20 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        exit={{ scale: 0.95, opacity: 0, y: 20 }}
-        className="w-full max-w-lg bg-[var(--card)] rounded-[2.5rem] border border-white/10 shadow-2xl p-8"
-      >
-        <div className="flex items-center justify-between mb-8">
-           <div>
-             <h2 className="text-xl font-black tracking-tight">{t.bulkUpdate}</h2>
-             <p className="text-[10px] font-black uppercase tracking-widest opacity-40 mt-1">{t.adjustPrices}</p>
-           </div>
-           <Button variant="outline" size="icon" onClick={onClose} className="rounded-full h-10 w-10 border-white/5">
-             <X size={20} />
-           </Button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-           <div className="grid gap-4">
-              <div className="space-y-2">
-                 <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-1">{t.retailPrice}</label>
-                 <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20 font-black">₹</span>
-                    <input 
-                      type="number" 
-                      placeholder="Leave blank for no change"
-                      className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pl-10 pr-4 text-sm focus:border-[var(--primary)] outline-none transition-all placeholder:text-white/10"
-                      value={updates.retailPrice}
-                      onChange={e => setUpdates(prev => ({ ...prev, retailPrice: e.target.value }))}
-                    />
-                 </div>
-              </div>
-
-              <div className="space-y-2">
-                 <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-1">{t.wholesalePrice}</label>
-                 <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20 font-black">₹</span>
-                    <input 
-                      type="number" 
-                      placeholder="Leave blank for no change"
-                      className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pl-10 pr-4 text-sm focus:border-[var(--primary)] outline-none transition-all placeholder:text-white/10"
-                      value={updates.wholesalePrice}
-                      onChange={e => setUpdates(prev => ({ ...prev, wholesalePrice: e.target.value }))}
-                    />
-                 </div>
-              </div>
-
-              <div className="space-y-2">
-                 <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-1">{t.buyingPrice}</label>
-                 <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20 font-black">₹</span>
-                    <input 
-                      type="number" 
-                      placeholder="Leave blank for no change"
-                      className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl pl-10 pr-4 text-sm focus:border-[var(--primary)] outline-none transition-all placeholder:text-white/10"
-                      value={updates.buyingPrice}
-                      onChange={e => setUpdates(prev => ({ ...prev, buyingPrice: e.target.value }))}
-                    />
-                 </div>
-              </div>
-           </div>
-
-           <div className="pt-4 flex flex-col gap-3">
-              <Button type="submit" className="h-14 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-[var(--primary)]/20">
-                <Check size={18} className="mr-2" />
-                {t.updateSelected}
-              </Button>
-              <div className="p-4 bg-white/5 border border-dashed border-white/10 rounded-2xl">
-                 <p className="text-[9px] font-black uppercase tracking-widest opacity-30 text-center">
-                    Updating {selectedItems.length} items across various categories
-                 </p>
-              </div>
-           </div>
-        </form>
-      </motion.div>
-    </motion.div>
-  );
-}
-
 function ComparisonModal({ selectedItems, onClose, t, language, precision, hideBuyingPrice }: {
   selectedItems: Item[];
   onClose: () => void;
@@ -2533,13 +2037,8 @@ function ComparisonModal({ selectedItems, onClose, t, language, precision, hideB
           {selectedItems.map((item) => {
             const cat = DEFAULT_CATEGORIES.find(c => c.id === item.categoryId);
             const name = item.translations[language] || item.translations.en;
-            const revenuePotential = item.retailPrice * item.quantity;
-            const costBasis = item.buyingPrice * item.quantity;
-            const profitPotential = revenuePotential - costBasis;
-            const marginPercent = costBasis > 0 ? (profitPotential / costBasis) * 100 : 0;
-            
             return (
-              <div key={item.id} className="card p-6 bg-gradient-to-br from-[var(--card)] to-transparent border-white/5 space-y-6 flex flex-col">
+              <div key={item.id} className="card p-6 bg-gradient-to-br from-[var(--card)] to-transparent border-white/5 space-y-6">
                 <div className="flex items-center gap-4 border-b border-white/5 pb-4">
                   <div className="h-16 w-16 rounded-2xl bg-[var(--background)] border border-[var(--border)] flex items-center justify-center text-3xl shadow-inner">
                     {cat?.icon || '📦'}
@@ -2550,20 +2049,12 @@ function ComparisonModal({ selectedItems, onClose, t, language, precision, hideB
                   </div>
                 </div>
 
-                <div className="space-y-4 flex-1">
+                <div className="space-y-4">
                    <div className="flex justify-between items-center bg-white/5 p-3 rounded-xl border border-white/5">
                       <span className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">{t.retail || "Retail"}</span>
                       <div className="text-right">
-                        <span className="text-sm font-black text-amber-500">₹{formatNumber(item.retailPrice, precision)}</span>
+                        <span className="text-sm font-black">₹{formatNumber(item.retailPrice, precision)}</span>
                         <span className="text-[8px] opacity-40 block">/ {item.retailPriceUnit}</span>
-                      </div>
-                   </div>
-
-                   <div className="flex justify-between items-center bg-white/5 p-3 rounded-xl border border-white/5">
-                      <span className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40">{t.wholesale || "Wholesale"}</span>
-                      <div className="text-right">
-                        <span className="text-sm font-black text-blue-400">₹{formatNumber(item.wholesalePrice, precision)}</span>
-                        <span className="text-[8px] opacity-40 block">/ {item.wholesalePriceUnit}</span>
                       </div>
                    </div>
 
@@ -2583,15 +2074,11 @@ function ComparisonModal({ selectedItems, onClose, t, language, precision, hideB
                    </div>
 
                    {!hideBuyingPrice && (
-                     <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-white/5">
-                        <div className="bg-emerald-500/5 p-3 rounded-xl border border-emerald-500/10">
-                           <p className="text-[8px] font-black uppercase tracking-widest text-emerald-500 opacity-60 mb-1">{t.profitability}</p>
-                           <p className="text-lg font-black text-emerald-500">{marginPercent.toFixed(1)}%</p>
-                        </div>
-                        <div className="bg-blue-500/5 p-3 rounded-xl border border-blue-500/10">
-                           <p className="text-[8px] font-black uppercase tracking-widest text-blue-400 opacity-60 mb-1">{t.revenuePotential}</p>
-                           <p className="text-lg font-black text-blue-400">₹{formatNumber(revenuePotential, 0)}</p>
-                        </div>
+                     <div className="flex justify-between items-center bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20">
+                        <span className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-500">{t.margin || "Margin"}</span>
+                        <span className="text-sm font-black text-emerald-500">
+                          {(( (item.retailPrice * (item.quantity || 1)) - (item.buyingPrice * (item.quantity || 1)) ) / ( (item.buyingPrice * (item.quantity || 1)) || 1 ) * 100).toFixed(1)}%
+                        </span>
                      </div>
                    )}
 
@@ -2603,12 +2090,19 @@ function ComparisonModal({ selectedItems, onClose, t, language, precision, hideB
                    </div>
                 </div>
 
-                {item.aiAdvice && (
-                  <div className="mt-auto p-4 bg-gradient-to-br from-[var(--primary)]/10 to-transparent rounded-2xl border border-[var(--primary)]/20 shadow-inner">
+                {item.notes && (
+                <div className="p-3 bg-indigo-500/5 rounded-xl border border-indigo-500/10 space-y-1">
+                  <p className="text-[8px] font-black uppercase tracking-widest opacity-40">Extra Info</p>
+                  <p className="text-[10px] font-medium leading-relaxed opacity-70 italic">"{item.notes}"</p>
+                </div>
+              )}
+
+              {item.aiAdvice && (
+                  <div className="p-4 bg-[var(--primary)]/5 rounded-2xl border border-[var(--primary)]/10">
                     <p className="text-[10px] font-black uppercase tracking-widest text-[var(--primary)] mb-2 flex items-center gap-2">
-                       <Sparkles size={14} className="animate-pulse" /> {t.aiInsight || "AI Intelligence"}
+                       <Zap size={12} fill="currentColor" /> AI Insights
                     </p>
-                    <p className="text-[11px] leading-relaxed font-medium opacity-90 italic">"{item.aiAdvice}"</p>
+                    <p className="text-[11px] leading-relaxed opacity-80 line-clamp-4">{item.aiAdvice}</p>
                   </div>
                 )}
               </div>
@@ -2648,8 +2142,6 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
 
   const [activeUnitSelection, setActiveUnitSelection] = useState<'base'|'retail'|'wholesale'|'buy'|null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
-  const [smartInput, setSmartInput] = useState('');
-  const [isAiLoading, setIsAiLoading] = useState(false);
   
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const section1Ref = React.useRef<HTMLDivElement>(null);
@@ -2682,38 +2174,9 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
     onClose();
   };
 
-  const handleAiSmartFill = async () => {
-    if (!smartInput.trim()) return;
-    setIsAiLoading(true);
-    const result = await parseItemDescription(smartInput);
-    if (result) {
-      setFormData(prev => ({
-        ...prev,
-        ...result,
-        name: result.name || prev.name,
-        retailPrice: result.retailPrice || prev.retailPrice,
-        wholesalePrice: result.wholesalePrice || prev.wholesalePrice,
-        buyingPrice: result.buyingPrice || prev.buyingPrice,
-        unit: result.unit || prev.unit,
-        notes: result.notes || prev.notes
-      }));
-      setSmartInput('');
-      // After filling name, trigger translation manually if needed or let effect handle it (assuming there's one)
-      if (result.name) {
-        setIsTranslating(true);
-        const trans = await translateItemName(result.name);
-        setFormData(prev => ({ ...prev, translations: trans }));
-        setIsTranslating(false);
-      }
-    } else {
-      alert("AI couldn't parse the description. Try being more specific.");
-    }
-    setIsAiLoading(false);
-  };
-
   const sectionVariants = {
     hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" as any } }
+    visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" } }
   };
 
   const quickQtys = [5, 10, 25, 50, 100];
@@ -2749,33 +2212,6 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
         {/* Content */}
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-6 space-y-24 no-scrollbar pb-32 scroll-smooth">
           
-          {/* Section 0: AI Smart Entry (Spice Store) */}
-          <motion.div 
-            variants={sectionVariants}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
-            className="p-6 rounded-[2rem] bg-gradient-to-br from-indigo-500/10 to-blue-500/5 border border-indigo-500/20 space-y-4"
-          >
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-indigo-400">
-              <Sparkles size={14} className="animate-pulse" /> AI Smart Entry (Masala & Dry Fruits)
-            </div>
-            <textarea
-              className="w-full h-24 rounded-2xl border-2 border-[var(--border)] bg-[var(--background)]/50 p-4 font-bold text-sm focus:border-indigo-500 focus:outline-none transition-all placeholder:opacity-40 shadow-inner resize-none"
-              placeholder="Example: Badam A grade, 1kg retail 900, wholesale 850, buy 800..."
-              value={smartInput}
-              onChange={(e) => setSmartInput(e.target.value)}
-            />
-            <Button 
-                onClick={handleAiSmartFill} 
-                disabled={isAiLoading || !smartInput.trim()}
-                className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-black uppercase text-[10px] tracking-widest gap-2 py-4 h-auto shadow-lg shadow-indigo-500/20"
-            >
-              {isAiLoading ? <RefreshCw className="animate-spin" size={16} /> : <Sparkles size={16} />}
-              {isAiLoading ? 'AI Processing Data...' : 'Execute AI Smart Entry'}
-            </Button>
-          </motion.div>
-
           {/* Section 1: Identity */}
           <motion.div 
             variants={sectionVariants}
@@ -2807,8 +2243,8 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
                </div>
 
                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                 {LANGUAGES.map((lang, idx) => (
-                   <div key={`lang-${lang.id}-${idx}`} className="flex items-center gap-2 rounded-xl bg-[var(--card)] border border-[var(--border)] p-3 text-[10px] shadow-sm">
+                 {LANGUAGES.map(lang => (
+                   <div key={lang.id} className="flex items-center gap-2 rounded-xl bg-[var(--card)] border border-[var(--border)] p-3 text-[10px] shadow-sm">
                      <span className="opacity-80">{lang.emoji}</span>
                      <span className="flex-1 font-bold opacity-30 truncate">
                        {formData.translations[lang.id] || '---'}
@@ -2818,9 +2254,9 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
                </div>
 
                <div className="flex gap-2 overflow-x-auto no-scrollbar py-2">
-                 {categories.map((cat, idx) => (
+                 {categories.map(cat => (
                    <button
-                     key={`form-cat-${cat.id}-${idx}`}
+                     key={cat.id}
                      onClick={() => setFormData(prev => ({ ...prev, categoryId: cat.id }))}
                      className={cn(
                        "flex items-center gap-3 rounded-xl border-2 px-5 py-3 transition-all shrink-0 font-black text-[10px] uppercase",
@@ -2867,7 +2303,7 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
                  </div>
                  <div className="flex flex-wrap gap-1.5 pt-2">
                    {quickQtys.map(q => (
-                     <button key={`qty-${q}`} onClick={() => setFormData(prev => ({ ...prev, quantity: q }))} className="px-3 py-1.5 rounded-lg bg-[var(--background)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">{q} {formData.unit}</button>
+                     <button key={q} onClick={() => setFormData(prev => ({ ...prev, quantity: q }))} className="px-3 py-1.5 rounded-lg bg-[var(--background)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">{q} {formData.unit}</button>
                    ))}
                  </div>
                </div>
@@ -2929,7 +2365,7 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
              
              <div className="grid grid-cols-4 gap-2">
                 {quickAmounts.map(amt => (
-                  <button key={`amt-${amt}`} onClick={() => setFormData(prev => ({ ...prev, retailPrice: amt }))} className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">₹{amt}</button>
+                  <button key={amt} onClick={() => setFormData(prev => ({ ...prev, retailPrice: amt }))} className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">₹{amt}</button>
                 ))}
              </div>
           </motion.div>
@@ -3030,9 +2466,9 @@ function NotificationsView({
       </header>
 
       <div className="grid grid-cols-1 gap-3">
-        {allNotifications.map((notif, idx) => (
+        {allNotifications.map((notif) => (
           <motion.div
-            key={`notif-${notif.type}-${notif.id}-${idx}`}
+            key={notif.id}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             onClick={() => notif.type === 'price' ? onViewItem(notif.itemId) : onViewNote(notif.id)}
@@ -3407,40 +2843,37 @@ function SettingsScreen({
   );
 }
 
-function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareWhatsApp, onLogout, onGoogleAuth }: { 
-  state: AppState; 
-  t: any; 
-  deferredPrompt: any; 
-  onInstall: () => void;
-  onShareWhatsApp: () => void;
-  onLogout: () => void;
-  onGoogleAuth: () => void;
-}) {
+function ProfileScreen({ state, t, deferredPrompt, onInstall }: { state: AppState; t: any; deferredPrompt: any; onInstall: () => void }) {
+  const handleAuth = async () => {
+    if (state.user) {
+      await auth.signOut();
+    } else {
+      await loginWithGoogle();
+    }
+  };
+
   return (
     <div className="space-y-8 pb-32 animate-in fade-in slide-in-from-bottom-6 duration-1000 max-w-2xl mx-auto px-4 sm:px-0">
       {/* Dynamic Visual Header */}
-      <div className={cn(
-        "relative overflow-hidden rounded-[3rem] p-10 text-white shadow-2xl min-h-[250px] flex flex-col justify-end group transition-all duration-700",
-        state.user ? "bg-[var(--primary)] shadow-[var(--primary)]/20" : "bg-gradient-to-br from-slate-800 to-slate-900 shadow-slate-900/50"
-      )}>
+      <div className="relative overflow-hidden rounded-[3rem] bg-[var(--primary)] p-10 text-white shadow-2xl shadow-[var(--primary)]/20 min-h-[250px] flex flex-col justify-end group">
          <div className="absolute top-0 right-0 p-8 opacity-10 rotate-12 transition-transform group-hover:scale-110 group-hover:rotate-0 duration-700">
-            <UserIcon size={200} />
+            <User size={200} />
          </div>
          <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent" />
          
          <div className="relative z-10 space-y-6">
             <div className="flex items-center gap-5">
                <div className="h-20 w-20 rounded-[2rem] bg-white/10 border border-white/20 backdrop-blur-xl flex items-center justify-center shadow-2xl transition-transform group-hover:scale-105">
-                  <UserIcon size={40} className="text-white" />
+                  <User size={40} className="text-white" />
                </div>
                <div>
                   <h2 className="text-4xl font-black uppercase tracking-tight leading-none truncate max-w-[200px] sm:max-w-md">
-                    {state.user ? (state.user.email?.split('@')[0] || 'Merchant') : state.isGuest ? 'Guest Merchant' : 'SYSTEM ADMIN'}
+                    {state.user ? (state.user.email?.split('@')[0] || 'Merchant') : 'SYSTEM ADMIN'}
                   </h2>
                   <div className="mt-2 flex items-center gap-2">
-                     <span className={cn("h-2 w-2 rounded-full", state.user ? "bg-green-400 animate-pulse" : "bg-amber-400")} />
+                     <span className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
                      <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-70">
-                       {state.user ? t.liveNode : state.isGuest ? 'Local-Only Mode' : t.localSandbox}
+                       {state.user ? t.liveNode : t.localSandbox}
                      </p>
                   </div>
                </div>
@@ -3449,23 +2882,13 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareWhatsApp, o
             <div className="flex gap-8 pt-4">
                <div>
                   <p className="text-[9px] font-black uppercase tracking-widest opacity-50 mb-1">{t.authorization}</p>
-                  {state.user ? (
-                    <button 
-                      onClick={onLogout}
-                      className="flex items-center gap-2 bg-white/10 hover:bg-white text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full transition-all text-white hover:text-red-500 shadow-lg active:scale-95"
-                    >
-                       <LogOut size={14} />
-                       {t.terminateSession}
-                    </button>
-                  ) : (
-                    <button 
-                      onClick={onGoogleAuth}
-                      className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full transition-all text-white shadow-lg active:scale-95"
-                    >
-                       <LogIn size={14} />
-                       Connect to Cloud
-                    </button>
-                  )}
+                  <button 
+                    onClick={handleAuth}
+                    className="flex items-center gap-2 bg-white/10 hover:bg-white text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full transition-all text-white hover:text-[var(--primary)] shadow-lg active:scale-95"
+                  >
+                     {state.user ? <LogOut size={14} /> : <LogIn size={14} />}
+                     {state.user ? t.terminateSession : t.cloudEntry}
+                  </button>
                </div>
                <div className="h-10 w-px bg-white/20" />
                <div>
@@ -3483,61 +2906,31 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareWhatsApp, o
             <div className="h-px flex-1 bg-[var(--border)] mx-4 opacity-10" />
          </div>
 
-    {/* PWA Deployment Call-to-Action - Enhanced for "Download" intent */}
-         <button 
-           onClick={onInstall}
-           className="w-full flex items-center justify-between p-8 bg-gradient-to-br from-indigo-500 via-indigo-600 to-blue-700 text-white rounded-[2.5rem] shadow-2xl shadow-indigo-500/30 active:scale-[0.98] transition-all group overflow-hidden relative border border-white/20"
-         >
-            <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-500" />
-            <div className="flex items-center gap-5 relative z-10">
-               <div className="h-16 w-16 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner ring-4 ring-white/5">
-                  <Smartphone size={32} className="animate-bounce" />
-               </div>
-               <div className="text-left">
-                  <p className="text-xl font-black uppercase tracking-tight">{t.deployNode || "Download & Install App"}</p>
-                  <p className="text-[10px] font-bold opacity-70 uppercase tracking-widest leading-relaxed">
-                     {deferredPrompt ? (t.pwaInstallHint || "Install it to open like a real mobile app") : "Use Browser Menu > 'Install App' or 'Add to Home Screen'"}
-                  </p>
-               </div>
-            </div>
-            <div className="relative z-10 h-10 w-10 rounded-full bg-white/20 flex items-center justify-center group-hover:scale-110 transition-transform">
-               <Download size={20} />
-            </div>
-         </button>
-
-         {!deferredPrompt && !safeStorage.getItem('pwa_prompt_seen') && (
-            <div className="p-4 bg-white/5 border border-dashed border-white/10 rounded-2xl">
-               <p className="text-[9px] font-black uppercase tracking-widest opacity-30 text-center">
-                  To open this without Chrome address bar: Click 3-dots menu <span className="text-[var(--primary)]">⋮</span> and select <span className="text-[var(--primary)]">"Install App"</span>
-               </p>
-            </div>
+         {/* PWA Deployment Call-to-Action */}
+         {deferredPrompt && (
+           <button 
+             onClick={onInstall}
+             className="w-full flex items-center justify-between p-8 bg-gradient-to-br from-amber-500 to-orange-600 text-white rounded-[2.5rem] shadow-2xl shadow-amber-500/30 active:scale-[0.98] transition-all group overflow-hidden relative"
+           >
+              <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-500" />
+              <div className="flex items-center gap-5 relative z-10">
+                 <div className="h-14 w-14 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner">
+                    <Download size={28} />
+                 </div>
+                 <div className="text-left">
+                    <p className="text-xl font-black uppercase tracking-tight">{t.deployNode}</p>
+                    <p className="text-[10px] font-bold opacity-70 uppercase tracking-widest">{t.pwaInstallHint}</p>
+                 </div>
+              </div>
+              <ChevronRight size={24} className="relative z-10 opacity-60 group-hover:translate-x-1 transition-transform" />
+           </button>
          )}
 
          {/* Secondary Hub Actions */}
          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <button 
-              onClick={onShareWhatsApp}
-              className="flex items-center justify-between p-6 bg-[var(--card)] border border-[var(--border)] rounded-[2rem] hover:border-green-500/30 hover:bg-green-500/5 transition-all group"
-            >
-               <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-2xl bg-green-500/10 text-green-500 flex items-center justify-center transition-colors group-hover:bg-green-500 group-hover:text-white">
-                     <Share2 size={22} />
-                  </div>
-                  <div className="text-left">
-                     <p className="text-sm font-black uppercase group-hover:text-green-500 transition-colors">Share Product List</p>
-                     <p className="text-[8px] font-bold opacity-40 uppercase tracking-widest leading-tight">Send price list to customers via WhatsApp</p>
-                  </div>
-               </div>
-               <ChevronRight size={16} className="opacity-20 group-hover:translate-x-1 transition-transform" />
-            </button>
-
-            <button 
               onClick={() => {
-                  if (!state.user) {
-                    alert("Please log in first to generate your share link.");
-                    return;
-                  }
-                  const message = encodeURIComponent(`Check out our LIVE inventory and prices: ${window.location.origin}?mode=client&shop=${state.user.uid}`);
+                  const message = encodeURIComponent(`Check out TS PRICE MANAGER: ${window.location.host}`);
                   window.open(`https://wa.me/?text=${message}`, '_blank');
               }}
               className="flex items-center justify-between p-6 bg-[var(--card)] border border-[var(--border)] rounded-[2rem] hover:border-green-500/30 hover:bg-green-500/5 transition-all group"
@@ -3596,47 +2989,6 @@ function StatCard({ label, value, icon, color }: { label: string; value: string;
   );
 }
 
-function InventoryAIInsight({ items }: { items: Item[] }) {
-  const [insight, setInsight] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const fetchInsight = async () => {
-    if (items.length === 0) return;
-    setLoading(true);
-    const text = await analyzeInventory(items);
-    setInsight(text);
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchInsight();
-  }, [items.length]);
-
-  return (
-    <div className="min-h-[3rem] flex flex-col justify-center">
-      {loading ? (
-        <div className="flex gap-1 items-center">
-          <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce" />
-          <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.2s]" />
-          <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce [animation-delay:0.4s]" />
-        </div>
-      ) : (
-        <div className="group/insight relative">
-          <p className="text-[11px] font-medium opacity-80 leading-relaxed italic">
-            {insight || "Awaiting inventory data for neural analysis..."}
-          </p>
-          <button 
-            onClick={fetchInsight}
-            className="absolute -right-2 -top-6 p-1 rounded-full hover:bg-indigo-500/20 text-indigo-500 opacity-0 group-hover/insight:opacity-100 transition-opacity"
-          >
-            <RefreshCw size={10} className={loading ? "animate-spin" : ""} />
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function RecentPriceChanges({ items, t, precision }: { items: Item[]; t: any; precision: number }) {
   const recentChanges = useMemo(() => {
     return items
@@ -3653,8 +3005,8 @@ function RecentPriceChanges({ items, t, precision }: { items: Item[]; t: any; pr
          <RotateCcw size={14} /> {t.recentPriceChanges}
        </div>
        <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
-         {recentChanges.map((item, idx) => (
-           <div key={`recent-${item.id}-${idx}`} className="flex-shrink-0 w-64 card p-4 border-white/5 bg-[var(--primary)]/5 rounded-2xl">
+         {recentChanges.map(item => (
+           <div key={item.id} className="flex-shrink-0 w-64 card p-4 border-white/5 bg-[var(--primary)]/5 rounded-2xl">
               <div className="flex items-center justify-between mb-3">
                  <div className="h-8 w-8 rounded-lg bg-[var(--background)] border border-[var(--border)] flex items-center justify-center text-xs">
                    {DEFAULT_CATEGORIES.find(c => c.id === item.categoryId)?.icon}
@@ -3719,16 +3071,6 @@ function NotesDashboard({
 
   const displayNotes = isPreview ? filteredNotes.slice(0, 3) : filteredNotes;
   const categories = ['All', 'Stock', 'Payment', 'Customer', 'Supplier', 'Reminder', 'General'];
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [aiSummary, setAiSummary] = useState<string | null>(null);
-
-  const handleAiAnalyze = async () => {
-    setIsAiLoading(true);
-    const combinedNotes = notes.map(n => `[${n.category}] ${n.title}: ${n.description}`);
-    const summary = await analyzeNotes(combinedNotes);
-    setAiSummary(summary);
-    setIsAiLoading(false);
-  };
 
   const getPriorityClass = (priority: string) => {
     switch (priority) {
@@ -3764,44 +3106,12 @@ function NotesDashboard({
                  <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Operational Journal</p>
                </div>
             </button>
-                  <Button 
-                    variant="ghost"
-                    onClick={handleAiAnalyze}
-                    disabled={isAiLoading || notes.length === 0}
-                    className="flex-1 sm:flex-none rounded-xl gap-2 h-10 px-4 bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all overflow-hidden"
-                  >
-                    {isAiLoading ? <RefreshCw size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                    <span className="text-[10px] font-black uppercase tracking-widest">
-                      {isAiLoading ? 'AI Thinking...' : 'AI Insights'}
-                    </span>
-                  </Button>
-                  <Button onClick={onAdd} className="rounded-xl flex gap-2 h-10 px-4 bg-amber-500 hover:bg-amber-600 shadow-xl shadow-amber-500/20 active:scale-95 transition-all">
+            <Button onClick={onAdd} className="rounded-xl flex gap-2 h-10 px-4 bg-amber-500 hover:bg-amber-600 shadow-xl shadow-amber-500/20 active:scale-95 transition-all">
                <Plus size={18} /> <span className="hidden sm:inline text-[10px] font-black uppercase tracking-widest">{t.addNote}</span>
             </Button>
           </div>
 
           <AnimatePresence>
-            {aiSummary && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="p-6 rounded-[2rem] bg-indigo-500/5 border border-indigo-500/20 relative group"
-              >
-                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-indigo-500 mb-2">
-                  <Sparkles size={14} /> AI Journal Intelligence
-                </div>
-                <div className="text-xs font-medium leading-relaxed opacity-80 whitespace-pre-line text-indigo-900/80">
-                  {aiSummary}
-                </div>
-                <button 
-                  onClick={() => setAiSummary(null)} 
-                  className="absolute top-4 right-4 opacity-0 group-hover:opacity-40 hover:opacity-100 transition-opacity"
-                >
-                  <X size={16} />
-                </button>
-              </motion.div>
-            )}
             {expanded && (
               <motion.div 
                 initial={{ opacity: 0, y: -10 }}
@@ -3847,9 +3157,9 @@ function NotesDashboard({
         isPreview ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
       )}>
         <AnimatePresence mode="popLayout">
-          {displayNotes.length > 0 ? displayNotes.map((note, idx) => (
+          {displayNotes.length > 0 ? displayNotes.map(note => (
             <NoteCard 
-               key={`note-${note.id}-${idx}`} 
+               key={note.id} 
                note={note} 
                onUpdate={onUpdate} 
                onDelete={onDelete} 
@@ -4067,46 +3377,5 @@ function NoteFormModal({ onClose, onSave, t }: { onClose: () => void; onSave: (d
         </div>
       </motion.div>
     </div>
-  );
-}
-
-function InstallPrompt({ t, onInstall }: { t: any; onInstall: () => void }) {
-  return (
-    <motion.div 
-      initial={{ y: 100, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      exit={{ y: 100, opacity: 0 }}
-      className="fixed bottom-24 left-4 right-4 z-[400] md:left-auto md:right-8 md:bottom-8 md:w-96"
-    >
-      <div className="bg-indigo-600 rounded-3xl p-6 shadow-2xl flex flex-col gap-4 border border-indigo-400/30">
-         <div className="flex items-start gap-4">
-            <div className="h-12 w-12 rounded-2xl bg-white/20 flex items-center justify-center shrink-0">
-               <Smartphone className="text-white" size={24} />
-            </div>
-            <div>
-               <h4 className="text-white font-black text-sm uppercase tracking-tight">Install TS PRICE MANAGER</h4>
-               <p className="text-white/70 text-xs leading-relaxed mt-1">Get instant access from your home screen, offline support, and full enterprise features.</p>
-            </div>
-         </div>
-         <div className="flex gap-3 mt-2">
-            <Button 
-              onClick={onInstall}
-              className="flex-1 bg-white text-indigo-600 hover:bg-white/90 rounded-xl h-11 text-[10px] font-black uppercase tracking-widest"
-            >
-               Install Now
-            </Button>
-            <Button 
-              variant="ghost" 
-              onClick={() => {
-                safeStorage.setItem('pwa_prompt_seen', 'true');
-                // Could also use a state to hide it
-              }}
-              className="px-4 text-white/50 hover:text-white text-[10px] font-black uppercase tracking-widest"
-            >
-               Maybe Later
-            </Button>
-         </div>
-      </div>
-    </motion.div>
   );
 }

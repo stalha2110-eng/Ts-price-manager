@@ -6,17 +6,12 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatCurrency(amount: number, currency: string = "INR", precision: number = 0): string {
-  try {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: currency || "INR",
-      maximumFractionDigits: precision,
-      minimumFractionDigits: precision,
-    }).format(amount);
-  } catch (e) {
-    console.error("Currency formation error", e);
-    return `${currency || "₹"} ${amount.toFixed(precision)}`;
-  }
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: currency,
+    maximumFractionDigits: precision,
+    minimumFractionDigits: precision,
+  }).format(amount);
 }
 
 export function formatNumber(num: number, precision: number = 0): string {
