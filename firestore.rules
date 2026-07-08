@@ -33,18 +33,87 @@ service cloud.firestore {
     }
 
     function isValidNote(data) {
-      return data.keys().hasAll(['title', 'category', 'priority', 'status']) &&
-             data.title is string && data.title.size() <= 200 &&
+      return data.keys().hasAll(['title', 'category', 'priority']) &&
+             data.title is string && data.title.size() <= 1000 &&
              data.category in ['Stock', 'Payment', 'Customer', 'Supplier', 'Reminder', 'General'] &&
              data.priority in ['Urgent', 'Important', 'Completed', 'Info'] &&
-             data.status in ['Active', 'Completed'];
+             (!('status' in data) || data.status in ['Active', 'Completed']) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 10000)) &&
+             (!('dueDate' in data) || (data.dueDate == null || (data.dueDate is string && data.dueDate.size() <= 128))) &&
+             (!('isPinned' in data) || data.isPinned is bool);
+    }
+
+    function isValidBill(data) {
+      return data.keys().hasAll(['id', 'billNumber', 'items', 'subtotal', 'total', 'paymentMethod', 'timestamp']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.billNumber is string && data.billNumber.size() <= 128 &&
+             data.items is list && data.items.size() <= 2000 &&
+             data.subtotal is number && data.total is number &&
+             data.paymentMethod is string && data.timestamp is string;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['id', 'title', 'message', 'timestamp', 'category', 'priority', 'isRead']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.title is string && data.title.size() <= 300 &&
+             data.message is string && data.message.size() <= 2000 &&
+             data.timestamp is string &&
+             data.category in ['inventory', 'udhar', 'analytics', 'system', 'broadcast'] &&
+             data.priority in ['high', 'medium', 'low'] &&
+             data.isRead is bool;
+    }
+
+    function isValidDevice(data) {
+      return data.keys().hasAll(['id', 'fcmToken', 'deviceName', 'updatedAt']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.fcmToken is string && data.fcmToken.size() <= 500 &&
+             data.deviceName is string && data.deviceName.size() <= 128 &&
+             data.updatedAt is string;
     }
 
     function isValidSettings(data) {
       return true; // Simple settings validation
     }
 
+    function isValidRecoveryRecord(data) {
+      return data.keys().hasAll(['id', 'type', 'title', 'subtitle', 'deletedAt', 'deletedBy', 'expiryAt']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.type in ['product', 'category', 'customer', 'supplier', 'bill', 'settings_point'] &&
+             data.title is string && data.title.size() <= 300 &&
+             data.subtitle is string && data.subtitle.size() <= 500 &&
+             data.deletedAt is string &&
+             data.deletedBy is string && data.deletedBy.size() <= 200 &&
+             data.expiryAt is string;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['id', 'timestamp', 'userEmail', 'actionType', 'entityType', 'entityName']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.timestamp is string &&
+             data.userEmail is string && data.userEmail.size() <= 200 &&
+             data.actionType in ['create', 'update', 'delete', 'restore'] &&
+             data.entityType in ['product', 'category', 'customer', 'supplier', 'bill', 'settings', 'stock', 'price', 'settings_point'] &&
+             data.entityName is string && data.entityName.size() <= 300;
+    }
+
+    function isValidPriceStockRecord(data) {
+      return data.keys().hasAll(['id', 'productId', 'productName', 'type', 'timestamp', 'previousVal', 'newVal', 'userEmail']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.productId is string && data.productId.size() <= 128 &&
+             data.productName is string && data.productName.size() <= 300 &&
+             data.type in ['price', 'stock'] &&
+             data.timestamp is string &&
+             data.previousVal is number &&
+             data.newVal is number &&
+             data.userEmail is string && data.userEmail.size() <= 200;
+    }
+
     // Collections
+    // Public test document to allow unauthenticated backend availability checks safely
+    match /test/connection {
+      allow read: if true;
+    }
+
     match /users/{userId} {
       allow get: if isOwner(userId);
       allow create, update: if isOwner(userId); // Settings are handled here
@@ -58,6 +127,42 @@ service cloud.firestore {
       match /notes/{noteId} {
         allow read: if isOwner(userId);
         allow create, update: if isOwner(userId) && isValidNote(incoming());
+        allow delete: if isOwner(userId);
+      }
+
+      match /bills/{billId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidBill(incoming());
+        allow delete: if isOwner(userId);
+      }
+
+      match /notifications/{notificationId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidNotification(incoming());
+        allow delete: if isOwner(userId);
+      }
+
+      match /devices/{deviceId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidDevice(incoming());
+        allow delete: if isOwner(userId);
+      }
+
+      match /recovery_items/{recoveryId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidRecoveryRecord(incoming());
+        allow delete: if isOwner(userId);
+      }
+
+      match /audit_logs/{logId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidAuditLog(incoming());
+        allow delete: if isOwner(userId);
+      }
+
+      match /price_stock_history/{historyId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidPriceStockRecord(incoming());
         allow delete: if isOwner(userId);
       }
     }

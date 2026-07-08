@@ -3,7 +3,7 @@ const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/logo.png'
+  '/logoTSPM.png'
 ];
 
 self.addEventListener('install', (event) => {

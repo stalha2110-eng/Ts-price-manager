@@ -58,8 +58,134 @@
         "pin": { "type": "string" },
         "currency": { "type": "string" },
         "pricePrecision": { "type": "number" },
-        "showStockAlerts": { "type": "boolean" }
+        "showStockAlerts": { "type": "boolean" },
+        "soundFeedbackMode": { "type": "string" },
+        "soundStylePack": { "type": "string" },
+        "soundBillingVolume": { "type": "number" },
+        "soundPrintVolume": { "type": "number" },
+        "soundNotificationVolume": { "type": "number" },
+        "soundOverallVolume": { "type": "number" },
+        "soundBillingEnabled": { "type": "boolean" },
+        "soundProductAddedEnabled": { "type": "boolean" },
+        "soundPrintEnabled": { "type": "boolean" },
+        "soundNotificationEnabled": { "type": "boolean" },
+        "vibrationStrength": { "type": "string" },
+        "vibrationBillingEnabled": { "type": "boolean" },
+        "vibrationProductAddedEnabled": { "type": "boolean" },
+        "vibrationPrintEnabled": { "type": "boolean" },
+        "vibrationNotificationEnabled": { "type": "boolean" },
+        "smartBusinessFeedback": { "type": "boolean" },
+        "quietHoursEnabled": { "type": "boolean" },
+        "quietHoursStart": { "type": "string" },
+        "quietHoursEnd": { "type": "string" },
+        "quietHoursVibrateOnly": { "type": "boolean" }
       }
+    },
+    "TransactionItem": {
+      "type": "object",
+      "properties": {
+        "itemId": { "type": "string" },
+        "name": { "type": "string" },
+        "quantity": { "type": "number" },
+        "price": { "type": "number" },
+        "cost": { "type": "number" },
+        "unit": { "type": "string" }
+      }
+    },
+    "Bill": {
+      "title": "Bill / Invoice",
+      "description": "A ledger record of a successful customer check out transaction.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "billNumber": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "items": { "type": "array" },
+        "discount": { "type": "number" },
+        "tax": { "type": "number" },
+        "subtotal": { "type": "number" },
+        "total": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "billNumber", "items", "subtotal", "total", "paymentMethod", "timestamp"]
+    },
+    "InAppNotification": {
+      "title": "In App Notification",
+      "description": "Real-time in-app notification alerts.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "category": { "type": "string", "enum": ["inventory", "udhar", "analytics", "system", "broadcast"] },
+        "priority": { "type": "string", "enum": ["high", "medium", "low"] },
+        "isRead": { "type": "boolean" },
+        "deepLink": { "type": "object" }
+      },
+      "required": ["id", "title", "message", "timestamp", "category", "priority", "isRead"]
+    },
+    "DeviceRegistration": {
+      "title": "Device Registration",
+      "description": "Registered FCM token and device detail for push notifications.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fcmToken": { "type": "string" },
+        "deviceName": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "fcmToken", "deviceName", "updatedAt"]
+    },
+    "RecoveryRecord": {
+      "title": "Recovery Record",
+      "description": "A trash bin deletion record that allows users to restore deleted documents.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["product", "category", "customer", "supplier", "bill", "settings_point"] },
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "deletedAt": { "type": "string", "format": "date-time" },
+        "deletedBy": { "type": "string" },
+        "originalData": { "type": "object" },
+        "expiryAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "type", "title", "subtitle", "deletedAt", "deletedBy", "expiryAt"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "An action log documenting crucial stock, price, and business settings alterations.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "userEmail": { "type": "string" },
+        "actionType": { "type": "string", "enum": ["create", "update", "delete", "restore"] },
+        "entityType": { "type": "string", "enum": ["product", "category", "customer", "supplier", "bill", "settings", "stock", "price", "settings_point"] },
+        "entityName": { "type": "string" },
+        "previousValue": { "type": "string" },
+        "newValue": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "userEmail", "actionType", "entityType", "entityName"]
+    },
+    "PriceStockRecord": {
+      "title": "Price Stock Record",
+      "description": "An action history logging precise variations of an item's selling or purchase prices and stock increments/decrements.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "type": { "type": "string", "enum": ["price", "stock"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "previousVal": { "type": "number" },
+        "newVal": { "type": "number" },
+        "userEmail": { "type": "string" }
+      },
+      "required": ["id", "productId", "productName", "type", "timestamp", "previousVal", "newVal", "userEmail"]
     }
   },
   "firestore": {
@@ -70,6 +196,30 @@
     "/users/{userId}/notes/{noteId}": {
       "schema": "Note",
       "description": "User specific business notes."
+    },
+    "/users/{userId}/bills/{billId}": {
+      "schema": "Bill",
+      "description": "User specific customer invoices and bills."
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": "InAppNotification",
+      "description": "User specific real-time notifications."
+    },
+    "/users/{userId}/devices/{deviceId}": {
+      "schema": "DeviceRegistration",
+      "description": "User registered push notification devices."
+    },
+    "/users/{userId}/recovery_items/{recoveryId}": {
+      "schema": "RecoveryRecord",
+      "description": "User specific recovery and trash bin records."
+    },
+    "/users/{userId}/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "User specific business activity logs."
+    },
+    "/users/{userId}/price_stock_history/{historyId}": {
+      "schema": "PriceStockRecord",
+      "description": "User specific price and stock edit histories."
     },
     "/users/{userId}": {
       "schema": "UserSettings",
