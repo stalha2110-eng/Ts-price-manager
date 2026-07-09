@@ -127,11 +127,11 @@ if (typeof window !== 'undefined') {
   }, { capture: true });
 }
 
-// Register Service Worker for PWA
+// Register Unified Service Worker for PWA & FCM
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
-      .then(reg => console.log('SW Registered:', reg))
-      .catch(err => console.log('SW Registration Failed:', err));
+    navigator.serviceWorker.register('/firebase-messaging-sw.js')
+      .then(reg => console.log('Unified SW Registered:', reg))
+      .catch(err => console.log('Unified SW Registration Failed:', err));
   });
 }

@@ -1,12 +1,50 @@
 import express from "express";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
+import { initializeApp, getApps } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
+import { getMessaging } from "firebase-admin/messaging";
+import admin from "firebase-admin";
+import { readFileSync } from "fs";
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  const { credential } = admin as any;
+
   app.use(express.json({ limit: "10mb" }));
+
+  // Initialize Firebase Admin SDK with custom project settings
+  let firebaseConfig: any = {};
+  try {
+    const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+    firebaseConfig = JSON.parse(readFileSync(configPath, "utf-8"));
+  } catch (e) {
+    console.warn("Could not load firebase-applet-config.json:", e);
+  }
+
+  try {
+    if (getApps().length === 0) {
+      initializeApp({
+        projectId: firebaseConfig.projectId,
+        credential: credential.applicationDefault()
+      });
+      console.log("Firebase Admin initialized successfully.");
+    }
+  } catch (e) {
+    console.warn("Firebase Admin failed with applicationDefault, trying project fallback:", e);
+    try {
+      if (getApps().length === 0) {
+        initializeApp({
+          projectId: firebaseConfig.projectId
+        });
+        console.log("Firebase Admin initialized with project ID fallback.");
+      }
+    } catch (err) {
+      console.error("Firebase Admin initialization failed completely:", err);
+    }
+  }
 
   // Lazy initializer for the Gemini SDK
   let aiClient: GoogleGenAI | null = null;
@@ -195,6 +233,102 @@ Available Categories: ${categoryNames}`;
         .replace(/failed/gi, "unsuccessful");
       console.warn("Gemini Parse API issue encountered:", sanitizedMsg);
       return res.status(500).json({ error: "Failed to process speech transcript" });
+    }
+  });
+
+  // 1.5 Background Push Notification Endpoint
+  app.post("/api/push/send", async (req, res) => {
+    const { userId, title, message, category, priority, screen } = req.body;
+    if (!userId) {
+      return res.status(400).json({ error: "userId is required" });
+    }
+
+    try {
+      const dbAdmin = firebaseConfig.firestoreDatabaseId 
+        ? getFirestore(undefined, firebaseConfig.firestoreDatabaseId)
+        : getFirestore();
+      const devicesRef = dbAdmin.collection("users").doc(userId).collection("devices");
+      const snapshot = await devicesRef.get();
+      
+      const tokens: string[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data.fcmToken) {
+          tokens.push(data.fcmToken);
+        }
+      });
+
+      if (tokens.length === 0) {
+        console.log(`[Push Notification] No registered FCM tokens found for user ${userId}`);
+        return res.json({ success: true, message: "No registered tokens" });
+      }
+
+      console.log(`[Push Notification] Dispatching push notification to ${tokens.length} devices for user ${userId}`);
+
+      const payload = {
+        notification: {
+          title: title || "TS Price Manager",
+          body: message || "",
+        },
+        data: {
+          title: title || "TS Price Manager",
+          body: message || "",
+          category: category || "system",
+          priority: priority || "medium",
+          screen: screen || "home",
+          clickUrl: `/?screen=${screen || "home"}`
+        },
+      };
+
+      const response = await getMessaging().sendEachForMulticast({
+        tokens: tokens,
+        notification: payload.notification,
+        data: payload.data,
+        webpush: {
+          headers: {
+            Urgency: priority === "high" ? "high" : "normal"
+          },
+          notification: {
+            icon: "/logoTSPM.png",
+            badge: "/logoTSPM.png",
+            vibrate: priority === "high" ? [200, 100, 200] : [100],
+            requireInteraction: priority === "high"
+          }
+        }
+      });
+
+      console.log(`[Push Notification] FCM multicast sent. Success: ${response.successCount}, Failure: ${response.failureCount}`);
+
+      // Perform background cleanup of invalid / expired registration tokens
+      if (response.failureCount > 0) {
+        const batch = dbAdmin.batch();
+        let shouldCommit = false;
+        response.responses.forEach((resp, index) => {
+          if (!resp.success) {
+            const errorCode = resp.error?.code;
+            if (
+              errorCode === "messaging/invalid-registration-token" || 
+              errorCode === "messaging/registration-token-not-registered"
+            ) {
+              const badToken = tokens[index];
+              snapshot.forEach((doc) => {
+                if (doc.data().fcmToken === badToken) {
+                  batch.delete(doc.ref);
+                  shouldCommit = true;
+                }
+              });
+            }
+          }
+        });
+        if (shouldCommit) {
+          await batch.commit().catch(err => console.error("FCM bad token cleanup batch commit error:", err));
+        }
+      }
+
+      return res.json({ success: true, successCount: response.successCount });
+    } catch (error: any) {
+      console.error("[Push Notification] Failed to deliver FCM push multicast:", error);
+      return res.status(500).json({ error: error.message || String(error) });
     }
   });
 

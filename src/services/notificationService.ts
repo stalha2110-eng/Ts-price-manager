@@ -275,8 +275,12 @@ export class NotificationService {
       try {
         const messaging = await getMessagingInstance();
         if (messaging && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+          // Explicitly register and wait for the correct unified service worker
+          const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+          
           const token = await getToken(messaging, {
-            vapidKey: 'BMZytTkcXxgomNS9TrB0-cgqGbWG__1AeDGUUjSJy5V5OCMO79WYXnmCFaPio4YZxZGVGoI27e3WrFKQSxGbrJ0'
+            vapidKey: 'BMZytTkcXxgomNS9TrB0-cgqGbWG__1AeDGUUjSJy5V5OCMO79WYXnmCFaPio4YZxZGVGoI27e3WrFKQSxGbrJ0',
+            serviceWorkerRegistration: registration
           });
           if (token) {
             fcmToken = token;
@@ -320,6 +324,22 @@ export class NotificationService {
     // Play local reactions instantly for real-time responsiveness even if offline or pending write
     playNotificationChime(notif.priority);
     triggerVibration(notif.priority);
+
+    // Trigger backend push notification delivery in background for background sync
+    if (userId && userId !== 'guest_user') {
+      fetch('/api/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          title: notif.title,
+          message: notif.message,
+          category: notif.category,
+          priority: notif.priority,
+          screen: notif.deepLink?.screen || 'home'
+        })
+      }).catch(err => console.warn('Background push dispatch failed:', err));
+    }
 
     if (!userId || userId === 'guest_user') {
       // Local storage fallback when user is logged out / offline cache only

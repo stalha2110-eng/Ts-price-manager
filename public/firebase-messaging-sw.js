@@ -1,5 +1,5 @@
-// Firebase Cloud Messaging Background Service Worker
-// Fully modular, production-grade Web Push handler for TS Price Manager
+// Firebase Cloud Messaging & PWA Assets Caching Service Worker
+// Fully modular, production-grade Web Push & Offline Cache handler for TS Price Manager
 
 importScripts('https://www.gstatic.com/firebasejs/10.12.1/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.1/firebase-messaging-compat.js');
@@ -16,7 +16,7 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// Handle background messages
+// 1. Handle background messages
 messaging.onBackgroundMessage((payload) => {
   console.log('[firebase-messaging-sw.js] Received background message:', payload);
 
@@ -80,6 +80,70 @@ self.addEventListener('notificationclick', (event) => {
       if (clients.openWindow) {
         return clients.openWindow(targetUrl);
       }
+    })
+  );
+});
+
+// 2. PWA Assets Caching (Stale-while-revalidate strategy)
+const CACHE_NAME = 'ts-price-manager-v5';
+const ASSETS_TO_CACHE = [
+  '/',
+  '/index.html',
+  '/manifest.json',
+  '/logoTSPM.png'
+];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(ASSETS_TO_CACHE);
+    })
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cache) => {
+          if (cache !== CACHE_NAME) {
+            return caches.delete(cache);
+          }
+        })
+      );
+    })
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+
+  // Skip caching for Firebase calls or API routes
+  if (
+    event.request.url.includes('firestore.googleapis.com') ||
+    event.request.url.includes('firebase') ||
+    event.request.url.includes('/api/')
+  ) {
+    return;
+  }
+
+  event.respondWith(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.match(event.request).then((cachedResponse) => {
+        const fetchedResponse = fetch(event.request).then((networkResponse) => {
+          if (networkResponse.status === 200) {
+            cache.put(event.request, networkResponse.clone());
+          }
+          return networkResponse;
+        }).catch(() => {
+          // Fallback if offline
+          return cachedResponse;
+        });
+
+        return cachedResponse || fetchedResponse;
+      });
     })
   );
 });
