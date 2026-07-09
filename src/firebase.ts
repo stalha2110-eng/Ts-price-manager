@@ -17,19 +17,39 @@ export const getMessagingInstance = async () => {
 
 // Pre-initialize Firestore with robust settings suited for sandboxed iframes (long polling fallback)
 const initializeDb = () => {
+  const dbId = firebaseConfig.firestoreDatabaseId;
+  console.log('[Firebase Init] Initializing Firestore with Database ID:', dbId);
   try {
-    return initializeFirestore(app, {
+    const dbInstance = initializeFirestore(app, {
       experimentalForceLongPolling: true,
-    }, firebaseConfig.firestoreDatabaseId);
+    }, dbId);
+    console.log('[Firebase Init] Successfully initialized Firestore with experimentalForceLongPolling');
+    return dbInstance;
   } catch (e) {
-    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+    console.warn('[Firebase Init] initializeFirestore failed, attempting getFirestore fallback. Error:', e);
+    try {
+      const dbInstance = getFirestore(app, dbId);
+      console.log('[Firebase Init] Successfully obtained Firestore via getFirestore fallback');
+      return dbInstance;
+    } catch (err2) {
+      console.error('[Firebase Init] getFirestore fallback failed. Error:', err2);
+      try {
+        console.warn('[Firebase Init] Attempting default getFirestore() as last resort');
+        const dbInstance = getFirestore(app);
+        console.log('[Firebase Init] Successfully obtained default Firestore instance');
+        return dbInstance;
+      } catch (err3) {
+        console.error('[Firebase Init] Default getFirestore() failed. Error:', err3);
+        throw err3;
+      }
+    }
   }
 };
 
 export const db = initializeDb();
 
 // Enable offline persistence only when NOT inside a sandboxed iframe to prevent IndexedDB lockups in iframe environments
-if (typeof window !== 'undefined' && window.self === window.top) {
+if (db && typeof window !== 'undefined' && window.self === window.top) {
   enableIndexedDbPersistence(db).catch((err) => {
     if (err.code === 'failed-precondition') {
       console.warn('Firestore persistence failed: Multiple tabs open');

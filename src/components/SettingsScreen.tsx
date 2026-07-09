@@ -537,29 +537,38 @@ export default function SettingsScreen({
                   </div>
 
                   {/* Push Notifications Toggle */}
-                  <div className="flex items-center justify-between pt-8 border-t border-[var(--border)]">
-                    <div>
-                      <h4 className="font-black uppercase tracking-tight text-sm text-[var(--foreground)]">Push Notifications</h4>
-                      <p className="text-[10px] opacity-45 font-black mt-1 uppercase tracking-widest leading-relaxed font-semibold text-[var(--foreground)]">Receive instant status updates to all synced devices</p>
-                    </div>
-                    <button 
-                      onClick={async () => {
-                        const currentVal = state.settings.pushOn !== false;
-                        if (!currentVal) {
-                          const granted = await requestPushPermission();
-                          if (!granted) {
-                            alert("Please enable notification permissions in your browser settings to receive push updates!");
+                  <div className="pt-8 border-t border-[var(--border)]">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-black uppercase tracking-tight text-sm text-[var(--foreground)]">Push Notifications</h4>
+                        <p className="text-[10px] opacity-45 font-black mt-1 uppercase tracking-widest leading-relaxed font-semibold text-[var(--foreground)]">Receive instant status updates to all synced devices</p>
+                      </div>
+                      <button 
+                        onClick={async () => {
+                          const currentVal = state.settings.pushOn !== false;
+                          if (!currentVal) {
+                            await requestPushPermission();
                           }
-                        }
-                        onUpdate({ pushOn: !currentVal });
-                      }}
-                      className={cn(
-                        "h-8 w-16 rounded-full transition-all relative overflow-hidden ring-1 ring-[var(--border)] shadow-inner cursor-pointer",
-                        state.settings.pushOn !== false ? "bg-blue-500" : "bg-slate-800"
-                      )}
-                    >
-                      <div className={cn("absolute top-1 left-1 h-6 w-6 rounded-full bg-white shadow-xl transition-all", state.settings.pushOn !== false ? "translate-x-8" : "")} />
-                    </button>
+                          onUpdate({ pushOn: !currentVal });
+                        }}
+                        className={cn(
+                          "h-8 w-16 rounded-full transition-all relative overflow-hidden ring-1 ring-[var(--border)] shadow-inner cursor-pointer",
+                          state.settings.pushOn !== false ? "bg-blue-500" : "bg-slate-800"
+                        )}
+                      >
+                        <div className={cn("absolute top-1 left-1 h-6 w-6 rounded-full bg-white shadow-xl transition-all", state.settings.pushOn !== false ? "translate-x-8" : "")} />
+                      </button>
+                    </div>
+
+                    {/* Explanatory Block if Permission Denied/Default */}
+                    {typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'granted' && state.settings.pushOn !== false && (
+                      <div className="mt-4 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[11px] leading-relaxed font-semibold">
+                        <p className="font-black uppercase tracking-wider mb-1 flex items-center gap-1.5 text-xs text-amber-400">
+                          <span>⚠️ Notification Access Blocked</span>
+                        </p>
+                        To receive critical alerts (WhatsApp-style low stock warnings, outstanding payment reminders, and automatic daily summaries), please click the site settings/lock icon in your browser URL bar and change "Notifications" to "Allow".
+                      </div>
+                    )}
                   </div>
 
                   {/* Sound & Vibration control */}

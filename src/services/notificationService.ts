@@ -498,6 +498,74 @@ export class NotificationService {
   }
 
   /**
+   * Dispatch dynamic active alerts (low stock, overdue payment, note) to Cloud Firestore & deliver FCM.
+   */
+  public static async dispatchAlertNotification(
+    userId: string | null,
+    alert: { id: string; title: string; desc: string; type: string; priority: string; customerId?: string }
+  ) {
+    if (!userId || userId === 'guest_user') return;
+
+    // Map alert type to notification categories & screen deep links
+    let category = 'general';
+    let screen: 'home' | 'billing' | 'analytics' | 'udhar' | 'settings' = 'home';
+    let targetId = '';
+
+    if (alert.type === 'stock') {
+      category = 'low_stock_alerts';
+      screen = 'home';
+      targetId = alert.id.replace('low-stock-', '');
+    } else if (alert.type === 'note') {
+      category = 'reminder';
+      screen = 'home';
+    } else if (alert.type === 'udhar' || alert.type === 'udhar-30days') {
+      category = 'udhar_due_date';
+      screen = 'udhar';
+      targetId = alert.customerId || '';
+    }
+
+    const notifData = {
+      title: alert.title,
+      message: alert.desc,
+      timestamp: new Date().toISOString(),
+      category: category,
+      priority: (alert.priority?.toLowerCase() === 'urgent' ? 'high' : 'medium') as any,
+      deepLink: {
+        screen,
+        targetId
+      }
+    };
+
+    try {
+      // Save to firestore under the custom alert.id
+      const docRef = doc(db, 'users', userId, 'notifications', alert.id);
+      await setDoc(docRef, sanitizeForFirestore({
+        ...notifData,
+        id: alert.id,
+        isRead: false
+      }));
+
+      // Deliver background push
+      await fetch('/api/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          title: notifData.title,
+          message: notifData.message,
+          category: notifData.category,
+          priority: notifData.priority,
+          screen: notifData.deepLink.screen,
+          targetId: notifData.deepLink.targetId
+        })
+      });
+      console.log(`[NotificationService] Alert ${alert.id} saved to Firestore and push dispatched successfully.`);
+    } catch (err) {
+      console.warn('[NotificationService] Failed to dispatch and save alert:', err);
+    }
+  }
+
+  /**
    * Check and auto-generate daily sales summary reports inside Cloud notifications channel.
    */
   public static checkAndTriggerDailySummary(
@@ -547,7 +615,7 @@ export class NotificationService {
           title: titleText,
           message: bodyText,
           priority: 'medium',
-          category: 'analytics',
+          category: 'business_daily_summary',
           timestamp: new Date().toISOString(),
           deepLink: { screen: 'analytics' }
         }).then(() => {

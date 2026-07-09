@@ -26,9 +26,10 @@ messaging.onBackgroundMessage((payload) => {
   const badge = '/logoTSPM.png';
 
   // Extract notification attributes
-  const category = payload.data?.category || 'system';
+  const category = payload.data?.category || 'general';
   const priority = payload.data?.priority || 'medium';
   const screen = payload.data?.screen || 'home';
+  const targetId = payload.data?.targetId || '';
 
   const notificationOptions = {
     body: body,
@@ -40,7 +41,8 @@ messaging.onBackgroundMessage((payload) => {
     data: {
       screen: screen,
       category: category,
-      clickUrl: payload.data?.clickUrl || `/?screen=${screen}`
+      targetId: targetId,
+      clickUrl: payload.data?.clickUrl || `/?screen=${screen}${targetId ? `&targetId=${targetId}` : ''}`
     }
   };
 
@@ -53,7 +55,8 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const targetScreen = event.notification.data?.screen || 'home';
-  const targetUrl = event.notification.data?.clickUrl || `/?screen=${targetScreen}`;
+  const targetId = event.notification.data?.targetId || '';
+  const targetUrl = event.notification.data?.clickUrl || `/?screen=${targetScreen}${targetId ? `&targetId=${targetId}` : ''}`;
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
@@ -69,7 +72,8 @@ self.addEventListener('notificationclick', (event) => {
           if (client.postMessage) {
             client.postMessage({
               type: 'NAVIGATE_TO_SCREEN',
-              screen: targetScreen
+              screen: targetScreen,
+              targetId: targetId
             });
           }
           return;

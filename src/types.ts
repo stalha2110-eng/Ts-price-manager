@@ -228,11 +228,23 @@ export interface InAppNotification {
   title: string;
   message: string;
   timestamp: string;
-  category: 'inventory' | 'udhar' | 'analytics' | 'system' | 'broadcast';
+  category: 
+    | 'general'
+    | 'inventory'
+    | 'reminder'
+    | 'announcement'
+    | 'security'
+    | 'backup'
+    | 'udhar_due_date'
+    | 'low_stock_alerts'
+    | 'business_daily_summary'
+    | 'system'
+    | 'broadcast'
+    | string;
   priority: 'high' | 'medium' | 'low';
   isRead: boolean;
   deepLink?: {
-    screen: 'inventory' | 'udhar' | 'analytics' | 'billing' | 'settings';
+    screen: 'home' | 'inventory' | 'udhar' | 'analytics' | 'billing' | 'settings' | string;
     targetId?: string;
   };
 }

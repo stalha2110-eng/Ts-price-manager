@@ -238,7 +238,7 @@ Available Categories: ${categoryNames}`;
 
   // 1.5 Background Push Notification Endpoint
   app.post("/api/push/send", async (req, res) => {
-    const { userId, title, message, category, priority, screen } = req.body;
+    const { userId, title, message, category, priority, screen, targetId } = req.body;
     if (!userId) {
       return res.status(400).json({ error: "userId is required" });
     }
@@ -273,10 +273,11 @@ Available Categories: ${categoryNames}`;
         data: {
           title: title || "TS Price Manager",
           body: message || "",
-          category: category || "system",
+          category: category || "general",
           priority: priority || "medium",
           screen: screen || "home",
-          clickUrl: `/?screen=${screen || "home"}`
+          targetId: targetId || "",
+          clickUrl: `/?screen=${screen || "home"}${targetId ? `&targetId=${targetId}` : ""}`
         },
       };
 
@@ -284,6 +285,17 @@ Available Categories: ${categoryNames}`;
         tokens: tokens,
         notification: payload.notification,
         data: payload.data,
+        android: {
+          priority: priority === "high" ? "high" : "normal",
+          notification: {
+            channelId: category || "general",
+            sound: "default",
+            clickAction: "FLUTTER_NOTIFICATION_CLICK",
+            icon: "ic_notification",
+            color: "#3b82f6",
+            visibility: "public"
+          }
+        },
         webpush: {
           headers: {
             Urgency: priority === "high" ? "high" : "normal"

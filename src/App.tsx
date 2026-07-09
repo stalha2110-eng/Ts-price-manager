@@ -2483,15 +2483,46 @@ export default function App() {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const targetScreen = params.get('screen');
+      const targetId = params.get('targetId');
       const validTabs = ['home', 'billing', 'analytics', 'udhar', 'notes', 'shift', 'goals', 'history'];
-      if (targetScreen && validTabs.includes(targetScreen)) {
-        setActiveTab(targetScreen as any);
+      
+      if (targetScreen) {
+        const tabMap: Record<string, string> = {
+          inventory: 'home',
+          billing: 'billing',
+          analytics: 'analytics',
+          udhar: 'udhar',
+          settings: 'settings',
+        };
+        const mappedScreen = tabMap[targetScreen] || targetScreen;
+        if (validTabs.includes(mappedScreen)) {
+          setActiveTab(mappedScreen as any);
+          
+          if (targetId) {
+            if (mappedScreen === 'udhar') {
+              setSelectedUdharCustomerId(targetId);
+            } else if (mappedScreen === 'home') {
+              // Wait for items to load in state, then open for edit
+              const checkInterval = setInterval(() => {
+                if (state.items && state.items.length > 0) {
+                  const linkedItem = state.items.find(i => i.id === targetId);
+                  if (linkedItem) {
+                    setEditingItem(linkedItem);
+                  }
+                  clearInterval(checkInterval);
+                }
+              }, 200);
+              setTimeout(() => clearInterval(checkInterval), 5000);
+            }
+          }
+        }
+        
         // Sanitise location bar state so refreshes default nicely
         const cleanUrl = window.location.pathname + window.location.hash;
         window.history.replaceState({}, document.title, cleanUrl);
       }
     }
-  }, []);
+  }, [state.items]);
 
   // --- Real-time Firestore Sync ---
   useEffect(() => {
@@ -2844,6 +2875,33 @@ export default function App() {
 
     return list;
   }, [state.items, state.notes, state.udharTransactions, state.udharCustomers, state.settings.minStockLevel, state.settings.dismissedNotifications, state.settings.language]);
+
+  // Synchronize internal active alerts to Cloud Push Notifications
+  useEffect(() => {
+    if (!state.user || state.user.uid === 'guest_user') return;
+
+    const syncAlertsToFCM = async () => {
+      // Find alerts that have not been written to the Firestore notifications list yet
+      for (const alert of activeAlerts) {
+        const alreadyExists = notifications.some(n => n.id === alert.id);
+        if (!alreadyExists) {
+          // Register alert ID in session storage to guarantee single trigger per session
+          const sessionKey = `fcm_sent_${alert.id}`;
+          if (!sessionStorage.getItem(sessionKey)) {
+            sessionStorage.setItem(sessionKey, 'true');
+            console.log('[App] Auto-syncing local alert to Cloud Push Notification:', alert.id);
+            try {
+              await NotificationService.dispatchAlertNotification(state.user?.uid || null, alert);
+            } catch (err) {
+              console.warn('[App] Failed to sync alert to Cloud:', err);
+            }
+          }
+        }
+      }
+    };
+
+    syncAlertsToFCM();
+  }, [activeAlerts, state.user, notifications]);
 
   const handleDismissNotification = useCallback((id: string) => {
     setState(prev => {
