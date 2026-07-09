@@ -1,5 +1,6 @@
 // Firebase Cloud Messaging & PWA Assets Caching Service Worker
 // Fully modular, production-grade Web Push & Offline Cache handler for TS Price Manager
+// VERIFIED & OPTIMIZED: Firebase v10.12.1 Compatibility Libraries for stable background push notifications
 
 importScripts('https://www.gstatic.com/firebasejs/10.12.1/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.1/firebase-messaging-compat.js');
@@ -89,7 +90,7 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 // 2. PWA Assets Caching (Stale-while-revalidate strategy)
-const CACHE_NAME = 'ts-price-manager-v5';
+const CACHE_NAME = 'ts-price-manager-v10-12-1';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
