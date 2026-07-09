@@ -251,19 +251,30 @@ Available Categories: ${categoryNames}`;
       const snapshot = await devicesRef.get();
       
       const tokens: string[] = [];
+      const mockTokens: string[] = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
         if (data.fcmToken) {
-          tokens.push(data.fcmToken);
+          const t = data.fcmToken.trim();
+          if (t && !t.startsWith("fcm_") && t.length > 50) {
+            tokens.push(t);
+          } else {
+            mockTokens.push(t);
+          }
         }
       });
 
       if (tokens.length === 0) {
-        console.log(`[Push Notification] No registered FCM tokens found for user ${userId}`);
-        return res.json({ success: true, message: "No registered tokens" });
+        console.log(`[Push Notification] No real registered FCM tokens found for user ${userId}. Registered mock/sandbox devices: ${mockTokens.length}. Skipping multicast send.`);
+        return res.json({ 
+          success: true, 
+          message: "No registered real tokens. Notification stored in Firestore for real-time synchronization.",
+          successCount: 0,
+          mockCount: mockTokens.length
+        });
       }
 
-      console.log(`[Push Notification] Dispatching push notification to ${tokens.length} devices for user ${userId}`);
+      console.log(`[Push Notification] Dispatching FCM push notification to ${tokens.length} real devices (excluding ${mockTokens.length} mock/sandbox devices) for user ${userId}`);
 
       const payload = {
         notification: {

@@ -53,6 +53,7 @@ import {
   CreditCard,
   Truck,
   Users,
+  ArrowUpRight,
   PlusCircle,
   X,
   Minimize2,
@@ -1504,6 +1505,63 @@ export default function App() {
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'warning' } | null>(null);
   const [toastTimeout, setToastTimeout] = useState<any>(null);
+
+  const [incomingPushAlert, setIncomingPushAlert] = useState<InAppNotification | null>(null);
+  const [pushAlertTimeout, setPushAlertTimeout] = useState<any>(null);
+
+  const handlePushDeepLink = (notif: InAppNotification) => {
+    if (notif.deepLink?.screen) {
+      const screen = notif.deepLink.screen;
+      const tabMap: Record<string, string> = {
+        inventory: 'home',
+        billing: 'billing',
+        analytics: 'analytics',
+        udhar: 'udhar',
+        settings: 'settings',
+      };
+      const mappedScreen = tabMap[screen] || screen;
+      
+      const validTabs = ['home', 'billing', 'analytics', 'udhar', 'notes', 'shift', 'goals', 'history'];
+      if (validTabs.includes(mappedScreen)) {
+        setActiveTab(mappedScreen as any);
+        
+        if (notif.deepLink.targetId) {
+          if (mappedScreen === 'udhar') {
+            setSelectedUdharCustomerId(notif.deepLink.targetId);
+          } else if (mappedScreen === 'home') {
+            const linkedItem = state.items.find((i: any) => i.id === notif.deepLink.targetId);
+            if (linkedItem) {
+              setEditingItem(linkedItem);
+            }
+          }
+        }
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handlePushReceived = (e: Event) => {
+      const customEvent = e as CustomEvent<InAppNotification>;
+      if (customEvent.detail) {
+        const notif = customEvent.detail;
+        
+        // Show beautiful slide-down OS push notification alert banner
+        setIncomingPushAlert(notif);
+        
+        if (pushAlertTimeout) clearTimeout(pushAlertTimeout);
+        const t = setTimeout(() => {
+          setIncomingPushAlert(null);
+        }, 7000); // 7 seconds visibility duration
+        setPushAlertTimeout(t);
+      }
+    };
+    
+    window.addEventListener('app-push-received', handlePushReceived);
+    return () => {
+      window.removeEventListener('app-push-received', handlePushReceived);
+      if (pushAlertTimeout) clearTimeout(pushAlertTimeout);
+    };
+  }, [pushAlertTimeout, state.items]);
 
   const addToast = (message: string, type: 'success' | 'info' | 'warning' | 'error' = 'success') => {
     if (toastTimeout) clearTimeout(toastTimeout);
@@ -3952,6 +4010,68 @@ export default function App() {
                   className="px-2 py-1.5 rounded-lg bg-[var(--foreground)]/[0.05] border border-[var(--border)] text-[var(--foreground)]/80 hover:bg-[var(--foreground)]/[0.1] transition-all font-black text-[9px] uppercase tracking-wider cursor-pointer active:scale-95 leading-none"
                 >
                   Redo
+                </button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 📱 OS-STYLE PREMIUM PUSH NOTIFICATION BANNER */}
+      <AnimatePresence>
+        {incomingPushAlert && (
+          <motion.div 
+            initial={{ opacity: 0, y: -120, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: -120, x: '-50%' }}
+            transition={{ type: "spring", damping: 18, stiffness: 120 }}
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] w-[92%] sm:w-full sm:max-w-md p-4 bg-slate-900/95 dark:bg-slate-950/95 backdrop-blur-lg rounded-2xl border border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.3)] text-white font-sans flex flex-col gap-3"
+          >
+            {/* Header: App Name and Timing */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-6 w-6 rounded-lg bg-blue-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                  <span className="text-[10px] font-black tracking-widest text-white uppercase">TS</span>
+                </div>
+                <div>
+                  <span className="font-black text-[10px] uppercase tracking-wider text-slate-300">TS Price Manager</span>
+                  <span className="ml-1.5 px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[8px] font-black uppercase tracking-wider leading-none">PUSH</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-semibold text-slate-400/80 uppercase tracking-widest">Now</span>
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+              </div>
+            </div>
+
+            {/* Content: Title & Message */}
+            <div className="space-y-1">
+              <h4 className="font-extrabold text-[12px] uppercase tracking-tight text-white/95 leading-tight">
+                {incomingPushAlert.title}
+              </h4>
+              <p className="text-[10.5px] font-semibold text-slate-300 leading-normal line-clamp-2">
+                {incomingPushAlert.message}
+              </p>
+            </div>
+
+            {/* Footer Action Bar */}
+            <div className="flex items-center justify-end gap-2.5 pt-1.5 border-t border-slate-800/60">
+              <button 
+                onClick={() => setIncomingPushAlert(null)}
+                className="px-3 py-1.5 rounded-xl hover:bg-white/5 active:scale-95 transition-all text-slate-400 hover:text-white font-black uppercase text-[9px] tracking-wider cursor-pointer"
+              >
+                Dismiss
+              </button>
+              {incomingPushAlert.deepLink?.screen && (
+                <button 
+                  onClick={() => {
+                    handlePushDeepLink(incomingPushAlert);
+                    setIncomingPushAlert(null);
+                  }}
+                  className="px-4 py-1.5 rounded-xl bg-blue-500 hover:bg-blue-600 active:scale-95 text-white font-black uppercase text-[9px] tracking-widest shadow-lg shadow-blue-500/10 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>Open Alert</span>
+                  <ArrowUpRight size={10} className="stroke-[3px]" />
                 </button>
               )}
             </div>

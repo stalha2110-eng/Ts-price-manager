@@ -202,6 +202,14 @@ export class NotificationService {
                   isRead: addedData.isRead ?? false,
                   deepLink: addedData.deepLink,
                 };
+                
+                // Dispatch custom event to trigger custom UI OS-style slide-down push notification banner
+                if (typeof window !== 'undefined' && hasNewNotificationObj) {
+                  window.dispatchEvent(new CustomEvent('app-push-received', {
+                    detail: hasNewNotificationObj
+                  }));
+                }
+
                 if (priority === 'high') {
                   hasNewHighPriority = true;
                 }
