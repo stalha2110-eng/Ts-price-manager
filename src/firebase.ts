@@ -1,46 +1,45 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore, initializeFirestore, doc, setDoc, onSnapshot, collection, query, orderBy, limit, addDoc, updateDoc, deleteDoc, Timestamp, getDocFromServer, enableIndexedDbPersistence } from 'firebase/firestore';
-import { getMessaging, isSupported } from 'firebase/messaging';
 import firebaseConfig from '../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
+// Safely extract config properties supporting potential bundler default wrapper variations
+const getFirebaseConfig = () => {
+  if (!firebaseConfig) return {} as any;
+  if (typeof firebaseConfig === 'object' && 'default' in firebaseConfig) {
+    return (firebaseConfig as any).default;
+  }
+  return firebaseConfig;
+};
+
+const safeConfig = getFirebaseConfig();
+const app = initializeApp(safeConfig);
 export const auth = getAuth(app);
 
-// Safe messaging helper
+// Safe messaging helper (permanently disabled for robust iframe operations)
 export const getMessagingInstance = async () => {
-  if (typeof window !== 'undefined' && await isSupported()) {
-    return getMessaging(app);
-  }
   return null;
 };
 
 // Pre-initialize Firestore with robust settings suited for sandboxed iframes (long polling fallback)
 const initializeDb = () => {
-  const dbId = firebaseConfig.firestoreDatabaseId;
-  console.log('[Firebase Init] Initializing Firestore with Database ID:', dbId);
+  const databaseId = safeConfig?.firestoreDatabaseId || undefined;
+
   try {
-    const dbInstance = initializeFirestore(app, {
+    return initializeFirestore(app, {
       experimentalForceLongPolling: true,
-    }, dbId);
-    console.log('[Firebase Init] Successfully initialized Firestore with experimentalForceLongPolling');
-    return dbInstance;
+    }, databaseId);
   } catch (e) {
-    console.warn('[Firebase Init] initializeFirestore failed, attempting getFirestore fallback. Error:', e);
+    console.warn('[Firebase Init] initializeFirestore failed, falling back to getFirestore:', e);
     try {
-      const dbInstance = getFirestore(app, dbId);
-      console.log('[Firebase Init] Successfully obtained Firestore via getFirestore fallback');
-      return dbInstance;
-    } catch (err2) {
-      console.error('[Firebase Init] getFirestore fallback failed. Error:', err2);
+      return getFirestore(app, databaseId);
+    } catch (e2) {
+      console.error('[Firebase Init] getFirestore with databaseId failed, trying fallback default:', e2);
       try {
-        console.warn('[Firebase Init] Attempting default getFirestore() as last resort');
-        const dbInstance = getFirestore(app);
-        console.log('[Firebase Init] Successfully obtained default Firestore instance');
-        return dbInstance;
-      } catch (err3) {
-        console.error('[Firebase Init] Default getFirestore() failed. Error:', err3);
-        throw err3;
+        return getFirestore(app);
+      } catch (e3) {
+        console.error('[Firebase Init] Critical Failure - Default getFirestore(app) failed:', e3);
+        throw e3;
       }
     }
   }
@@ -49,7 +48,7 @@ const initializeDb = () => {
 export const db = initializeDb();
 
 // Enable offline persistence only when NOT inside a sandboxed iframe to prevent IndexedDB lockups in iframe environments
-if (db && typeof window !== 'undefined' && window.self === window.top) {
+if (typeof window !== 'undefined' && window.self === window.top) {
   enableIndexedDbPersistence(db).catch((err) => {
     if (err.code === 'failed-precondition') {
       console.warn('Firestore persistence failed: Multiple tabs open');
@@ -60,14 +59,35 @@ if (db && typeof window !== 'undefined' && window.self === window.top) {
 }
 
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope('https://www.googleapis.com/auth/contacts.readonly');
+
+let cachedAccessToken: string | null = null;
+
+export const getCachedAccessToken = (): string | null => {
+  return cachedAccessToken;
+};
+
+export const setCachedAccessToken = (token: string | null) => {
+  cachedAccessToken = token;
+};
 
 // Standard login
 export const loginWithGoogle = async () => {
   try {
     const result = await signInWithPopup(auth, googleProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (credential?.accessToken) {
+      cachedAccessToken = credential.accessToken;
+    }
     return result.user;
-  } catch (error) {
+  } catch (error: any) {
     console.error("Login failed:", error);
+    const code = error?.code || "";
+    if (code === "auth/popup-closed-by-user") {
+      throw new Error("popup-closed-by-user");
+    } else if (code === "auth/popup-blocked") {
+      throw new Error("popup-blocked");
+    }
     throw error;
   }
 };

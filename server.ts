@@ -1,54 +1,27 @@
 import express from "express";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
-import { initializeApp, getApps } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
-import { getMessaging } from "firebase-admin/messaging";
-import admin from "firebase-admin";
-import { readFileSync } from "fs";
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  const { credential } = admin as any;
-
   app.use(express.json({ limit: "10mb" }));
-
-  // Initialize Firebase Admin SDK with custom project settings
-  let firebaseConfig: any = {};
-  try {
-    const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-    firebaseConfig = JSON.parse(readFileSync(configPath, "utf-8"));
-  } catch (e) {
-    console.warn("Could not load firebase-applet-config.json:", e);
-  }
-
-  try {
-    if (getApps().length === 0) {
-      initializeApp({
-        projectId: firebaseConfig.projectId,
-        credential: credential.applicationDefault()
-      });
-      console.log("Firebase Admin initialized successfully.");
-    }
-  } catch (e) {
-    console.warn("Firebase Admin failed with applicationDefault, trying project fallback:", e);
-    try {
-      if (getApps().length === 0) {
-        initializeApp({
-          projectId: firebaseConfig.projectId
-        });
-        console.log("Firebase Admin initialized with project ID fallback.");
-      }
-    } catch (err) {
-      console.error("Firebase Admin initialization failed completely:", err);
-    }
-  }
 
   // Lazy initializer for the Gemini SDK
   let aiClient: GoogleGenAI | null = null;
-  function getAIClient(): GoogleGenAI {
+  function getAIClient(customApiKey?: string): GoogleGenAI {
+    if (customApiKey && customApiKey.trim()) {
+      console.log("Using custom client-provided Gemini API Key for request");
+      return new GoogleGenAI({
+        apiKey: customApiKey.trim(),
+        httpOptions: {
+          headers: {
+            "User-Agent": "aistudio-build",
+          },
+        },
+      });
+    }
     if (!aiClient) {
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
@@ -69,12 +42,12 @@ async function startServer() {
   // 1. Voice Parsing Endpoint
   app.post("/api/voice/parse", async (req, res) => {
     try {
-      const { transcript, categories } = req.body;
+      const { transcript, categories, customApiKey } = req.body;
       if (!transcript || !transcript.trim()) {
         return res.status(400).json({ error: "Transcript is empty or missing" });
       }
 
-      const ai = getAIClient();
+      const ai = getAIClient(customApiKey);
       const systemInstruction = `You are a professional retail and grocery inventory management AI specializing in Indian languages, English, and regional dialects (Hinglish, Marathinglish, pure Hindi, pure Marathi, colloquial phrases, and shopkeeper jargon).
 Your task is to analyze raw voice recognition transcripts (which may contain typos or run-on words because of speech-to-text limitations) and convert them into a structured database list of products.
 
@@ -233,125 +206,6 @@ Available Categories: ${categoryNames}`;
         .replace(/failed/gi, "unsuccessful");
       console.warn("Gemini Parse API issue encountered:", sanitizedMsg);
       return res.status(500).json({ error: "Failed to process speech transcript" });
-    }
-  });
-
-  // 1.5 Background Push Notification Endpoint
-  app.post("/api/push/send", async (req, res) => {
-    const { userId, title, message, category, priority, screen, targetId } = req.body;
-    if (!userId) {
-      return res.status(400).json({ error: "userId is required" });
-    }
-
-    try {
-      const dbAdmin = firebaseConfig.firestoreDatabaseId 
-        ? getFirestore(undefined, firebaseConfig.firestoreDatabaseId)
-        : getFirestore();
-      const devicesRef = dbAdmin.collection("users").doc(userId).collection("devices");
-      const snapshot = await devicesRef.get();
-      
-      const tokens: string[] = [];
-      const mockTokens: string[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.fcmToken) {
-          const t = data.fcmToken.trim();
-          if (t && !t.startsWith("fcm_") && t.length > 50) {
-            tokens.push(t);
-          } else {
-            mockTokens.push(t);
-          }
-        }
-      });
-
-      if (tokens.length === 0) {
-        console.log(`[Push Notification] No real registered FCM tokens found for user ${userId}. Registered mock/sandbox devices: ${mockTokens.length}. Skipping multicast send.`);
-        return res.json({ 
-          success: true, 
-          message: "No registered real tokens. Notification stored in Firestore for real-time synchronization.",
-          successCount: 0,
-          mockCount: mockTokens.length
-        });
-      }
-
-      console.log(`[Push Notification] Dispatching FCM push notification to ${tokens.length} real devices (excluding ${mockTokens.length} mock/sandbox devices) for user ${userId}`);
-
-      const payload = {
-        notification: {
-          title: title || "TS Price Manager",
-          body: message || "",
-        },
-        data: {
-          title: title || "TS Price Manager",
-          body: message || "",
-          category: category || "general",
-          priority: priority || "medium",
-          screen: screen || "home",
-          targetId: targetId || "",
-          clickUrl: `/?screen=${screen || "home"}${targetId ? `&targetId=${targetId}` : ""}`
-        },
-      };
-
-      const response = await getMessaging().sendEachForMulticast({
-        tokens: tokens,
-        notification: payload.notification,
-        data: payload.data,
-        android: {
-          priority: priority === "high" ? "high" : "normal",
-          notification: {
-            channelId: category || "general",
-            sound: "default",
-            clickAction: "FLUTTER_NOTIFICATION_CLICK",
-            icon: "ic_notification",
-            color: "#3b82f6",
-            visibility: "public"
-          }
-        },
-        webpush: {
-          headers: {
-            Urgency: priority === "high" ? "high" : "normal"
-          },
-          notification: {
-            icon: "/logoTSPM.png",
-            badge: "/logoTSPM.png",
-            vibrate: priority === "high" ? [200, 100, 200] : [100],
-            requireInteraction: priority === "high"
-          }
-        }
-      });
-
-      console.log(`[Push Notification] FCM multicast sent. Success: ${response.successCount}, Failure: ${response.failureCount}`);
-
-      // Perform background cleanup of invalid / expired registration tokens
-      if (response.failureCount > 0) {
-        const batch = dbAdmin.batch();
-        let shouldCommit = false;
-        response.responses.forEach((resp, index) => {
-          if (!resp.success) {
-            const errorCode = resp.error?.code;
-            if (
-              errorCode === "messaging/invalid-registration-token" || 
-              errorCode === "messaging/registration-token-not-registered"
-            ) {
-              const badToken = tokens[index];
-              snapshot.forEach((doc) => {
-                if (doc.data().fcmToken === badToken) {
-                  batch.delete(doc.ref);
-                  shouldCommit = true;
-                }
-              });
-            }
-          }
-        });
-        if (shouldCommit) {
-          await batch.commit().catch(err => console.error("FCM bad token cleanup batch commit error:", err));
-        }
-      }
-
-      return res.json({ success: true, successCount: response.successCount });
-    } catch (error: any) {
-      console.error("[Push Notification] Failed to deliver FCM push multicast:", error);
-      return res.status(500).json({ error: error.message || String(error) });
     }
   });
 

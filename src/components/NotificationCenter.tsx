@@ -156,31 +156,7 @@ export default function NotificationCenter({
       
       // Deep linking via link configuration
       if (item.deepLink?.screen) {
-        const screen = item.deepLink.screen;
-        const tabMap: Record<string, string> = {
-          inventory: 'home',
-          billing: 'billing',
-          analytics: 'analytics',
-          udhar: 'udhar',
-          settings: 'settings',
-        };
-        const mappedScreen = tabMap[screen] || screen;
-        
-        const validTabs = ['home', 'billing', 'analytics', 'udhar', 'notes', 'shift', 'goals', 'history'];
-        if (validTabs.includes(mappedScreen)) {
-          setActiveTab(mappedScreen as any);
-          
-          if (item.deepLink.targetId) {
-            if (mappedScreen === 'udhar') {
-              setSelectedUdharCustomerId(item.deepLink.targetId);
-            } else if (mappedScreen === 'home') {
-              const linkedItem = state.items.find((i: any) => i.id === item.deepLink.targetId);
-              if (linkedItem) {
-                setEditingItem(linkedItem);
-              }
-            }
-          }
-        }
+        setActiveTab(item.deepLink.screen);
         onClose();
       }
     }

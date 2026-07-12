@@ -53,7 +53,6 @@ import {
   CreditCard,
   Truck,
   Users,
-  ArrowUpRight,
   PlusCircle,
   X,
   Minimize2,
@@ -95,7 +94,9 @@ import {
   Volume2,
   VolumeX,
   Play,
-  Mail
+  Mail,
+  HardDrive,
+  CloudUpload
 } from 'lucide-react';
 import XLSX from 'xlsx-js-style';
 import { BUSINESS_MODES } from './services/businessModeConfig';
@@ -111,6 +112,7 @@ import { PINScreen } from './components/ui/PINScreen';
 import { UnitSelectorModal } from './components/ui/UnitSelectorModal';
 import { AddCategoryModal } from './components/ui/AddCategoryModal';
 import { ManageCategoriesModal } from './components/ui/ManageCategoriesModal';
+import { SmartBulkEntryModal } from './components/SmartBulkEntryModal';
 import { Settings2, Receipt, PackagePlus, Printer, Sliders } from 'lucide-react';
 import BillingScreen from './components/BillingScreen';
 import SmartCalculator from './components/SmartCalculator';
@@ -118,9 +120,11 @@ import AnalyticsScreen from './components/AnalyticsScreen';
 import UdharScreen from './components/UdharScreen';
 import BillHistoryDrawer from './components/BillHistoryDrawer';
 import NotificationCenter from './components/NotificationCenter';
+import { SystemPermissionsModal } from './components/SystemPermissionsModal';
 import PrinterSettingsScreen from './components/PrinterSettingsScreen';
 import { LatestAchievementWidget } from './components/MilestonesTab';
 import DynamicStoreDashboard from './components/DynamicStoreDashboard';
+import { AppSkeletonLoader } from './components/AppSkeletonLoader';
 import { AnimatedBillingIcon } from './components/AnimatedBillingIcon';
 import { AnimatedHomeIcon } from './components/AnimatedHomeIcon';
 import { AnimatedAnalyticsIcon } from './components/AnimatedAnalyticsIcon';
@@ -141,6 +145,8 @@ import {
 import { EmailAuthProvider, linkWithCredential, updatePassword } from 'firebase/auth';
 import { LoginScreen } from './components/LoginScreen';
 import { OnboardingForm } from './components/OnboardingForm';
+import { requestIndependentContactsToken } from './services/contactsService';
+import { requestIndependentDriveToken, GoogleDriveService } from './services/googleDriveService';
 import { 
   doc, 
   setDoc, 
@@ -482,12 +488,24 @@ const getInitialState = (): AppState => {
     }
   }
 
+  let cachedUser = null;
+  const cachedUserStr = localStorage.getItem('ts_cached_auth_user');
+  if (cachedUserStr) {
+    try {
+      cachedUser = JSON.parse(cachedUserStr);
+    } catch (e) {
+      console.warn("Failed to parse cached auth user", e);
+    }
+  } else if (localStorage.getItem('ts_guest_logged_in') === 'true') {
+    cachedUser = { uid: 'guest_user', email: 'Guest Merchant' };
+  }
+
   return {
     items: deduplicateById(items),
     notes: deduplicateById(notes),
     categories: DEFAULT_CATEGORIES,
     settings,
-    user: null,
+    user: cachedUser,
     bills: deduplicateById(bills),
     udharCustomers: deduplicateById(udharCustomers),
     udharTransactions: deduplicateById(udharTransactions),
@@ -897,6 +915,8 @@ const OpenUdharIcon = ({ isHovered, className }: { isHovered: boolean; className
 export default function App() {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
   const [activeTab, setActiveTab] = useState<'home' | 'billing' | 'analytics' | 'udhar' | 'notes' | 'shift' | 'goals' | 'history'>('home');
+  const [showPlusActionMenu, setShowPlusActionMenu] = useState(false);
+  const [showSmartBulkEntry, setShowSmartBulkEntry] = useState(false);
   const rawCategories = state.settings.customCategories || state.categories;
   const activeCategories = rawCategories.filter((cat, idx, arr) => arr.findIndex(c => c.id === cat.id) === idx);
   
@@ -1335,6 +1355,7 @@ export default function App() {
   const [showManageCategories, setShowManageCategories] = useState(false);
   const [showVoiceAssistant, setShowVoiceAssistant] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [isAuthResolving, setIsAuthResolving] = useState(true);
   const [hoveredAction, setHoveredAction] = useState<string | null>(null);
 
   // Advanced tactile Drag-to-Mic state engine
@@ -1347,6 +1368,40 @@ export default function App() {
     isOpen: boolean;
   } | null>(null);
 
+  const [showWelcomeVoicePopup, setShowWelcomeVoicePopup] = useState(false);
+  const [showPermissionsCenter, setShowPermissionsCenter] = useState(false);
+
+  // Auto-trigger System Permissions Center on initial launch
+  useEffect(() => {
+    if (!isInitializing) {
+      const hasSeenPermissions = localStorage.getItem('ts_permissions_onboarding_shown');
+      if (!hasSeenPermissions) {
+        setShowPermissionsCenter(true);
+        localStorage.setItem('ts_permissions_onboarding_shown', 'true');
+      }
+    }
+  }, [isInitializing]);
+
+  // Auto-dismiss welcome voice popup after 9 seconds
+  useEffect(() => {
+    if (showWelcomeVoicePopup) {
+      const timer = setTimeout(() => {
+        setShowWelcomeVoicePopup(false);
+      }, 9000);
+      return () => clearTimeout(timer);
+    }
+  }, [showWelcomeVoicePopup]);
+
+  const handleMuteWelcomeVoice = () => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    setShowWelcomeVoicePopup(false);
+    window.dispatchEvent(new CustomEvent('app-add-toast', { 
+      detail: { message: "Voice Announcement Muted / आवाज़ बंद कर दी गई है", type: 'info' } 
+    }));
+  };
+
   // Welcome Speech Voice Announcement Effect
   useEffect(() => {
     if (isInitializing) return;
@@ -1355,7 +1410,10 @@ export default function App() {
     const triggerSpeech = () => {
       if (spoken) return;
       spoken = true;
-      playWelcomeAnnouncement(state.settings);
+      const played = playWelcomeAnnouncement(state.settings);
+      if (played) {
+        setShowWelcomeVoicePopup(true);
+      }
       cleanup();
     };
 
@@ -1506,63 +1564,6 @@ export default function App() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'warning' } | null>(null);
   const [toastTimeout, setToastTimeout] = useState<any>(null);
 
-  const [incomingPushAlert, setIncomingPushAlert] = useState<InAppNotification | null>(null);
-  const [pushAlertTimeout, setPushAlertTimeout] = useState<any>(null);
-
-  const handlePushDeepLink = (notif: InAppNotification) => {
-    if (notif.deepLink?.screen) {
-      const screen = notif.deepLink.screen;
-      const tabMap: Record<string, string> = {
-        inventory: 'home',
-        billing: 'billing',
-        analytics: 'analytics',
-        udhar: 'udhar',
-        settings: 'settings',
-      };
-      const mappedScreen = tabMap[screen] || screen;
-      
-      const validTabs = ['home', 'billing', 'analytics', 'udhar', 'notes', 'shift', 'goals', 'history'];
-      if (validTabs.includes(mappedScreen)) {
-        setActiveTab(mappedScreen as any);
-        
-        if (notif.deepLink.targetId) {
-          if (mappedScreen === 'udhar') {
-            setSelectedUdharCustomerId(notif.deepLink.targetId);
-          } else if (mappedScreen === 'home') {
-            const linkedItem = state.items.find((i: any) => i.id === notif.deepLink.targetId);
-            if (linkedItem) {
-              setEditingItem(linkedItem);
-            }
-          }
-        }
-      }
-    }
-  };
-
-  useEffect(() => {
-    const handlePushReceived = (e: Event) => {
-      const customEvent = e as CustomEvent<InAppNotification>;
-      if (customEvent.detail) {
-        const notif = customEvent.detail;
-        
-        // Show beautiful slide-down OS push notification alert banner
-        setIncomingPushAlert(notif);
-        
-        if (pushAlertTimeout) clearTimeout(pushAlertTimeout);
-        const t = setTimeout(() => {
-          setIncomingPushAlert(null);
-        }, 7000); // 7 seconds visibility duration
-        setPushAlertTimeout(t);
-      }
-    };
-    
-    window.addEventListener('app-push-received', handlePushReceived);
-    return () => {
-      window.removeEventListener('app-push-received', handlePushReceived);
-      if (pushAlertTimeout) clearTimeout(pushAlertTimeout);
-    };
-  }, [pushAlertTimeout, state.items]);
-
   const addToast = (message: string, type: 'success' | 'info' | 'warning' | 'error' = 'success') => {
     if (toastTimeout) clearTimeout(toastTimeout);
     setToast({ message, type: type === 'error' ? 'warning' : type });
@@ -1584,6 +1585,77 @@ export default function App() {
       window.removeEventListener('app-add-toast', handleAddedCustomToast);
     };
   }, [addToast]);
+
+  // --- Beautiful Real-time Notification Popups State & Listeners ---
+  const [popupNotifications, setPopupNotifications] = useState<InAppNotification[]>([]);
+
+  const addPopupNotification = useCallback((notif: InAppNotification) => {
+    setPopupNotifications(prev => {
+      if (prev.some(p => p.id === notif.id)) return prev;
+      return [...prev, notif];
+    });
+
+    // Remove automatically after 6 seconds
+    setTimeout(() => {
+      setPopupNotifications(prev => prev.filter(p => p.id !== notif.id));
+    }, 6000);
+  }, []);
+
+  const handlePopupNotificationClick = useCallback((notif: InAppNotification) => {
+    // Dismiss the popup immediately
+    setPopupNotifications(prev => prev.filter(p => p.id !== notif.id));
+
+    // Handle deep-link or smart fallbacks
+    if (notif.deepLink) {
+      const { screen, targetId } = notif.deepLink;
+      if (screen) {
+        if (screen === 'settings') {
+          setActiveTab('home');
+          setShowMenu(true);
+          setMenuTab('settings');
+        } else {
+          setActiveTab(screen as any);
+          if (screen === 'udhar' && targetId) {
+            setSelectedUdharCustomerId(targetId);
+          } else if (screen === 'inventory' && targetId) {
+            const linkedItem = state.items.find(i => i.id === targetId);
+            if (linkedItem) {
+              setEditingItem(linkedItem);
+            }
+          }
+        }
+      }
+    } else {
+      const titleLower = notif.title.toLowerCase();
+      if (notif.category === 'inventory' || titleLower.includes('stock') || titleLower.includes('product')) {
+        setActiveTab('home');
+      } else if (notif.category === 'udhar' || titleLower.includes('credit') || titleLower.includes('due') || titleLower.includes('payment')) {
+        setActiveTab('udhar');
+      } else if (notif.category === 'analytics' || titleLower.includes('report') || titleLower.includes('sales') || titleLower.includes('summary')) {
+        setActiveTab('analytics');
+      } else if (notif.category === 'system' && titleLower.includes('backup')) {
+        setActiveTab('home');
+        setShowMenu(true);
+        setMenuTab('settings');
+      }
+    }
+
+    // Mark as read in database
+    NotificationService.markAsRead(state.user?.uid || null, notif.id).catch(console.error);
+  }, [state.items, state.user, setShowMenu, setMenuTab]);
+
+  useEffect(() => {
+    const handleNewNotification = (e: Event) => {
+      const customEvent = e as CustomEvent<InAppNotification>;
+      if (customEvent.detail && customEvent.detail.title) {
+        addPopupNotification(customEvent.detail);
+      }
+    };
+    window.addEventListener('app-new-notification', handleNewNotification);
+    return () => {
+      window.removeEventListener('app-new-notification', handleNewNotification);
+    };
+  }, [addPopupNotification]);
 
   // --- Achievement Celebration State & Real-time Checkers ---
   const [activeCelebrationMilestone, setActiveCelebrationMilestone] = useState<Milestone | null>(null);
@@ -2467,11 +2539,39 @@ export default function App() {
     };
     reader.readAsText(file);
   };
+
+  const handleRestoreFromDrive = async () => {
+    try {
+      // 1. Trigger Google Picker to select a JSON file
+      const selectedFile = await GoogleDriveService.openFilePicker('application/json');
+      if (!selectedFile) {
+        // User cancelled or no file selected
+        return;
+      }
+
+      // 2. Fetch/download file content
+      const fileData = await GoogleDriveService.downloadFileContent(selectedFile.id);
+
+      // 3. Confirm overwrite and apply state
+      if (fileData && fileData.settings && fileData.items) {
+        if (confirm(`Restoring from Google Drive file '${selectedFile.name}' will overwrite your current settings and items. Proceed?`)) {
+          setState(fileData);
+          alert('System Restored successfully from Google Drive!');
+        }
+      } else {
+        alert('The selected file does not appear to be a valid backup file. (चुनी गई फ़ाइल मान्य बैकअप फ़ाइल नहीं है।)');
+      }
+    } catch (error: any) {
+      console.error(error);
+      alert(`Failed to restore from Google Drive: ${error?.message || error}`);
+    }
+  };
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         if (user.email && user.uid !== 'guest_user') {
           localStorage.setItem('ts_last_logged_in_email', user.email);
+          localStorage.setItem('ts_cached_auth_user', JSON.stringify({ uid: user.uid, email: user.email }));
         }
         setState(prev => ({ 
           ...prev, 
@@ -2485,9 +2585,11 @@ export default function App() {
             user: { uid: 'guest_user', email: 'Guest Merchant' } 
           }));
         } else {
+          localStorage.removeItem('ts_cached_auth_user');
           setState(prev => ({ ...prev, user: null }));
         }
       }
+      setIsAuthResolving(false);
     });
     return () => unsubscribe();
   }, []);
@@ -2541,46 +2643,15 @@ export default function App() {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const targetScreen = params.get('screen');
-      const targetId = params.get('targetId');
       const validTabs = ['home', 'billing', 'analytics', 'udhar', 'notes', 'shift', 'goals', 'history'];
-      
-      if (targetScreen) {
-        const tabMap: Record<string, string> = {
-          inventory: 'home',
-          billing: 'billing',
-          analytics: 'analytics',
-          udhar: 'udhar',
-          settings: 'settings',
-        };
-        const mappedScreen = tabMap[targetScreen] || targetScreen;
-        if (validTabs.includes(mappedScreen)) {
-          setActiveTab(mappedScreen as any);
-          
-          if (targetId) {
-            if (mappedScreen === 'udhar') {
-              setSelectedUdharCustomerId(targetId);
-            } else if (mappedScreen === 'home') {
-              // Wait for items to load in state, then open for edit
-              const checkInterval = setInterval(() => {
-                if (state.items && state.items.length > 0) {
-                  const linkedItem = state.items.find(i => i.id === targetId);
-                  if (linkedItem) {
-                    setEditingItem(linkedItem);
-                  }
-                  clearInterval(checkInterval);
-                }
-              }, 200);
-              setTimeout(() => clearInterval(checkInterval), 5000);
-            }
-          }
-        }
-        
+      if (targetScreen && validTabs.includes(targetScreen)) {
+        setActiveTab(targetScreen as any);
         // Sanitise location bar state so refreshes default nicely
         const cleanUrl = window.location.pathname + window.location.hash;
         window.history.replaceState({}, document.title, cleanUrl);
       }
     }
-  }, [state.items]);
+  }, []);
 
   // --- Real-time Firestore Sync ---
   useEffect(() => {
@@ -2934,33 +3005,6 @@ export default function App() {
     return list;
   }, [state.items, state.notes, state.udharTransactions, state.udharCustomers, state.settings.minStockLevel, state.settings.dismissedNotifications, state.settings.language]);
 
-  // Synchronize internal active alerts to Cloud Push Notifications
-  useEffect(() => {
-    if (!state.user || state.user.uid === 'guest_user') return;
-
-    const syncAlertsToFCM = async () => {
-      // Find alerts that have not been written to the Firestore notifications list yet
-      for (const alert of activeAlerts) {
-        const alreadyExists = notifications.some(n => n.id === alert.id);
-        if (!alreadyExists) {
-          // Register alert ID in session storage to guarantee single trigger per session
-          const sessionKey = `fcm_sent_${alert.id}`;
-          if (!sessionStorage.getItem(sessionKey)) {
-            sessionStorage.setItem(sessionKey, 'true');
-            console.log('[App] Auto-syncing local alert to Cloud Push Notification:', alert.id);
-            try {
-              await NotificationService.dispatchAlertNotification(state.user?.uid || null, alert);
-            } catch (err) {
-              console.warn('[App] Failed to sync alert to Cloud:', err);
-            }
-          }
-        }
-      }
-    };
-
-    syncAlertsToFCM();
-  }, [activeAlerts, state.user, notifications]);
-
   const handleDismissNotification = useCallback((id: string) => {
     setState(prev => {
       const dismissed = prev.settings.dismissedNotifications || [];
@@ -3047,6 +3091,7 @@ export default function App() {
   // --- Handlers ---
   const handleLogout = useCallback(async () => {
     localStorage.removeItem('ts_guest_logged_in');
+    localStorage.removeItem('ts_cached_auth_user');
     await auth.signOut();
     setState(prev => ({ ...prev, user: null }));
     addToast("Session terminated / लॉगआउट सफल!", "success");
@@ -3058,6 +3103,7 @@ export default function App() {
       if (user) {
         if (user.email) {
           localStorage.setItem('ts_last_logged_in_email', user.email);
+          localStorage.setItem('ts_cached_auth_user', JSON.stringify({ uid: user.uid, email: user.email }));
         }
         setState(prev => ({ 
           ...prev, 
@@ -3177,6 +3223,44 @@ export default function App() {
       alert(t.error + ": " + (e instanceof Error ? e.message : 'Sync Error. Saved locally.'));
     }
   }, [state.user, state.settings.autoCloudSync, t.error]);
+
+  const handleBatchSaveItems = useCallback(async (itemsData: Omit<Item, 'id' | 'lastUpdated'>[]) => {
+    try {
+      const newItems = itemsData.map((data, index) => {
+        const id = (Date.now() + index).toString();
+        return {
+          ...data,
+          id,
+          lastUpdated: new Date().toISOString(),
+          priceChangedAt: new Date().toISOString()
+        };
+      });
+
+      // Optimistic update of local state
+      setState(prev => ({
+        ...prev,
+        items: deduplicateById([...newItems, ...prev.items])
+      }));
+
+      if (state.user && state.settings.autoCloudSync) {
+        const { writeBatch, doc } = await import('firebase/firestore');
+        const batch = writeBatch(db);
+        newItems.forEach(item => {
+          const docRef = doc(db, 'users', state.user!.uid, 'items', item.id);
+          batch.set(docRef, sanitizeForFirestore(item));
+        });
+        try {
+          await batch.commit();
+        } catch (e) {
+          handleFirestoreError(e, OperationType.WRITE, `users/${state.user.uid}/items-batch`);
+        }
+      }
+      addToast(`${newItems.length} items saved successfully!`, "success");
+    } catch (e) {
+      console.error("Batch save failed", e);
+      alert(t.error + ": " + (e instanceof Error ? e.message : 'Sync Error. Saved locally.'));
+    }
+  }, [state.user, state.settings.autoCloudSync, t.error, addToast]);
 
   const handleUpdateItem = useCallback(async (id: string, data: Partial<Item>) => {
     try {
@@ -3950,6 +4034,12 @@ export default function App() {
     );
   }
 
+  if (isAuthResolving) {
+    return (
+      <AppSkeletonLoader theme={state.settings.theme} />
+    );
+  }
+
   if (!state.user) {
     return (
       <div data-theme={state.settings.theme} className="min-h-screen">
@@ -4017,67 +4107,92 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* 📱 OS-STYLE PREMIUM PUSH NOTIFICATION BANNER */}
-      <AnimatePresence>
-        {incomingPushAlert && (
-          <motion.div 
-            initial={{ opacity: 0, y: -120, x: '-50%' }}
-            animate={{ opacity: 1, y: 0, x: '-50%' }}
-            exit={{ opacity: 0, y: -120, x: '-50%' }}
-            transition={{ type: "spring", damping: 18, stiffness: 120 }}
-            className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] w-[92%] sm:w-full sm:max-w-md p-4 bg-slate-900/95 dark:bg-slate-950/95 backdrop-blur-lg rounded-2xl border border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.3)] text-white font-sans flex flex-col gap-3"
-          >
-            {/* Header: App Name and Timing */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="h-6 w-6 rounded-lg bg-blue-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
-                  <span className="text-[10px] font-black tracking-widest text-white uppercase">TS</span>
-                </div>
-                <div>
-                  <span className="font-black text-[10px] uppercase tracking-wider text-slate-300">TS Price Manager</span>
-                  <span className="ml-1.5 px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[8px] font-black uppercase tracking-wider leading-none">PUSH</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[9px] font-semibold text-slate-400/80 uppercase tracking-widest">Now</span>
-                <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
-              </div>
-            </div>
+      {/* 🔔 PREMIUM REAL-TIME NOTIFICATION POPUP PORTAL */}
+      <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] flex flex-col gap-2.5 items-center pointer-events-none w-full max-w-md px-4">
+        <AnimatePresence mode="popLayout">
+          {popupNotifications.map((notif) => {
+            const isHigh = notif.priority === 'high';
+            
+            // Category-specific styles
+            let catColorClass = "bg-blue-500/10 text-blue-500 border-blue-500/20";
+            let catGlowClass = "shadow-blue-500/5";
+            let IconComp = <AlertCircle size={16} />;
+            
+            if (notif.category === 'inventory') {
+              catColorClass = "bg-amber-500/10 text-amber-500 border-amber-500/20";
+              catGlowClass = "shadow-amber-500/5";
+              IconComp = <Package size={16} />;
+            } else if (notif.category === 'udhar') {
+              catColorClass = "bg-rose-500/10 text-rose-500 border-rose-500/20";
+              catGlowClass = "shadow-rose-500/5";
+              IconComp = <MessageSquare size={16} />;
+            } else if (notif.category === 'analytics') {
+              catColorClass = "bg-emerald-500/10 text-emerald-500 border-emerald-500/20";
+              catGlowClass = "shadow-emerald-500/5";
+              IconComp = <TrendingUp size={16} />;
+            } else if (notif.category === 'broadcast') {
+              catColorClass = "bg-purple-500/10 text-purple-500 border-purple-500/20";
+              catGlowClass = "shadow-purple-500/5";
+              IconComp = <Sparkles size={16} />;
+            }
 
-            {/* Content: Title & Message */}
-            <div className="space-y-1">
-              <h4 className="font-extrabold text-[12px] uppercase tracking-tight text-white/95 leading-tight">
-                {incomingPushAlert.title}
-              </h4>
-              <p className="text-[10.5px] font-semibold text-slate-300 leading-normal line-clamp-2">
-                {incomingPushAlert.message}
-              </p>
-            </div>
-
-            {/* Footer Action Bar */}
-            <div className="flex items-center justify-end gap-2.5 pt-1.5 border-t border-slate-800/60">
-              <button 
-                onClick={() => setIncomingPushAlert(null)}
-                className="px-3 py-1.5 rounded-xl hover:bg-white/5 active:scale-95 transition-all text-slate-400 hover:text-white font-black uppercase text-[9px] tracking-wider cursor-pointer"
+            return (
+              <motion.div
+                key={notif.id}
+                initial={{ opacity: 0, y: -40, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                transition={{ type: 'spring', damping: 20, stiffness: 260 }}
+                onClick={() => handlePopupNotificationClick(notif)}
+                className={cn(
+                  "pointer-events-auto w-full p-4 rounded-2xl border bg-slate-900/95 dark:bg-slate-950/95 backdrop-blur-md text-white shadow-2xl flex gap-3 cursor-pointer select-none transition-all duration-200 hover:scale-[1.01] hover:border-white/10 active:scale-95",
+                  catGlowClass,
+                  isHigh ? "border-rose-500/30" : "border-slate-800"
+                )}
               >
-                Dismiss
-              </button>
-              {incomingPushAlert.deepLink?.screen && (
-                <button 
-                  onClick={() => {
-                    handlePushDeepLink(incomingPushAlert);
-                    setIncomingPushAlert(null);
+                {/* Dynamic Category Icon with glow */}
+                <div className={cn(
+                  "h-9 w-9 rounded-xl flex items-center justify-center shrink-0 border",
+                  catColorClass
+                )}>
+                  {IconComp}
+                </div>
+
+                {/* Text Content */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <h5 className="text-[11px] font-black uppercase tracking-tight text-white/95 truncate">
+                      {notif.title}
+                    </h5>
+                    <span className="text-[7.5px] font-mono text-white/40 shrink-0">
+                      {notif.timestamp}
+                    </span>
+                  </div>
+                  <p className="text-[10px] font-medium text-white/70 mt-1 leading-normal pr-1">
+                    {notif.message}
+                  </p>
+                  {notif.deepLink && (
+                    <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-[var(--primary)] mt-2 hover:underline">
+                      View details <ArrowRight size={8} />
+                    </span>
+                  )}
+                </div>
+
+                {/* Dismiss Button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPopupNotifications(prev => prev.filter(p => p.id !== notif.id));
                   }}
-                  className="px-4 py-1.5 rounded-xl bg-blue-500 hover:bg-blue-600 active:scale-95 text-white font-black uppercase text-[9px] tracking-widest shadow-lg shadow-blue-500/10 flex items-center gap-1.5 cursor-pointer"
+                  className="p-1 h-6 w-6 rounded-lg hover:bg-white/10 active:scale-90 transition-all text-white/30 hover:text-white shrink-0 cursor-pointer flex items-center justify-center"
                 >
-                  <span>Open Alert</span>
-                  <ArrowUpRight size={10} className="stroke-[3px]" />
+                  <X size={12} />
                 </button>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+      </div>
 
       {/* 🔮 CUSTOM TOAST SYSTEM PORTAL */}
       <AnimatePresence>
@@ -5541,12 +5656,13 @@ export default function App() {
               triggerThresholdRef.current = false;
             }}
             onTap={() => {
-              // Click fallback: Trigger normal item form modal
-              setShowAddItem(true);
+              setShowPlusActionMenu(prev => !prev);
             }}
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.95 }}
-            className={`h-14 w-14 rounded-full z-20 cursor-grab active:cursor-grabbing outline-none select-none relative flex items-center justify-center ${
+            className={`h-14 w-14 rounded-full z-20 cursor-grab active:cursor-grabbing outline-none select-none relative flex items-center justify-center transition-all duration-200 ${
+              showPlusActionMenu ? 'bg-rose-500 shadow-lg shadow-rose-500/50 text-white' : ''
+            } ${
               isDraggingButton ? 'scale-105' : ''
             }`}
           >
@@ -5554,14 +5670,60 @@ export default function App() {
             <motion.div 
               style={{ scale: isDraggingButton ? 1.05 : 1 }}
               className={`absolute inset-0 rounded-full transition-all duration-300 ${
-                dragYOffset <= -80
-                  ? 'bg-gradient-to-tr from-amber-500 to-amber-600 shadow-xl shadow-amber-500/50'
-                  : 'bg-transparent'
+                showPlusActionMenu
+                  ? 'bg-rose-600 shadow-xl shadow-rose-500/50'
+                  : dragYOffset <= -80
+                    ? 'bg-gradient-to-tr from-amber-500 to-amber-600 shadow-xl shadow-amber-500/50'
+                    : 'bg-transparent'
               }`}
             />
-            {/* Standard Animated plus icon */}
-            <AnimatedPlusIcon size={26} isAtMicThreshold={dragYOffset <= -80} />
+            {/* Standard Animated plus icon / Close Icon when menu is open */}
+            {showPlusActionMenu ? (
+              <X size={26} className="text-white font-black z-20" />
+            ) : (
+              <AnimatedPlusIcon size={26} isAtMicThreshold={dragYOffset <= -80} />
+            )}
           </motion.div>
+
+          {/* Plus Action Menu Options */}
+          <AnimatePresence>
+            {showPlusActionMenu && (
+              <motion.div
+                initial={{ opacity: 0, y: 15, scale: 0.9 }}
+                animate={{ opacity: 1, y: -20, scale: 1 }}
+                exit={{ opacity: 0, y: 15, scale: 0.9 }}
+                transition={{ type: "spring", stiffness: 350, damping: 25 }}
+                className="absolute bottom-20 right-0 flex flex-col gap-2.5 z-30 min-w-[190px] items-end pointer-events-auto text-zinc-950 font-sans"
+              >
+                {/* Standard Form Button */}
+                <button
+                  onClick={() => {
+                    setShowAddItem(true);
+                    setShowPlusActionMenu(false);
+                  }}
+                  className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-white text-zinc-950 font-black text-[11px] tracking-widest uppercase border border-zinc-200 shadow-2xl hover:bg-zinc-50 active:scale-95 transition-all w-full justify-start whitespace-nowrap cursor-pointer"
+                >
+                  <span className="text-base">📄</span>
+                  <span>STANDARD FORM</span>
+                </button>
+
+                {/* Smart Entry Button */}
+                <button
+                  onClick={() => {
+                    setShowSmartBulkEntry(true);
+                    setShowPlusActionMenu(false);
+                  }}
+                  className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-white text-zinc-950 font-black text-[11px] tracking-widest uppercase border-2 border-amber-500 shadow-2xl hover:bg-zinc-50 active:scale-95 transition-all w-full justify-start whitespace-nowrap cursor-pointer"
+                >
+                  <span className="text-base text-amber-500">⚡</span>
+                  <span className="flex items-center gap-1">
+                    SMART ENTRY
+                    <span className="text-amber-500">⚡</span>
+                  </span>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       )}
       {activeTab === 'notes' && !showMenu && !showNotificationsDropdown && !showHistoryDrawer && !showGoalPanel && !showComparison && (
@@ -5633,6 +5795,19 @@ export default function App() {
             onEditCategory={handleEditCategory}
             onDeleteCategory={handleDeleteCategory}
             t={t}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showSmartBulkEntry && (
+          <SmartBulkEntryModal
+            key="smart-bulk-entry-modal"
+            isOpen={showSmartBulkEntry}
+            onClose={() => setShowSmartBulkEntry(false)}
+            onSaveBatch={handleBatchSaveItems}
+            categories={activeCategories}
+            t={t}
+            theme={state.settings.theme}
           />
         )}
       </AnimatePresence>
@@ -5944,6 +6119,59 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Welcome Speech Voice Announcement Banner/Popup */}
+      <AnimatePresence>
+        {showWelcomeVoicePopup && (
+          <motion.div
+            key="welcome-voice-popup"
+            initial={{ opacity: 0, y: -50, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ type: "spring", damping: 20, stiffness: 120 }}
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] w-[calc(100%-2rem)] max-w-md bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 dark:from-zinc-900 dark:via-zinc-950 dark:to-zinc-900 border border-amber-500/30 text-white p-4 rounded-2xl shadow-2xl shadow-amber-500/5 flex items-center justify-between gap-3 backdrop-blur-xl"
+          >
+            {/* Left Ambient Glow */}
+            <div className="absolute -left-10 -top-10 w-24 h-24 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
+            <div className="absolute -right-10 -bottom-10 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
+
+            <div className="flex items-center gap-3 min-w-0">
+              {/* Pulsing Voice Icon */}
+              <div className="relative shrink-0 w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                <span className="absolute inset-0 rounded-xl bg-amber-500/10 animate-ping opacity-75" />
+                <Volume2 size={18} className="animate-pulse" />
+              </div>
+
+              {/* Text content */}
+              <div className="text-left min-w-0">
+                <span className="block text-[8px] font-black uppercase tracking-widest text-amber-400 leading-none mb-1">
+                  🔊 Voice Announcement Active
+                </span>
+                <h5 className="font-black text-[11px] tracking-tight uppercase leading-tight text-white truncate">
+                  WELCOME TO TS PRICE MANAGER
+                </h5>
+                <p className="text-[9px] text-gray-300 font-medium leading-none mt-1">
+                  टीएस प्राइस मैनेजर में आपका स्वागत है!
+                </p>
+              </div>
+            </div>
+
+            {/* Mute Button */}
+            <button
+              onClick={handleMuteWelcomeVoice}
+              className="shrink-0 flex items-center gap-1.5 py-2 px-3.5 rounded-xl bg-rose-500/10 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/20 hover:border-rose-500/30 text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all active:scale-95 shadow-md shadow-rose-950/20"
+            >
+              <VolumeX size={12} />
+              <span>Mute</span>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <SystemPermissionsModal 
+        isOpen={showPermissionsCenter} 
+        onClose={() => setShowPermissionsCenter(false)} 
+      />
+
       {/* Menu / Settings Overlay Drawer */}
       <AnimatePresence>
         {showMenu && (
@@ -6095,6 +6323,18 @@ export default function App() {
                       onClick: () => {
                         setMenuTab('profile');
                         addToast("Navigated to Operator Profile", "success");
+                      }
+                    },
+                    {
+                      id: 'system-permissions',
+                      title: '🔐 Device & System Permissions',
+                      category: 'System',
+                      description: 'Configure and authorize Notifications, Contacts, Microphone, and Camera sequentially',
+                      keywords: ['permissions', 'camera', 'microphone', 'contacts', 'notifications', 'system settings', 'allow', 'access'],
+                      onClick: () => {
+                        setShowPermissionsCenter(true);
+                        setShowMenu(false);
+                        addToast("Opening System Permissions Center", "info");
                       }
                     },
                     {
@@ -6419,6 +6659,7 @@ export default function App() {
                     onImport={importData}
                     onBackup={handleBackup}
                     onRestore={handleRestore}
+                    onRestoreFromDrive={handleRestoreFromDrive}
                     onClearCache={() => {
                       if (confirm('Wipe everything?')) {
                         localStorage.clear();
@@ -8029,6 +8270,7 @@ function SettingsScreen(props: {
   isExporting: boolean;
   activeSubTab?: 'interface' | 'security' | 'sound' | 'data';
   onChangeSubTab?: (tab: 'interface' | 'security' | 'sound' | 'data') => void;
+  onRestoreFromDrive?: () => void;
 }) {
   return <SettingsScreenExt {...props} />;
 }
@@ -8292,6 +8534,25 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareProductList
   onUpdate: (updates: Partial<AppSettings>) => void;
   onLogout: () => Promise<void>;
 }) {
+  const [contactsEmail, setContactsEmail] = useState<string | null>(() => localStorage.getItem('ts_google_contacts_email'));
+  const [driveEmail, setDriveEmail] = useState<string | null>(() => localStorage.getItem('ts_google_drive_email'));
+  const [isBackingUp, setIsBackingUp] = useState(false);
+
+  useEffect(() => {
+    const handleEmailChange = () => {
+      setContactsEmail(localStorage.getItem('ts_google_contacts_email'));
+    };
+    const handleDriveEmailChange = () => {
+      setDriveEmail(localStorage.getItem('ts_google_drive_email'));
+    };
+    window.addEventListener('ts_contacts_email_changed', handleEmailChange);
+    window.addEventListener('ts_drive_email_changed', handleDriveEmailChange);
+    return () => {
+      window.removeEventListener('ts_contacts_email_changed', handleEmailChange);
+      window.removeEventListener('ts_drive_email_changed', handleDriveEmailChange);
+    };
+  }, []);
+
   const handleAuth = async () => {
     if (state.user) {
       await onLogout();
@@ -8307,6 +8568,42 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareProductList
           alert(`Sign-in failed: ${error?.message || error}`);
         }
       }
+    }
+  };
+
+  const handleConnectContacts = async () => {
+    try {
+      await requestIndependentContactsToken();
+      alert('Google Contacts account connected successfully! (गूगल कांटेक्ट अकाउंट सफलतापूर्वक लिंक हो गया!)');
+    } catch (error: any) {
+      alert(`Contacts connection failed: ${error?.message || error}`);
+    }
+  };
+
+  const handleConnectDrive = async () => {
+    try {
+      await requestIndependentDriveToken();
+      alert('Google Drive connected successfully! (गूगल ड्राइव सफलतापूर्वक लिंक हो गया!)');
+    } catch (error: any) {
+      alert(`Drive connection failed: ${error?.message || error}`);
+    }
+  };
+
+  const handleTriggerBackup = async () => {
+    setIsBackingUp(true);
+    try {
+      const dataToBackup = {
+        items: state.items || [],
+        bills: state.bills || [],
+        notes: (state as any).notes || []
+      };
+      const viewLink = await GoogleDriveService.backupSystemState(dataToBackup);
+      alert(`Full system state backup created successfully in your Google Drive under 'TS Price Manager Backups/System Backups'!\n\nView file: ${viewLink}`);
+    } catch (error: any) {
+      console.error(error);
+      alert(`Backup failed: ${error?.message || error}`);
+    } finally {
+      setIsBackingUp(false);
     }
   };
 
@@ -8326,7 +8623,7 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareProductList
                </div>
                <div>
                   <h2 className="text-4xl font-black uppercase tracking-tight leading-none truncate max-w-[200px] sm:max-w-md">
-                    {state.settings.storeOwnerName || (state.user ? (state.user.email?.split('@')[0] || 'Merchant') : 'SYSTEM ADMIN')}
+                     {state.settings.storeOwnerName || (state.user ? (state.user.email?.split('@')[0] || 'Merchant') : 'SYSTEM ADMIN')}
                   </h2>
                   <div className="mt-2 flex items-center gap-2">
                      <span className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
@@ -8334,16 +8631,30 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareProductList
                        {state.settings.storeName || (state.user ? t.liveNode : t.localSandbox)}
                      </p>
                   </div>
+                  
+                  {/* Primary App login Email */}
                   {state.user && state.user.email && (
-                     <div className="mt-1.5 flex items-center gap-1.5 opacity-90 text-[10.5px] font-mono tracking-tight bg-black/15 border border-white/10 rounded-lg px-2.5 py-1 w-fit select-text">
-                        <Mail size={11} className="text-indigo-200 shrink-0" />
+                     <div className="mt-2.5 flex items-center gap-1.5 opacity-95 text-[10.5px] font-mono tracking-tight bg-black/25 border border-white/10 rounded-lg px-2.5 py-1.5 w-fit select-text">
+                        <span className="text-xs shrink-0">✉️</span>
                         <span>{state.user.email}</span>
                      </div>
                   )}
+
+                  {/* Independent Google Contacts Sync Email */}
+                  <div className="mt-1.5 flex items-center gap-1.5 opacity-95 text-[10.5px] font-mono tracking-tight bg-black/25 border border-white/10 rounded-lg px-2.5 py-1.5 w-fit select-text">
+                     <span className="text-xs shrink-0">👤</span>
+                     <span>{contactsEmail || 'Not Connected (नॉट कनेक्टेड)'}</span>
+                  </div>
+
+                  {/* Independent Google Drive Backup Email */}
+                  <div className="mt-1.5 flex items-center gap-1.5 opacity-95 text-[10.5px] font-mono tracking-tight bg-black/25 border border-white/10 rounded-lg px-2.5 py-1.5 w-fit select-text">
+                     <span className="text-xs shrink-0">💾</span>
+                     <span>{driveEmail || 'Drive Not Connected (ड्राइव नॉट कनेक्टेड)'}</span>
+                  </div>
                </div>
             </div>
             
-            <div className="flex gap-8 pt-4">
+            <div className="flex flex-wrap gap-6 pt-4">
                <div>
                   <p className="text-[9px] font-black uppercase tracking-widest opacity-50 mb-1">{t.authorization}</p>
                   <button 
@@ -8351,10 +8662,46 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareProductList
                     className="flex items-center gap-2 bg-white/10 hover:bg-white text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full transition-all text-white hover:text-[var(--primary)] shadow-lg active:scale-95"
                   >
                      {state.user ? <LogOut size={14} /> : <LogIn size={14} />}
-                     {state.user ? t.terminateSession : t.cloudEntry}
+                     {state.user ? "LOG OUT" : t.cloudEntry}
                   </button>
                </div>
-               <div className="h-10 w-px bg-white/20" />
+
+               <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest opacity-50 mb-1">Contacts Integration</p>
+                  <button 
+                    onClick={handleConnectContacts}
+                    className="flex items-center gap-2 bg-amber-500/20 hover:bg-amber-500 text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full border border-amber-400/30 transition-all text-white hover:text-black shadow-lg active:scale-95"
+                  >
+                     <Users size={14} />
+                     {contactsEmail ? "Change Contacts Account" : "Connect Google Contacts"}
+                  </button>
+               </div>
+
+               <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest opacity-50 mb-1">Google Drive Sync</p>
+                  <div className="flex flex-wrap gap-2">
+                     <button 
+                       onClick={handleConnectDrive}
+                       className="flex items-center gap-2 bg-blue-500/20 hover:bg-blue-500 text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full border border-blue-400/30 transition-all text-white hover:text-black shadow-lg active:scale-95"
+                     >
+                        <HardDrive size={14} />
+                        {driveEmail ? "Change Drive Account" : "Connect Google Drive"}
+                     </button>
+                     {driveEmail && (
+                        <button 
+                          onClick={handleTriggerBackup}
+                          disabled={isBackingUp}
+                          className="flex items-center gap-2 bg-emerald-500/20 hover:bg-emerald-500 disabled:opacity-50 text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full border border-emerald-400/30 transition-all text-white hover:text-black shadow-lg active:scale-95"
+                        >
+                           <CloudUpload size={14} className={isBackingUp ? "animate-pulse" : ""} />
+                           {isBackingUp ? "Saving..." : "Backup Now"}
+                        </button>
+                     )}
+                  </div>
+               </div>
+
+               <div className="h-10 w-px bg-white/20 hidden sm:block" />
+               
                <div>
                   <p className="text-[9px] font-black uppercase tracking-widest opacity-50 mb-1">{t.architecture}</p>
                   <p className="text-xs font-black uppercase">v3.5.0 Enterprise</p>

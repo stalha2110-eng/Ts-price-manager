@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   X, ReceiptText, Search, Download, Trash, Edit2, Check,
   FileText, Calendar, Clock, DollarSign, ArrowUpRight, ArrowDownLeft,
@@ -34,6 +34,16 @@ interface CartItem {
 export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateState }: BillHistoryDrawerProps) {
   const [activeBillDetail, setActiveBillDetail] = useState<Bill | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      const originalStyle = window.getComputedStyle(document.body).overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalStyle;
+      };
+    }
+  }, [isOpen]);
 
   // Custom dialogs & notification states inside BillHistoryDrawer to support iframes/sandboxes perfectly
   const [customConfirm, setCustomConfirm] = useState<{
@@ -159,6 +169,57 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
       const diff = nowTime - new Date(b.timestamp).getTime();
       return diff > limits;
     });
+  }, [invoicesList]);
+
+  const oldestDayInfo = useMemo(() => {
+    if (invoicesList.length === 0) {
+      return { bills: [], dateStr: '', formattedDate: '' };
+    }
+    
+    // Group bills by local date string
+    const dateGroups: { [key: string]: Bill[] } = {};
+    invoicesList.forEach(b => {
+      try {
+        const d = new Date(b.timestamp);
+        if (!isNaN(d.getTime())) {
+          // Format as YYYY-MM-DD local date
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const dateStr = `${year}-${month}-${day}`;
+          if (!dateGroups[dateStr]) {
+            dateGroups[dateStr] = [];
+          }
+          dateGroups[dateStr].push(b);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    });
+
+    const uniqueDates = Object.keys(dateGroups).sort(); // sorted ascending, first is oldest
+    if (uniqueDates.length === 0) {
+      return { bills: [], dateStr: '', formattedDate: '' };
+    }
+
+    const oldestDateStr = uniqueDates[0];
+    const billsOfOldestDate = dateGroups[oldestDateStr] || [];
+
+    let formattedDate = oldestDateStr;
+    try {
+      const d = new Date(oldestDateStr + 'T12:00:00'); // set mid-day to avoid timezone offset shifts during display
+      if (!isNaN(d.getTime())) {
+        formattedDate = d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+      }
+    } catch (e) {
+      // fallback
+    }
+
+    return {
+      bills: billsOfOldestDate,
+      dateStr: oldestDateStr,
+      formattedDate
+    };
   }, [invoicesList]);
 
   // Combined searches & filters
@@ -344,7 +405,7 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
   };
 
   // PDF Backup of ALL bills (bulk list download)
-  const generateCleanBackupPdf = (billsToClean: Bill[]) => {
+  const generateCleanBackupPdf = (billsToClean: Bill[], customFilename?: string) => {
     if (billsToClean.length === 0) return false;
     
     try {
@@ -490,7 +551,7 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
         }
       });
 
-      doc.save(`ledger-sales-report.pdf`);
+      doc.save(customFilename || `ledger-sales-report.pdf`);
       return true;
     } catch (err) {
       console.error("Failed to generate PDF:", err);
@@ -504,6 +565,36 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
     if (success) {
       addToast(`Master Export Success: Certified PDF backup for current lists downloaded (${filteredBills.length} invoices).`, "success");
     }
+  };
+
+  const handleDownloadAndPurgeDate = (group: { dateLabel: string; bills: Bill[]; totalAmount: number }) => {
+    // 1. Generate clean filename
+    const cleanDateLabel = group.dateLabel.replace(/[^a-zA-Z0-9]/g, '_');
+    const filename = `bills_export_${cleanDateLabel}.pdf`;
+    
+    // 2. Generate and download PDF
+    const success = generateCleanBackupPdf(group.bills, filename);
+    if (!success) {
+      addToast("Failed to generate PDF backup. Aborting deletion.", "error");
+      return;
+    }
+    
+    // 3. Confirm deletion
+    showCustomConfirm(
+      "Backup Saved! Confirm Deletion?",
+      `The PDF backup '${filename}' for ${group.dateLabel} (${group.bills.length} bills) has been successfully downloaded. 
+
+Do you want to permanently delete these ${group.bills.length} bills from history now?`,
+      () => {
+        onUpdateState({
+          bills: invoicesList.filter(b => !group.bills.some(gb => gb.id === b.id))
+        });
+        addToast(`Successfully deleted all ${group.bills.length} bills for ${group.dateLabel} permanently.`, "success");
+      },
+      true, // isDestructive
+      "Delete Permanently",
+      "Keep History"
+    );
   };
 
   // Edit / Saved invoice operation
@@ -773,21 +864,21 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
   };
 
   const handleFlushHistory = () => {
-    if (oldestThan24HoursBills.length === 0) {
-      addToast("No bills older than 24 hours found to flush.", "warning");
+    if (oldestDayInfo.bills.length === 0) {
+      addToast("No bills found to flush.", "warning");
       return;
     }
     showCustomConfirm(
-      "Flush History Logs",
-      `Are you sure you want to securely delete ${oldestThan24HoursBills.length} logs older than 24h? This will update your analytical history and clean database space.`,
+      "Flush Oldest Day of Bills",
+      `Are you sure you want to permanently delete all ${oldestDayInfo.bills.length} bills from ${oldestDayInfo.formattedDate} (the oldest day in history)? This action is irreversible.`,
       () => {
         onUpdateState({
-          bills: invoicesList.filter(b => !oldestThan24HoursBills.some(ob => ob.id === b.id))
+          bills: invoicesList.filter(b => !oldestDayInfo.bills.some(ob => ob.id === b.id))
         });
-        addToast("Flushing successful. Cache database cleaned.", "success");
+        addToast(`Successfully deleted ${oldestDayInfo.bills.length} bills from ${oldestDayInfo.formattedDate}.`, "success");
       },
       true, // isDestructive
-      "Flush Logs",
+      "Flush Last Day",
       "Cancel"
     );
   };
@@ -795,7 +886,7 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 overflow-hidden flex justify-start">
+        <div className="fixed inset-0 z-50 overflow-hidden flex justify-start overscroll-contain">
           {/* Backdrop blur overlay */}
           <motion.div
             initial={{ opacity: 0 }}
@@ -811,7 +902,7 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}
             transition={{ type: 'spring', damping: 26, stiffness: 220 }}
-            className="relative w-full max-w-sm sm:max-w-md bg-[var(--card)] shadow-2xl border-r border-[var(--border)] flex flex-col h-full z-50 text-left overflow-hidden"
+            className="relative w-full max-w-sm sm:max-w-md bg-[var(--card)] shadow-2xl border-r border-[var(--border)] flex flex-col h-full z-50 text-left overflow-hidden overscroll-contain"
           >
             {/* Drawer Header */}
             <div className="flex items-center justify-between p-4 border-b border-[var(--border)] shrink-0 bg-slate-50/50 dark:bg-slate-950/20">
@@ -847,7 +938,7 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
             </div>
 
             {/* Main Interactive List */}
-            <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
+            <div className="flex-1 min-h-0 flex flex-col overscroll-contain">
               
               {/* Dynamic Search & Filters Area */}
               <div className="p-3 border-b border-[var(--border)] space-y-2.5 bg-slate-50/30 dark:bg-slate-900/10 shrink-0">
@@ -976,17 +1067,17 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
               </div>
 
               {/* Master backup notifications */}
-              {oldestThan24HoursBills.length > 0 && (
+              {oldestThan24HoursBills.length > 0 && oldestDayInfo.bills.length > 0 && (
                 <div className="m-3 p-3 bg-amber-500/[0.04] rounded-xl border border-amber-500/20 space-y-2 select-none">
                   <p className="text-[9.5px] font-extrabold text-[var(--foreground)]/95 leading-normal">
-                    ⚠️ Performance Sync: You have {oldestThan24HoursBills.length} invoice records older than 24 hours. Clear the cached local logs to free system resources.
+                    ⚠️ Performance Sync: You have legacy invoice records older than 24 hours. Clear all bills from the oldest day ({oldestDayInfo.formattedDate} — {oldestDayInfo.bills.length} bills) to free system resources.
                   </p>
                   <div className="flex gap-2">
                     <button
                       onClick={handleFlushHistory}
                       className="flex-1 py-1 px-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-[8.5px] font-black uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer transition-all"
                     >
-                      <Trash size={10} /> Fast Flush
+                      <Trash size={10} /> Fast Flush ({oldestDayInfo.bills.length} Bills)
                     </button>
                   </div>
                 </div>
@@ -1005,7 +1096,7 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
               )}
 
               {/* Central scroll list */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-4 no-scrollbar">
+              <div className="flex-1 overflow-y-auto p-3 space-y-4 no-scrollbar overscroll-contain">
                 {groupedBills.length === 0 ? (
                   <div className="py-20 text-center opacity-40 select-none space-y-1.5">
                     <Archive className="mx-auto text-[var(--primary)] opacity-30 animate-bounce" size={32} />
@@ -1015,20 +1106,32 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
                   groupedBills.map(group => (
                     <div key={group.dateLabel} className="space-y-2">
                       {/* Section Category Sticky Header */}
-                      <div className="flex items-center justify-between sticky top-0 bg-[var(--card)]/95 backdrop-blur-md py-2 px-2 z-10 border border-[var(--border)] rounded-xl shadow-xs">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between sticky top-0 bg-[var(--card)]/95 backdrop-blur-md py-2 px-2 z-10 border border-[var(--border)] rounded-xl shadow-xs gap-2">
                         <div className="flex items-center gap-1.5">
                           <Calendar size={13} className="text-[var(--primary)]" />
                           <span className="text-[10px] font-black uppercase tracking-wider text-[var(--foreground)]">
                             {group.dateLabel}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-[var(--foreground)]/5 text-[var(--foreground)]/60 border border-[var(--border)]">
                             {group.bills.length} {group.bills.length === 1 ? 'bill' : 'bills'}
                           </span>
                           <span className="text-[9.5px] font-black font-mono px-2.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/10">
                             ₹{group.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                           </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDownloadAndPurgeDate(group);
+                            }}
+                            className="inline-flex items-center gap-1 py-1 px-2.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/25 hover:bg-rose-500 hover:text-white text-[8px] font-black uppercase tracking-wider cursor-pointer transition-all shadow-xs"
+                            title="Download PDF backup and permanently delete this date's bills"
+                          >
+                            <Download size={9} />
+                            <Trash2 size={9} />
+                            <span>Export & Purge</span>
+                          </button>
                         </div>
                       </div>
 
@@ -1110,7 +1213,7 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
                   initial={{ opacity: 0, y: 30 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 30 }}
-                  className="absolute inset-0 bg-[var(--background)] border-t border-[var(--primary)]/20 shadow-2xl z-50 flex flex-col overflow-hidden"
+                  className="absolute inset-0 bg-[var(--background)] border-t border-[var(--primary)]/20 shadow-2xl z-50 flex flex-col overflow-hidden overscroll-contain"
                 >
                   {/* Overlay Header */}
                   <div className="flex items-center justify-between p-4 border-b border-[var(--border)] shrink-0 bg-[var(--foreground)]/[0.03]">
@@ -1133,7 +1236,7 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
                   </div>
 
                   {/* Body Scroller */}
-                  <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar overscroll-contain">
                     
                     {isEditing ? (
                       /* EDITING MODE FORM */

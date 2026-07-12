@@ -548,17 +548,17 @@ export function playTootBeep(type: 'beep' | 'toot', settings: AppSettings) {
  * Speaks the welcome announcement using the Web Speech Synthesis API.
  * Respects sound settings and quiet hours.
  */
-export function playWelcomeAnnouncement(settings: AppSettings) {
-  if (typeof window === 'undefined') return;
+export function playWelcomeAnnouncement(settings: AppSettings): boolean {
+  if (typeof window === 'undefined') return false;
   
   // Respect silent/vibrate settings
   const mode = settings.soundFeedbackMode || 'vibrate_sound';
-  if (mode === 'silent' || mode === 'vibrate_only') return;
-  if (isQuietHours(settings)) return;
+  if (mode === 'silent' || mode === 'vibrate_only') return false;
+  if (isQuietHours(settings)) return false;
   
   try {
     const synth = window.speechSynthesis;
-    if (!synth) return;
+    if (!synth) return false;
     
     // Cancel any ongoing speech to avoid overlap
     synth.cancel();
@@ -585,8 +585,10 @@ export function playWelcomeAnnouncement(settings: AppSettings) {
     utterance.volume = overallVol * 0.95; // Nicely audible
     
     synth.speak(utterance);
+    return true;
   } catch (err) {
     console.warn('Speech Synthesis failed:', err);
+    return false;
   }
 }
 

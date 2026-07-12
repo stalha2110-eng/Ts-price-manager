@@ -221,6 +221,7 @@ export interface AppSettings {
   enableInstantLanguageRefresh?: boolean;
   showLanguagePreview?: boolean;
   autoTranslateVoiceProducts?: boolean;
+  customGeminiApiKey?: string;
 }
 
 export interface InAppNotification {
@@ -228,23 +229,11 @@ export interface InAppNotification {
   title: string;
   message: string;
   timestamp: string;
-  category: 
-    | 'general'
-    | 'inventory'
-    | 'reminder'
-    | 'announcement'
-    | 'security'
-    | 'backup'
-    | 'udhar_due_date'
-    | 'low_stock_alerts'
-    | 'business_daily_summary'
-    | 'system'
-    | 'broadcast'
-    | string;
+  category: 'inventory' | 'udhar' | 'analytics' | 'system' | 'broadcast';
   priority: 'high' | 'medium' | 'low';
   isRead: boolean;
   deepLink?: {
-    screen: 'home' | 'inventory' | 'udhar' | 'analytics' | 'billing' | 'settings' | string;
+    screen: 'inventory' | 'udhar' | 'analytics' | 'billing' | 'settings';
     targetId?: string;
   };
 }

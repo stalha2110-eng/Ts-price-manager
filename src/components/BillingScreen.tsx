@@ -14,6 +14,7 @@ import { cn, formatNumber } from '../lib/utils';
 import { printerService, DEFAULT_PRINT_SETTINGS } from '../services/printerService';
 import { playFeedbackEvent } from '../services/soundFeedbackService';
 import { cleanAndValidateText } from '../services/languageEngine';
+import { GoogleContactPickerModal } from './GoogleContactPickerModal';
 
 interface BillingScreenProps {
   state: AppState;
@@ -24,6 +25,121 @@ interface BillingScreenProps {
   onSyncBills?: (incomingBills: Bill[]) => Promise<void>;
   onPeek?: (preview: { type: 'item' | 'customer' | 'bill' | 'notification' | 'analytics'; payload: any } | null) => void;
 }
+
+const CartQuantityInput: React.FC<{
+  quantity: number;
+  onChange: (newQty: number) => void;
+  onDecrement: () => void;
+  onIncrement: () => void;
+}> = ({ quantity, onChange, onDecrement, onIncrement }) => {
+  const [localVal, setLocalVal] = React.useState<string>(quantity.toString());
+
+  React.useEffect(() => {
+    setLocalVal(quantity.toString());
+  }, [quantity]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const valStr = e.target.value;
+    setLocalVal(valStr);
+    const parsed = parseFloat(valStr);
+    if (!isNaN(parsed) && parsed > 0) {
+      onChange(parsed);
+    }
+  };
+
+  const handleBlur = () => {
+    const parsed = parseFloat(localVal);
+    if (isNaN(parsed) || parsed <= 0) {
+      setLocalVal(quantity.toString());
+    } else {
+      onChange(parsed);
+    }
+  };
+
+  return (
+    <div className="flex items-center bg-[var(--foreground)]/5 rounded-lg border border-[var(--border)] p-0.5 h-6 select-none">
+      <button
+        type="button"
+        onClick={onDecrement}
+        className="h-4 w-4 rounded hover:bg-[var(--foreground)]/10 text-[var(--foreground)] flex items-center justify-center cursor-pointer transition-colors"
+      >
+        <Minus size={8} />
+      </button>
+      <input
+        type="number"
+        step="any"
+        className="w-10 text-center text-[10px] font-mono font-bold text-[var(--foreground)] bg-transparent border-none outline-none focus:ring-0"
+        value={localVal}
+        onChange={handleChange}
+        onBlur={handleBlur}
+      />
+      <button
+        type="button"
+        onClick={onIncrement}
+        className="h-4 w-4 rounded hover:bg-[var(--foreground)]/10 text-[var(--foreground)] flex items-center justify-center cursor-pointer transition-colors"
+      >
+        <Plus size={8} />
+      </button>
+    </div>
+  );
+};
+
+const EditCartQuantityInput: React.FC<{
+  quantity: number;
+  onChange: (newQty: number) => void;
+  onDecrement: () => void;
+  onIncrement: () => void;
+}> = ({ quantity, onChange, onDecrement, onIncrement }) => {
+  const [localVal, setLocalVal] = React.useState<string>(quantity.toString());
+
+  React.useEffect(() => {
+    setLocalVal(quantity.toString());
+  }, [quantity]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const valStr = e.target.value;
+    setLocalVal(valStr);
+    const parsed = parseFloat(valStr);
+    if (!isNaN(parsed) && parsed > 0) {
+      onChange(parsed);
+    }
+  };
+
+  const handleBlur = () => {
+    const parsed = parseFloat(localVal);
+    if (isNaN(parsed) || parsed <= 0) {
+      setLocalVal(quantity.toString());
+    } else {
+      onChange(parsed);
+    }
+  };
+
+  return (
+    <div className="flex items-center bg-[var(--foreground)]/5 rounded-lg border border-[var(--border)] p-0.5 h-6">
+      <button
+        type="button"
+        onClick={onDecrement}
+        className="h-4 w-4 bg-transparent text-[var(--foreground)] flex items-center justify-center cursor-pointer font-bold"
+      >
+        -
+      </button>
+      <input 
+        type="number"
+        value={localVal}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        className="w-10 text-center text-[10px] bg-transparent border-none outline-none font-mono font-bold"
+      />
+      <button
+        type="button"
+        onClick={onIncrement}
+        className="h-4 w-4 bg-transparent text-[var(--foreground)] flex items-center justify-center cursor-pointer font-bold"
+      >
+        +
+      </button>
+    </div>
+  );
+};
 
 
 interface CartItem {
@@ -365,6 +481,8 @@ export default function BillingScreen({
     if (activeDraftSession.billingMode) return activeDraftSession.billingMode;
     return state.settings.businessMode === 'wholesale' ? 'wholesale' : 'auto';
   });
+
+  const [isGoogleContactModalOpen, setIsGoogleContactModalOpen] = useState(false);
 
   const isHydratingRef = useRef(false);
 
@@ -3547,62 +3665,85 @@ export default function BillingScreen({
 
               {/* Toggle Customer fields display indicator if parameters aren't met */}
               {!(forceCustomerOpen || manualCustomerOpen) ? (
-                <div className="flex justify-center">
+                <div className="flex justify-center gap-1.5 flex-wrap">
                   <button
                     onClick={() => setManualCustomerOpen(true)}
                     className="py-1.5 px-3 bg-[var(--foreground)]/5 hover:bg-[var(--foreground)]/10 text-[8px] font-black uppercase text-[var(--foreground)]/70 rounded-lg border border-[var(--border)] cursor-pointer select-none transition-all"
                   >
                     + Add Customer Info (ग्रहक की जानकारी)
                   </button>
+                  <button
+                    onClick={() => {
+                      setManualCustomerOpen(true);
+                      setIsGoogleContactModalOpen(true);
+                    }}
+                    className="py-1.5 px-3 bg-[var(--primary)]/5 hover:bg-[var(--primary)]/10 text-[8px] font-black uppercase text-[var(--primary)] rounded-lg border border-[var(--primary)]/20 cursor-pointer select-none transition-all flex items-center gap-1"
+                  >
+                    <User size={10} />
+                    <span>Import Contacts</span>
+                  </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-2 animate-in fade-in duration-200">
-                  <div className="relative col-span-1">
-                    <User className="absolute left-2 top-1/2 -translate-y-1/2 opacity-30" size={12} />
-                    <input
-                      type="text"
-                      placeholder="Name / नाम *"
-                      className="w-full pl-6 pr-2 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[10px] uppercase font-bold outline-none font-sans focus:border-[var(--primary)]"
-                      value={customerName}
-                      onChange={(e) => setCustomerName(e.target.value)}
-                    />
+                <div className="space-y-2 animate-in fade-in duration-200">
+                  <div className="flex justify-between items-center px-1">
+                    <span className="text-[7px] font-black uppercase tracking-wider text-[var(--foreground)]/40">Customer Details</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsGoogleContactModalOpen(true)}
+                      className="text-[7px] font-black uppercase tracking-wider text-[var(--primary)] hover:underline cursor-pointer flex items-center gap-1 bg-[var(--primary)]/5 px-2 py-1 rounded-md"
+                    >
+                      <User size={8} />
+                      Import Google Contact
+                    </button>
                   </div>
-                  
-                  <div className="relative col-span-1">
-                    <Phone className="absolute left-2 top-1/2 -translate-y-1/2 opacity-30" size={10} />
-                    <input
-                      type="text"
-                      placeholder="Mobile / फ़ोन *"
-                      className="w-full pl-6 pr-2 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[10px] font-mono outline-none focus:border-[var(--primary)]"
-                      value={customerPhone}
-                      onChange={(e) => setCustomerPhone(e.target.value)}
-                    />
-                  </div>
-
-                  {/* Date selection for udhar crediting */}
-                  {paymentMethod === 'Credit' && (
-                    <div className="col-span-2 pt-1.5 border-t border-rose-500/10 space-y-1 animate-in slide-in-from-top-2 duration-300">
-                      <label className="text-[7px] font-black uppercase tracking-wider text-rose-500 block leading-none">
-                        📅 Due Date / चुकाने की तारीख *
-                      </label>
+                  <div className="grid grid-cols-2 gap-2 animate-in fade-in duration-200">
+                    <div className="relative col-span-1">
+                      <User className="absolute left-2 top-1/2 -translate-y-1/2 opacity-30" size={12} />
                       <input
-                        type="date"
-                        value={udharDueDate}
-                        onChange={(e) => setUdharDueDate(e.target.value)}
-                        className="w-full text-[10px] font-mono font-black border border-rose-500/20 rounded-lg px-2.5 py-1.5 bg-[var(--card)] text-[var(--foreground)] cursor-pointer outline-none focus:border-rose-500"
+                        type="text"
+                        placeholder="Name / नाम *"
+                        className="w-full pl-6 pr-2 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[10px] uppercase font-bold outline-none font-sans focus:border-[var(--primary)]"
+                        value={customerName}
+                        onChange={(e) => setCustomerName(e.target.value)}
                       />
                     </div>
-                  )}
+                    
+                    <div className="relative col-span-1">
+                      <Phone className="absolute left-2 top-1/2 -translate-y-1/2 opacity-30" size={10} />
+                      <input
+                        type="text"
+                        placeholder="Mobile / फ़ोन *"
+                        className="w-full pl-6 pr-2 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[10px] font-mono outline-none focus:border-[var(--primary)]"
+                        value={customerPhone}
+                        onChange={(e) => setCustomerPhone(e.target.value)}
+                      />
+                    </div>
 
-                  <div className="col-span-2 flex justify-end">
-                    {(!forceCustomerOpen) && (
-                      <button
-                        onClick={() => { setManualCustomerOpen(false); setCustomerName(''); setCustomerPhone(''); }}
-                        className="text-[7px] font-black text-rose-500 uppercase hover:underline leading-none cursor-pointer"
-                      >
-                        Hide Panel
-                      </button>
+                    {/* Date selection for udhar crediting */}
+                    {paymentMethod === 'Credit' && (
+                      <div className="col-span-2 pt-1.5 border-t border-rose-500/10 space-y-1 animate-in slide-in-from-top-2 duration-300">
+                        <label className="text-[7px] font-black uppercase tracking-wider text-rose-500 block leading-none">
+                          📅 Due Date / चुकाने की तारीख *
+                        </label>
+                        <input
+                          type="date"
+                          value={udharDueDate}
+                          onChange={(e) => setUdharDueDate(e.target.value)}
+                          className="w-full text-[10px] font-mono font-black border border-rose-500/20 rounded-lg px-2.5 py-1.5 bg-[var(--card)] text-[var(--foreground)] cursor-pointer outline-none focus:border-rose-500"
+                        />
+                      </div>
                     )}
+
+                    <div className="col-span-2 flex justify-end">
+                      {(!forceCustomerOpen) && (
+                        <button
+                          onClick={() => { setManualCustomerOpen(false); setCustomerName(''); setCustomerPhone(''); }}
+                          className="text-[7px] font-black text-rose-500 uppercase hover:underline leading-none cursor-pointer"
+                        >
+                          Hide Panel
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -3822,27 +3963,12 @@ export default function BillingScreen({
                           </div>
 
                           {/* Weight fractions numeric weights KG */}
-                          <div className="flex items-center bg-[var(--foreground)]/5 rounded-lg border border-[var(--border)] p-0.5 h-6 select-none">
-                            <button
-                              onClick={() => updateCartQuantity(ci.id, ci.quantity - 1)}
-                              className="h-4 w-4 rounded hover:bg-[var(--foreground)]/10 text-[var(--foreground)] flex items-center justify-center cursor-pointer transition-colors"
-                            >
-                              <Minus size={8} />
-                            </button>
-                            <input
-                              type="number"
-                              step="any"
-                              className="w-10 text-center text-[10px] font-mono font-bold text-[var(--foreground)] bg-transparent border-none outline-none focus:ring-0"
-                              value={ci.quantity}
-                              onChange={(e) => updateCartQuantity(ci.id, parseFloat(e.target.value) || 0)}
-                            />
-                            <button
-                              onClick={() => updateCartQuantity(ci.id, ci.quantity + 1)}
-                              className="h-4 w-4 rounded hover:bg-[var(--foreground)]/10 text-[var(--foreground)] flex items-center justify-center cursor-pointer transition-colors"
-                            >
-                              <Plus size={8} />
-                            </button>
-                          </div>
+                          <CartQuantityInput
+                            quantity={ci.quantity}
+                            onChange={(newQty) => updateCartQuantity(ci.id, newQty)}
+                            onDecrement={() => updateCartQuantity(ci.id, ci.quantity - 1)}
+                            onIncrement={() => updateCartQuantity(ci.id, ci.quantity + 1)}
+                          />
 
                           {/* Trash */}
                           <button
@@ -4687,26 +4813,12 @@ export default function BillingScreen({
                         <div key={eci.id} className="p-2.5 grid grid-cols-12 gap-2 text-xs items-center">
                           <div className="col-span-5 font-bold uppercase truncate">{eci.name}</div>
                           <div className="col-span-4 flex justify-center">
-                            <div className="flex items-center bg-[var(--foreground)]/5 rounded-lg border border-[var(--border)] p-0.5 h-6">
-                              <button
-                                onClick={() => updateEditCartQuantity(eci.id, eci.quantity - 1)}
-                                className="h-4 w-4 bg-transparent text-[var(--foreground)] flex items-center justify-center cursor-pointer font-bold"
-                              >
-                                -
-                              </button>
-                              <input 
-                                type="number"
-                                value={eci.quantity}
-                                onChange={(e) => updateEditCartQuantity(eci.id, parseFloat(e.target.value) || 0)}
-                                className="w-10 text-center text-[10px] bg-transparent border-none outline-none font-mono font-bold"
-                              />
-                              <button
-                                onClick={() => updateEditCartQuantity(eci.id, eci.quantity + 1)}
-                                className="h-4 w-4 bg-transparent text-[var(--foreground)] flex items-center justify-center cursor-pointer font-bold"
-                              >
-                                +
-                              </button>
-                            </div>
+                            <EditCartQuantityInput
+                              quantity={eci.quantity}
+                              onChange={(newQty) => updateEditCartQuantity(eci.id, newQty)}
+                              onDecrement={() => updateEditCartQuantity(eci.id, eci.quantity - 1)}
+                              onIncrement={() => updateEditCartQuantity(eci.id, eci.quantity + 1)}
+                            />
                           </div>
                           
                           <div className="col-span-2 text-right">
@@ -5693,6 +5805,17 @@ export default function BillingScreen({
           </div>
         )}
       </AnimatePresence>
+
+      <GoogleContactPickerModal
+        isOpen={isGoogleContactModalOpen}
+        onClose={() => setIsGoogleContactModalOpen(false)}
+        onSelectContact={(contact) => {
+          setCustomerName(contact.name);
+          setCustomerPhone(contact.phone);
+          setIsGoogleContactModalOpen(false);
+          addToast(`Imported ${contact.name} successfully!`, 'success');
+        }}
+      />
 
       {/* Floating Sparkle Micro-animation Particles trigger */}
       <div className="fixed inset-0 pointer-events-none z-[99999] overflow-hidden">

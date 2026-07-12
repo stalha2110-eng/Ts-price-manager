@@ -20,7 +20,11 @@ import {
   Clock,
   Mail,
   Cloud,
-  AlertTriangle
+  AlertTriangle,
+  Sparkles,
+  Key,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { AppState, AppSettings, ThemeType, LanguageType } from '../types';
 import { 
@@ -38,7 +42,8 @@ export default function SettingsScreen({
   onExportExcel, onExportPDF, onImport, onBackup, onRestore, onClearCache,
   isSyncing, isExporting,
   activeSubTab: externalActiveSubTab,
-  onChangeSubTab
+  onChangeSubTab,
+  onRestoreFromDrive
 }: { 
   state: AppState; t: any; onUpdate: (u: any) => void; onShowHelp: () => void; onResetPIN: () => void;
   onExportExcel: () => void;
@@ -51,10 +56,15 @@ export default function SettingsScreen({
   isExporting: boolean;
   activeSubTab?: 'interface' | 'security' | 'sound' | 'data';
   onChangeSubTab?: (tab: 'interface' | 'security' | 'sound' | 'data') => void;
+  onRestoreFromDrive?: () => void;
 }) {
   const [localActiveSubTab, setLocalActiveSubTab] = useState<'interface' | 'security' | 'sound' | 'data'>('interface');
   const activeSubTab = externalActiveSubTab || localActiveSubTab;
   const setActiveSubTab = onChangeSubTab || setLocalActiveSubTab;
+
+  const [apiKeyInput, setApiKeyInput] = useState(state.settings.customGeminiApiKey || '');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [keySaveStatus, setKeySaveStatus] = useState<'idle' | 'saved'>('idle');
 
   const accentOptions = [
     { id: 'indigo', color: '#6366f1' },
@@ -497,6 +507,113 @@ export default function SettingsScreen({
                   </div>
                 </div>
               </section>
+
+              {/* AI Settings Section */}
+              <section className="space-y-6 pt-4">
+                <div className="flex items-center gap-4">
+                   <div className="h-1 w-8 bg-blue-500 opacity-30 rounded-full" />
+                   <label className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-500">AI Settings (एआई सेटिंग्स)</label>
+                </div>
+                
+                <div className="card p-8 rounded-[3rem] border-[var(--border)] bg-[var(--card)] space-y-6 shadow-2xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 blur-[50px] rounded-full" />
+                  
+                  <div>
+                    <h4 className="font-black uppercase tracking-tight text-sm text-[var(--foreground)] flex items-center gap-2">
+                      <Sparkles className="text-blue-500 animate-pulse" size={16} /> 
+                      Custom Gemini API Key / कस्टम जेमिनी एपीआई कुंजी
+                    </h4>
+                    <p className="text-[10px] opacity-40 font-black mt-1 uppercase tracking-widest leading-relaxed text-[var(--foreground)]">
+                      Provide your own Gemini API key to reduce the load on the global key and bypass shared limits. Works for features like Voice Product Assistant!
+                      <br/>
+                      (साझा सीमा से बचने और गति बढ़ाने के लिए अपनी जेमिनी एपीआई कुंजी दर्ज करें।)
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    {/* Visual Connection Indicator Badge/Card */}
+                    {state.settings.customGeminiApiKey ? (
+                      <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                          </span>
+                          <span className="text-[11px] font-black uppercase tracking-wider">Using Your Custom API Key (कस्टम कुंजी सक्रिय है)</span>
+                        </div>
+                        <p className="text-[10px] text-emerald-300/80 font-medium tracking-wide">
+                          Your private API key is connected. All Voice Product Assistant requests run directly on your own quota with fast processing times.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/15 text-amber-400/90 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="h-2 w-2 rounded-full bg-amber-500/80"></span>
+                          <span className="text-[11px] font-black uppercase tracking-wider">Using System Shared Key (सिस्टम साझा कुंजी)</span>
+                        </div>
+                        <p className="text-[10px] text-amber-300/70 font-medium tracking-wide">
+                          Using the app's default shared key. Heavy global traffic or simultaneous requests may occasionally experience temporary processing delays.
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="relative">
+                      <input
+                        type={showApiKey ? "text" : "password"}
+                        value={apiKeyInput}
+                        onChange={(e) => {
+                          setApiKeyInput(e.target.value);
+                          setKeySaveStatus('idle');
+                        }}
+                        placeholder="AIzaSy..."
+                        className="w-full h-12 px-4 pr-12 rounded-xl bg-black/10 border border-[var(--border)] text-xs font-mono tracking-wider focus:outline-none focus:border-blue-500 text-[var(--foreground)]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        className="absolute right-3 top-3.5 text-slate-400 hover:text-[var(--foreground)] transition-colors"
+                      >
+                        {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-[9px] font-extrabold text-blue-400 uppercase tracking-widest flex items-center gap-1.5">
+                        <Key size={10} /> {state.settings.customGeminiApiKey ? "Custom Key Connected & Active" : "No Custom Key (Using App's Global Key)"}
+                      </p>
+
+                      <div className="flex gap-2">
+                        {state.settings.customGeminiApiKey && (
+                          <Button
+                            variant="ghost"
+                            onClick={() => {
+                              setApiKeyInput('');
+                              onUpdate({ customGeminiApiKey: undefined });
+                              setKeySaveStatus('idle');
+                              playFeedbackEvent?.('notification', state.settings);
+                            }}
+                            className="rounded-full px-4 h-10 text-[10px] uppercase font-black opacity-60 hover:opacity-100 hover:text-red-400 transition-all border border-red-500/10"
+                          >
+                            Clear Key
+                          </Button>
+                        )}
+                        <Button
+                          variant="primary"
+                          onClick={() => {
+                            onUpdate({ customGeminiApiKey: apiKeyInput.trim() || undefined });
+                            setKeySaveStatus('saved');
+                            playFeedbackEvent?.('notification', state.settings);
+                            setTimeout(() => setKeySaveStatus('idle'), 3000);
+                          }}
+                          className="rounded-full px-6 h-10 text-[10px] uppercase font-black shadow-xl"
+                        >
+                          {keySaveStatus === 'saved' ? "Saved! ✔" : "Save API Key"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </motion.div>
           )}
 
@@ -537,38 +654,29 @@ export default function SettingsScreen({
                   </div>
 
                   {/* Push Notifications Toggle */}
-                  <div className="pt-8 border-t border-[var(--border)]">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="font-black uppercase tracking-tight text-sm text-[var(--foreground)]">Push Notifications</h4>
-                        <p className="text-[10px] opacity-45 font-black mt-1 uppercase tracking-widest leading-relaxed font-semibold text-[var(--foreground)]">Receive instant status updates to all synced devices</p>
-                      </div>
-                      <button 
-                        onClick={async () => {
-                          const currentVal = state.settings.pushOn !== false;
-                          if (!currentVal) {
-                            await requestPushPermission();
-                          }
-                          onUpdate({ pushOn: !currentVal });
-                        }}
-                        className={cn(
-                          "h-8 w-16 rounded-full transition-all relative overflow-hidden ring-1 ring-[var(--border)] shadow-inner cursor-pointer",
-                          state.settings.pushOn !== false ? "bg-blue-500" : "bg-slate-800"
-                        )}
-                      >
-                        <div className={cn("absolute top-1 left-1 h-6 w-6 rounded-full bg-white shadow-xl transition-all", state.settings.pushOn !== false ? "translate-x-8" : "")} />
-                      </button>
+                  <div className="flex items-center justify-between pt-8 border-t border-[var(--border)]">
+                    <div>
+                      <h4 className="font-black uppercase tracking-tight text-sm text-[var(--foreground)]">Push Notifications</h4>
+                      <p className="text-[10px] opacity-45 font-black mt-1 uppercase tracking-widest leading-relaxed font-semibold text-[var(--foreground)]">Receive instant status updates to all synced devices</p>
                     </div>
-
-                    {/* Explanatory Block if Permission Denied/Default */}
-                    {typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'granted' && state.settings.pushOn !== false && (
-                      <div className="mt-4 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[11px] leading-relaxed font-semibold">
-                        <p className="font-black uppercase tracking-wider mb-1 flex items-center gap-1.5 text-xs text-amber-400">
-                          <span>⚠️ Notification Access Blocked</span>
-                        </p>
-                        To receive critical alerts (WhatsApp-style low stock warnings, outstanding payment reminders, and automatic daily summaries), please click the site settings/lock icon in your browser URL bar and change "Notifications" to "Allow".
-                      </div>
-                    )}
+                    <button 
+                      onClick={async () => {
+                        const currentVal = state.settings.pushOn !== false;
+                        if (!currentVal) {
+                          const granted = await requestPushPermission();
+                          if (!granted) {
+                            alert("Please enable notification permissions in your browser settings to receive push updates!");
+                          }
+                        }
+                        onUpdate({ pushOn: !currentVal });
+                      }}
+                      className={cn(
+                        "h-8 w-16 rounded-full transition-all relative overflow-hidden ring-1 ring-[var(--border)] shadow-inner cursor-pointer",
+                        state.settings.pushOn !== false ? "bg-blue-500" : "bg-slate-800"
+                      )}
+                    >
+                      <div className={cn("absolute top-1 left-1 h-6 w-6 rounded-full bg-white shadow-xl transition-all", state.settings.pushOn !== false ? "translate-x-8" : "")} />
+                    </button>
                   </div>
 
                   {/* Sound & Vibration control */}
@@ -1103,6 +1211,15 @@ export default function SettingsScreen({
                           <Upload size={18} /> Restore Backup
                           <input type="file" className="hidden" accept=".json" onChange={onRestore} />
                         </label>
+                        {onRestoreFromDrive && (
+                           <Button 
+                             onClick={onRestoreFromDrive} 
+                             variant="outline" 
+                             className="justify-start gap-3 rounded-xl py-6 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10"
+                           >
+                             <Cloud size={18} /> <span className="text-[10px] font-black uppercase">Restore from Drive (Picker)</span>
+                           </Button>
+                        )}
                      </div>
                   </div>
 

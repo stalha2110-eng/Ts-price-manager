@@ -12,7 +12,6 @@ import {
   Timestamp,
   writeBatch
 } from 'firebase/firestore';
-import { getToken, onMessage } from 'firebase/messaging';
 import { db, auth, sanitizeForFirestore, handleFirestoreError, OperationType, getMessagingInstance } from '../firebase';
 import { InAppNotification, DeviceRegistration } from '../types';
 
@@ -107,40 +106,8 @@ export class NotificationService {
     const notifsRef = collection(db, 'users', userId, 'notifications');
     const qOnNotifications = query(notifsRef, orderBy('timestamp', 'desc'), limit(100));
 
-    // Register standard foreground FCM messaging handler
-    getMessagingInstance().then((messaging) => {
-      if (messaging) {
-        this.onMessageUnsubscribe = onMessage(messaging, (payload) => {
-          console.log('[NotificationService] Foreground message received:', payload);
-          const title = payload.notification?.title || payload.data?.title || 'TS Price Manager';
-          const body = payload.notification?.body || payload.data?.body || '';
-          const category = payload.data?.category || 'system';
-          const priority = payload.data?.priority || 'medium';
-          const screen = payload.data?.screen || 'home';
-
-          const settings = settingsGetter();
-          if (settings.soundOn !== false) {
-            playNotificationChime(priority as any);
-          }
-          if (settings.vibrationOn !== false) {
-            triggerVibration(priority as any);
-          }
-
-          if (settings.pushOn !== false && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-            try {
-              new Notification(title, {
-                body: body,
-                icon: '/logoTSPM.png',
-                tag: `ts-pm-foreground-${Date.now()}`,
-                data: { screen }
-              });
-            } catch (err) {
-              console.warn('Foreground system notification failed:', err);
-            }
-          }
-        });
-      }
-    }).catch(err => console.warn('Foreground messaging initialization deferred:', err));
+    // Standard foreground FCM messaging handler disabled
+    this.onMessageUnsubscribe = null;
 
     // Register this device token
     this.registerCurrentDevice(userId).catch(console.error);
@@ -202,14 +169,6 @@ export class NotificationService {
                   isRead: addedData.isRead ?? false,
                   deepLink: addedData.deepLink,
                 };
-                
-                // Dispatch custom event to trigger custom UI OS-style slide-down push notification banner
-                if (typeof window !== 'undefined' && hasNewNotificationObj) {
-                  window.dispatchEvent(new CustomEvent('app-push-received', {
-                    detail: hasNewNotificationObj
-                  }));
-                }
-
                 if (priority === 'high') {
                   hasNewHighPriority = true;
                 }
@@ -220,6 +179,11 @@ export class NotificationService {
                 }
                 if (vibrationsOn) {
                   triggerVibration(priority);
+                }
+
+                // Dispatch custom event for real-time notification popup
+                if (typeof window !== 'undefined' && hasNewNotificationObj) {
+                  window.dispatchEvent(new CustomEvent('app-new-notification', { detail: hasNewNotificationObj }));
                 }
 
                 // Trigger browser notification
@@ -280,28 +244,8 @@ export class NotificationService {
     const deviceId = getOrCreateDeviceId();
     try {
       let fcmToken = localStorage.getItem('ts_pm_fcm_token');
-      try {
-        const messaging = await getMessagingInstance();
-        if (messaging && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-          // Explicitly register and wait for the correct unified service worker
-          const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-          
-          const token = await getToken(messaging, {
-            vapidKey: 'BMZytTkcXxgomNS9TrB0-cgqGbWG__1AeDGUUjSJy5V5OCMO79WYXnmCFaPio4YZxZGVGoI27e3WrFKQSxGbrJ0',
-            serviceWorkerRegistration: registration
-          });
-          if (token) {
-            fcmToken = token;
-            localStorage.setItem('ts_pm_fcm_token', fcmToken);
-            console.log('[NotificationService] Acquired actual FCM Push Token:', fcmToken);
-          }
-        }
-      } catch (tokenErr) {
-        console.warn('[NotificationService] Real FCM registration failed (falling back to cached/mock token):', tokenErr);
-      }
-
       if (!fcmToken) {
-        fcmToken = 'fcm_' + Math.random().toString(36).substring(2, 15) + '_' + userId.substring(0, 5) + '_' + deviceId;
+        fcmToken = 'fcm_mock_' + Math.random().toString(36).substring(2, 15) + '_' + userId.substring(0, 5) + '_' + deviceId;
         localStorage.setItem('ts_pm_fcm_token', fcmToken);
       }
 
@@ -333,27 +277,14 @@ export class NotificationService {
     playNotificationChime(notif.priority);
     triggerVibration(notif.priority);
 
-    // Trigger backend push notification delivery in background for background sync
-    if (userId && userId !== 'guest_user') {
-      fetch('/api/push/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          title: notif.title,
-          message: notif.message,
-          category: notif.category,
-          priority: notif.priority,
-          screen: notif.deepLink?.screen || 'home'
-        })
-      }).catch(err => console.warn('Background push dispatch failed:', err));
-    }
-
     if (!userId || userId === 'guest_user') {
       // Local storage fallback when user is logged out / offline cache only
       const cached = JSON.parse(localStorage.getItem('ts_cached_offline_notifications') || '[]');
       const localNotif = { ...notif, id: fallbackId, isRead: false };
       localStorage.setItem('ts_cached_offline_notifications', JSON.stringify([localNotif, ...cached]));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('app-new-notification', { detail: localNotif }));
+      }
       return fallbackId;
     }
 
@@ -371,6 +302,9 @@ export class NotificationService {
       const cached = JSON.parse(localStorage.getItem('ts_cached_offline_notifications') || '[]');
       const localNotif = { ...notif, id: fallbackId, isRead: false };
       localStorage.setItem('ts_cached_offline_notifications', JSON.stringify([localNotif, ...cached]));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('app-new-notification', { detail: localNotif }));
+      }
       return fallbackId;
     }
   }
@@ -506,74 +440,6 @@ export class NotificationService {
   }
 
   /**
-   * Dispatch dynamic active alerts (low stock, overdue payment, note) to Cloud Firestore & deliver FCM.
-   */
-  public static async dispatchAlertNotification(
-    userId: string | null,
-    alert: { id: string; title: string; desc: string; type: string; priority: string; customerId?: string }
-  ) {
-    if (!userId || userId === 'guest_user') return;
-
-    // Map alert type to notification categories & screen deep links
-    let category = 'general';
-    let screen: 'home' | 'billing' | 'analytics' | 'udhar' | 'settings' = 'home';
-    let targetId = '';
-
-    if (alert.type === 'stock') {
-      category = 'low_stock_alerts';
-      screen = 'home';
-      targetId = alert.id.replace('low-stock-', '');
-    } else if (alert.type === 'note') {
-      category = 'reminder';
-      screen = 'home';
-    } else if (alert.type === 'udhar' || alert.type === 'udhar-30days') {
-      category = 'udhar_due_date';
-      screen = 'udhar';
-      targetId = alert.customerId || '';
-    }
-
-    const notifData = {
-      title: alert.title,
-      message: alert.desc,
-      timestamp: new Date().toISOString(),
-      category: category,
-      priority: (alert.priority?.toLowerCase() === 'urgent' ? 'high' : 'medium') as any,
-      deepLink: {
-        screen,
-        targetId
-      }
-    };
-
-    try {
-      // Save to firestore under the custom alert.id
-      const docRef = doc(db, 'users', userId, 'notifications', alert.id);
-      await setDoc(docRef, sanitizeForFirestore({
-        ...notifData,
-        id: alert.id,
-        isRead: false
-      }));
-
-      // Deliver background push
-      await fetch('/api/push/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          title: notifData.title,
-          message: notifData.message,
-          category: notifData.category,
-          priority: notifData.priority,
-          screen: notifData.deepLink.screen,
-          targetId: notifData.deepLink.targetId
-        })
-      });
-      console.log(`[NotificationService] Alert ${alert.id} saved to Firestore and push dispatched successfully.`);
-    } catch (err) {
-      console.warn('[NotificationService] Failed to dispatch and save alert:', err);
-    }
-  }
-
-  /**
    * Check and auto-generate daily sales summary reports inside Cloud notifications channel.
    */
   public static checkAndTriggerDailySummary(
@@ -623,7 +489,7 @@ export class NotificationService {
           title: titleText,
           message: bodyText,
           priority: 'medium',
-          category: 'business_daily_summary',
+          category: 'analytics',
           timestamp: new Date().toISOString(),
           deepLink: { screen: 'analytics' }
         }).then(() => {

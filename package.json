@@ -22,7 +22,6 @@
     "esbuild": "^0.28.1",
     "express": "^4.21.2",
     "firebase": "^12.12.1",
-    "firebase-admin": "^14.1.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.546.0",

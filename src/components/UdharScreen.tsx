@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { AppState, UdharCustomer, UdharTransaction, Bill } from '../types';
 import { Button } from './ui/Button';
 import { cn } from '../lib/utils';
+import { GoogleContactPickerModal } from './GoogleContactPickerModal';
 import { RecoveryService } from '../services/recoveryService';
 
 interface UdharScreenProps {
@@ -27,6 +28,7 @@ export default function UdharScreen({
 }: UdharScreenProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
+  const [isGoogleContactModalOpen, setIsGoogleContactModalOpen] = useState(false);
   
   // Form States for New Customer
   const [newCustomerName, setNewCustomerName] = useState('');
@@ -1174,8 +1176,22 @@ export default function UdharScreen({
             >
               <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
                 <h4 className="font-bold text-xs uppercase tracking-widest text-rose-500">Open Credit Register (खाता खोलें)</h4>
-                <button onClick={() => setShowAddCustomerModal(false)} className="text-[var(--foreground)]/50 hover:text-white">
+                <button onClick={() => setShowAddCustomerModal(false)} className="text-[var(--foreground)]/50 hover:text-white cursor-pointer">
                   <X size={16} />
+                </button>
+              </div>
+
+              <div className="bg-rose-500/5 border border-rose-500/10 p-3 rounded-2xl flex items-center justify-between gap-3 animate-in fade-in duration-300">
+                <div className="text-left">
+                  <span className="text-[8px] font-black uppercase text-rose-500 tracking-wider block">Google Contacts</span>
+                  <span className="text-[9px] text-[var(--foreground)]/60 leading-none">Import customer details instantly</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsGoogleContactModalOpen(true)}
+                  className="py-1.5 px-3 bg-rose-500 hover:bg-rose-600 text-white font-black text-[8px] uppercase tracking-wider rounded-xl cursor-pointer shadow-sm transition-all"
+                >
+                  Import Contact
                 </button>
               </div>
 
@@ -1224,6 +1240,16 @@ export default function UdharScreen({
           </div>
         )}
       </AnimatePresence>
+
+      <GoogleContactPickerModal
+        isOpen={isGoogleContactModalOpen}
+        onClose={() => setIsGoogleContactModalOpen(false)}
+        onSelectContact={(contact) => {
+          setNewCustomerName(contact.name);
+          setNewCustomerPhone(contact.phone);
+          setIsGoogleContactModalOpen(false);
+        }}
+      />
 
       {/* MODAL 2: ADD TRANSACTION ENTRY (Given Credit or Settle cash) */}
       <AnimatePresence>
