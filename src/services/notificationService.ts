@@ -77,6 +77,7 @@ export class NotificationService {
   private static onMessageUnsubscribe: (() => void) | null = null;
   private static listenerStartedAt: number = Date.now();
   private static isSubscribedToTokens: boolean = false;
+  private static isSendingDailySummary: boolean = false;
 
   /**
    * Initialize standard listeners for real-time notification sync from Firestore.
@@ -450,6 +451,7 @@ export class NotificationService {
   ) {
     if (!userId || userId === 'guest_user') return;
     if (settings.dailySummaryNotify === false) return;
+    if (this.isSendingDailySummary && !forceTrigger) return;
 
     try {
       const lastSentDate = localStorage.getItem('last_daily_sum_sent');
@@ -469,6 +471,14 @@ export class NotificationService {
       const isTargetTime = (currentHours > shour) || (currentHours === shour && currentMinutes >= smin);
 
       if (isTargetTime || forceTrigger) {
+        // Prevent concurrent trigger runs
+        this.isSendingDailySummary = true;
+
+        // Lock immediately to prevent race conditions during async triggerNotification call
+        if (!forceTrigger) {
+          localStorage.setItem('last_daily_sum_sent', todayStr);
+        }
+
         // Calculate today's sales and profits
         const todayBills = bills.filter(b => {
           const billDate = new Date(b.timestamp);
@@ -493,10 +503,15 @@ export class NotificationService {
           timestamp: new Date().toISOString(),
           deepLink: { screen: 'analytics' }
         }).then(() => {
-          localStorage.setItem('last_daily_sum_sent', todayStr);
-        }).catch(console.error);
+          console.log('[NotificationService] Daily summary successfully triggered.');
+        }).catch((err) => {
+          console.error('[NotificationService] Daily summary notification delivery failed:', err);
+        }).finally(() => {
+          this.isSendingDailySummary = false;
+        });
       }
     } catch (err) {
+      this.isSendingDailySummary = false;
       console.warn('Daily report sequence halted due to incomplete metrics:', err);
     }
   }

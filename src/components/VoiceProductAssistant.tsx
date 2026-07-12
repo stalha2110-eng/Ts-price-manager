@@ -255,17 +255,13 @@ export function VoiceProductAssistant({
   const draftProductsRef = useRef<VoiceDraftProduct[]>([]);
   const existingItemsRef = useRef<Item[]>([]);
   const silenceTimeoutRef = useRef<any>(null);
-  const speechPauseTimeoutRef = useRef<any>(null);
   const isCurrentlyParsingRef = useRef(false);
 
-  // Clear silence and speech pause timeout on unmount
+  // Clear silence timeout on unmount
   useEffect(() => {
     return () => {
       if (silenceTimeoutRef.current) {
         clearTimeout(silenceTimeoutRef.current);
-      }
-      if (speechPauseTimeoutRef.current) {
-        clearTimeout(speechPauseTimeoutRef.current);
       }
     };
   }, []);
@@ -500,12 +496,9 @@ export function VoiceProductAssistant({
       let sessionFinal = "";
       let sessionInterim = "";
 
-      // Clear the silence timer and speech pause debouncer on any speech activity
+      // Clear the silence timer on any speech activity
       if (silenceTimeoutRef.current) {
         clearTimeout(silenceTimeoutRef.current);
-      }
-      if (speechPauseTimeoutRef.current) {
-        clearTimeout(speechPauseTimeoutRef.current);
       }
 
       for (let i = 0; i < event.results.length; ++i) {
@@ -596,23 +589,6 @@ export function VoiceProductAssistant({
         }
       }
 
-      // Web Speech API 500ms pause in speech debouncing mechanism before processing
-      speechPauseTimeoutRef.current = setTimeout(() => {
-        const textToParse = (finalTranscriptRef.current || "") + " " + (interimTranscriptRef.current || "");
-        const cleanedText = cleanTranscriptText(textToParse);
-        if (cleanedText && cleanedText.trim()) {
-          console.log(`[STT Integration] Speech pause debouncer triggered (500ms) for:`, cleanedText);
-          isManuallyStopped.current = true;
-          try {
-            rec.__working = false;
-            rec.stop();
-          } catch (e) {
-            console.warn("Speech stop failed on debounce action:", e);
-          }
-          setIsListening(false);
-        }
-      }, 500);
-
       // Hands-free voice assistant auto-completion:
       // Automatically stop listening and process after configured silence duration.
       if (autoSubmitOnSilenceRef.current) {
@@ -649,9 +625,6 @@ export function VoiceProductAssistant({
       // Clear silence timer on session termination
       if (silenceTimeoutRef.current) {
         clearTimeout(silenceTimeoutRef.current);
-      }
-      if (speechPauseTimeoutRef.current) {
-        clearTimeout(speechPauseTimeoutRef.current);
       }
 
       if (!isManuallyStopped.current) {
@@ -691,9 +664,6 @@ export function VoiceProductAssistant({
       if (silenceTimeoutRef.current) {
         clearTimeout(silenceTimeoutRef.current);
       }
-      if (speechPauseTimeoutRef.current) {
-        clearTimeout(speechPauseTimeoutRef.current);
-      }
       try {
         rec.__working = false;
         rec.abort();
@@ -705,9 +675,6 @@ export function VoiceProductAssistant({
   const toggleListening = () => {
     if (silenceTimeoutRef.current) {
       clearTimeout(silenceTimeoutRef.current);
-    }
-    if (speechPauseTimeoutRef.current) {
-      clearTimeout(speechPauseTimeoutRef.current);
     }
 
     if (!recognitionObj) {
