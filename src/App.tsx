@@ -144,12 +144,14 @@ import {
 } from './firebase';
 import { EmailAuthProvider, linkWithCredential, updatePassword } from 'firebase/auth';
 import { LoginScreen } from './components/LoginScreen';
+import { AdminDashboard } from './components/AdminDashboard';
 import { OnboardingForm } from './components/OnboardingForm';
 import { requestIndependentContactsToken } from './services/contactsService';
 import { requestIndependentDriveToken, GoogleDriveService } from './services/googleDriveService';
 import { 
   doc, 
   setDoc, 
+  getDoc,
   onSnapshot, 
   collection, 
   query, 
@@ -912,9 +914,27 @@ const OpenUdharIcon = ({ isHovered, className }: { isHovered: boolean; className
   </svg>
 );
 
+// --- Admin Whitelists ---
+const ADMIN_UIDS = [
+  '8zvT2OITGeUj8nkaCK6sQbnmDGD2',
+  'fWwFwc1QL6baVX9hYsSeFFFZZHe2',
+  'oLvNJhJsTfVONWrMhtQa22bAF1g1'
+];
+const ADMIN_EMAILS = [
+  'stalha2110@gmail.com',
+  'shakirsir2122@gmail.com',
+  'gzone212006@gmail.com'
+];
+
 // --- App Component ---
 export default function App() {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
+  
+  // Admin Mode activation state
+  const [isAdminMode, setIsAdminMode] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && localStorage.getItem('ts_admin_mode_active') === 'true';
+  });
+
   const [activeTab, setActiveTab] = useState<'home' | 'billing' | 'analytics' | 'udhar' | 'notes' | 'shift' | 'goals' | 'history'>('home');
   const [showPlusActionMenu, setShowPlusActionMenu] = useState(false);
   const [showSmartBulkEntry, setShowSmartBulkEntry] = useState(false);
@@ -2658,6 +2678,39 @@ export default function App() {
         if (user.email && user.uid !== 'guest_user') {
           localStorage.setItem('ts_last_logged_in_email', user.email);
           localStorage.setItem('ts_cached_auth_user', JSON.stringify({ uid: user.uid, email: user.email }));
+          
+          // Secure validation check for disabled user & auto-registry sync
+          const checkUserStatusAndSync = async () => {
+            try {
+              const userDocRef = doc(db, 'users', user.uid);
+              const docSnap = await getDoc(userDocRef);
+              
+              if (docSnap.exists()) {
+                const data = docSnap.data();
+                if (data.isDisabled === true) {
+                  await auth.signOut();
+                  localStorage.removeItem('ts_cached_auth_user');
+                  localStorage.removeItem('ts_guest_logged_in');
+                  localStorage.removeItem('ts_admin_mode_active');
+                  setIsAdminMode(false);
+                  setState(prev => ({ ...prev, user: null }));
+                  alert("Your account has been deactivated by the Administrator. Please contact support.");
+                  return;
+                }
+              }
+
+              // Merge latest profile tracking data
+              await setDoc(userDocRef, {
+                uid: user.uid,
+                email: user.email || '',
+                lastLoginAt: new Date().toISOString()
+              }, { merge: true });
+
+            } catch (e) {
+              console.warn("User validation / sync warning:", e);
+            }
+          };
+          checkUserStatusAndSync();
         }
         
         // Load user-specific state upon successful login
@@ -3288,19 +3341,45 @@ export default function App() {
   const handleLogout = useCallback(async () => {
     localStorage.removeItem('ts_guest_logged_in');
     localStorage.removeItem('ts_cached_auth_user');
+    localStorage.removeItem('ts_admin_mode_active');
+    setIsAdminMode(false);
     await auth.signOut();
     setState(prev => ({ ...prev, user: null }));
     addToast("Session terminated / लॉगआउट सफल!", "success");
   }, []);
 
-  const handleGoogleLogin = useCallback(async () => {
+  const handleGoogleLogin = useCallback(async (isAdminRequested: boolean = false) => {
     try {
       const user = await loginWithGoogle();
       if (user) {
+        // Perform Admin authorization checks if admin login requested
+        if (isAdminRequested) {
+          const isUIDWhitelisted = ADMIN_UIDS.includes(user.uid);
+          const isEmailWhitelisted = user.email && ADMIN_EMAILS.includes(user.email.toLowerCase());
+
+          if (isUIDWhitelisted || isEmailWhitelisted) {
+            localStorage.setItem('ts_admin_mode_active', 'true');
+            setIsAdminMode(true);
+            addToast("ADMIN SECURITY PORTAL VERIFIED", "success");
+          } else {
+            // Unauthorized Admin Login - Block and Signout immediately
+            await auth.signOut();
+            localStorage.removeItem('ts_admin_mode_active');
+            setIsAdminMode(false);
+            alert("SECURITY VIOLATION: Unauthorized operator login attempt detected. This incident has been logged under administrative protocol.");
+            return;
+          }
+        } else {
+          // Normal login - force clear administrative mode
+          localStorage.removeItem('ts_admin_mode_active');
+          setIsAdminMode(false);
+        }
+
         if (user.email) {
           localStorage.setItem('ts_last_logged_in_email', user.email);
           localStorage.setItem('ts_cached_auth_user', JSON.stringify({ uid: user.uid, email: user.email }));
         }
+
         setState(prev => ({ 
           ...prev, 
           user: { uid: user.uid, email: user.email } 
@@ -3320,11 +3399,52 @@ export default function App() {
 
   const handleGuestLogin = useCallback(() => {
     localStorage.setItem('ts_guest_logged_in', 'true');
-    setState(prev => ({ 
-      ...prev, 
+    
+    const userUid = 'guest_user';
+    const userStateKey = `price_manager_state_${userUid}`;
+    const userSettingsKey = `price_manager_settings_${userUid}`;
+    const savedSettings = localStorage.getItem(userSettingsKey) || localStorage.getItem('price_manager_settings');
+    const savedState = localStorage.getItem(userStateKey) || localStorage.getItem('price_manager_state');
+    
+    let settings = INITIAL_SETTINGS;
+    if (savedSettings) {
+      try {
+        const parsedSettings = JSON.parse(savedSettings);
+        if (parsedSettings) {
+          settings = { ...INITIAL_SETTINGS, ...parsedSettings };
+        }
+      } catch (e) {}
+    }
+    
+    let items = [];
+    let notes = [];
+    let bills = [];
+    let udharCustomers = [];
+    let udharTransactions = [];
+    if (savedState) {
+      try {
+        const parsed = JSON.parse(savedState);
+        if (parsed) {
+          items = parsed.items || [];
+          notes = parsed.notes || [];
+          bills = parsed.bills || [];
+          udharCustomers = parsed.udharCustomers || [];
+          udharTransactions = parsed.udharTransactions || [];
+        }
+      } catch (e) {}
+    }
+
+    setState({
+      items: deduplicateById(items),
+      notes: deduplicateById(notes),
+      categories: DEFAULT_CATEGORIES,
+      settings: { ...settings, autoCloudSync: false },
       user: { uid: 'guest_user', email: 'Guest Merchant' },
-      settings: { ...prev.settings, autoCloudSync: false }
-    }));
+      bills: deduplicateById(bills),
+      udharCustomers: deduplicateById(udharCustomers),
+      udharTransactions: deduplicateById(udharTransactions),
+    });
+    
     addToast("Logged in as guest / गेस्ट लॉगिन सफल!", "success");
   }, []);
 
@@ -4245,6 +4365,21 @@ export default function App() {
           settings={state.settings}
         />
       </div>
+    );
+  }
+
+  // --- Dynamic Secure Operator Routing ---
+  if (state.user && isAdminMode) {
+    return (
+      <AdminDashboard 
+        adminUser={state.user}
+        onLogout={handleLogout}
+        onExitAdmin={() => {
+          localStorage.removeItem('ts_admin_mode_active');
+          setIsAdminMode(false);
+          addToast("Returned to merchant workspace", "info");
+        }}
+      />
     );
   }
 

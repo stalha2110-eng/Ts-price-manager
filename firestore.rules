@@ -10,16 +10,24 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.uid == "8zvT2OITGeUj8nkaCK6sQbnmDGD2" ||
+        request.auth.uid == "fWwFwc1QL6baVX9hYsSeFFFZZHe2" ||
+        request.auth.uid == "oLvNJhJsTfVONWrMhtQa22bAF1g1"
+      );
+    }
+
     // Public test document to allow unauthenticated backend availability checks safely
     match /test/connection {
       allow read: if true;
     }
 
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isOwner(userId) || isAdmin();
 
       match /{allChildren=**} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(userId) || isAdmin();
       }
     }
   }

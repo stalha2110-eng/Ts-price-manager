@@ -34,7 +34,7 @@ import {
 import { auth } from '../firebase';
 
 interface LoginScreenProps {
-  onGoogleLogin: () => Promise<void>;
+  onGoogleLogin: (isAdminRequested?: boolean) => Promise<void>;
   onGuestLogin: () => void;
   settings: AppSettings;
 }
@@ -42,6 +42,10 @@ interface LoginScreenProps {
 export function LoginScreen({ onGoogleLogin, onGuestLogin, settings }: LoginScreenProps) {
   const [isLoggingInGoogle, setIsLoggingInGoogle] = useState(false);
   const [isLoggingInGuest, setIsLoggingInGuest] = useState(false);
+
+  // Secure Admin Gesture States
+  const [isAdminPortalActive, setIsAdminPortalActive] = useState(false);
+  const [adminClickCount, setAdminClickCount] = useState(0);
 
   // Advanced Auth System states
   const [authMode, setAuthMode] = useState<'options' | 'login' | 'register' | 'forgot'>('options');
@@ -181,13 +185,25 @@ export function LoginScreen({ onGoogleLogin, onGuestLogin, settings }: LoginScre
     }
   };
 
+  // --- Secure Admin Click Trigger ---
+  const handleLogoClick = () => {
+    setAdminClickCount(prev => {
+      const next = prev + 1;
+      if (next >= 3) {
+        setIsAdminPortalActive(true);
+        return 0; // reset
+      }
+      return next;
+    });
+  };
+
   // Retrieve previously logged-in email, defaulting to the custom user email for high-end preview look
   const previousEmail = localStorage.getItem('ts_last_logged_in_email') || 'stalha2110@gmail.com';
 
   const handleGoogleClick = async () => {
     setIsLoggingInGoogle(true);
     try {
-      await onGoogleLogin();
+      await onGoogleLogin(isAdminPortalActive);
     } catch (err) {
       console.error(err);
     } finally {
@@ -311,14 +327,6 @@ export function LoginScreen({ onGoogleLogin, onGuestLogin, settings }: LoginScre
       >
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {/* Unconstrained logo with premium shadowless render */}
-            <img 
-              src={logoTSPM} 
-              alt="TS Price Manager Logo" 
-              className="h-10 md:h-12 w-auto object-contain transition-transform duration-300 hover:scale-110" 
-              referrerPolicy="no-referrer"
-            />
-            <div className="h-5 w-px bg-slate-200" />
             <h1 className="text-sm md:text-base font-black uppercase tracking-wider text-slate-900 leading-none">
               TS Price Manager
             </h1>
@@ -328,10 +336,18 @@ export function LoginScreen({ onGoogleLogin, onGuestLogin, settings }: LoginScre
             <span className="hidden sm:inline-flex items-center gap-1.5 bg-slate-100 text-slate-600 rounded-full px-3.5 py-1 text-[9px] font-mono font-extrabold border border-slate-200/60">
               SECURE SESSION
             </span>
-            <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 rounded-full px-3 py-1 text-[10px] font-mono font-bold text-indigo-700 shadow-sm">
+            <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 rounded-full px-3 py-1 text-[10px] font-mono font-bold text-indigo-700 shadow-sm mr-1">
               <span className="h-1.5 w-1.5 rounded-full bg-indigo-600 animate-pulse" />
               <span>v3.5.0</span>
             </div>
+            {/* The Logo at the top bar right corner */}
+            <img 
+              src={logoTSPM} 
+              alt="TS Price Manager Logo" 
+              className="h-10 md:h-12 w-auto object-contain cursor-pointer select-none transition-transform duration-300 hover:scale-110 active:scale-95" 
+              referrerPolicy="no-referrer"
+              onClick={handleLogoClick}
+            />
           </div>
         </div>
       </motion.header>
@@ -396,35 +412,110 @@ export function LoginScreen({ onGoogleLogin, onGuestLogin, settings }: LoginScre
             <motion.div 
               animate={{ y: [0, -6, 0] }}
               transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
-              className="bg-white border border-slate-200 shadow-[0_20px_50px_rgba(15,23,42,0.04)] rounded-[2.5rem] p-8 md:p-10 relative overflow-hidden"
+              className={`rounded-[2.5rem] p-8 md:p-10 relative overflow-hidden transition-all duration-500 ${
+                isAdminPortalActive 
+                  ? 'bg-slate-950 border border-indigo-500/50 shadow-[0_0_50px_rgba(99,102,241,0.25)]' 
+                  : 'bg-white border border-slate-200 shadow-[0_20px_50px_rgba(15,23,42,0.04)]'
+              }`}
             >
               {/* Modern Top Horizontal Subtle Accent line */}
-              <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-teal-400" />
+              <div className={`absolute top-0 left-0 right-0 h-1.5 transition-all duration-500 ${
+                isAdminPortalActive 
+                  ? 'bg-gradient-to-r from-indigo-600 via-pink-600 to-indigo-500' 
+                  : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-teal-400'
+              }`} />
               
               <div className="space-y-7">
                 
                 {/* App Logo & Corporate Identity - Perfect display, unconstrained and with label below */}
-                <div className="flex flex-col items-center justify-center pt-2">
+                <div className="flex flex-col items-center justify-center pt-2 relative">
                   <motion.img 
                     src={logoTSPM} 
                     alt="TS Price Manager Logo" 
-                    className="h-24 w-auto object-contain select-none"
+                    className="h-24 w-auto object-contain select-none relative z-10"
                     referrerPolicy="no-referrer"
                     whileHover={{ scale: 1.05, rotate: 2 }}
                     transition={{ type: "spring", stiffness: 300, damping: 15 }}
                   />
                   
                   {/* Brand Identifier */}
-                  <h2 className="text-2xl font-black uppercase tracking-tight text-slate-950 mt-4.5 leading-none">
-                    TS Price Manager
+                  <h2 className={`text-2xl font-black uppercase tracking-tight mt-4.5 leading-none transition-colors duration-500 ${
+                    isAdminPortalActive ? 'text-white' : 'text-slate-950'
+                  }`}>
+                    {isAdminPortalActive ? "SECURE ADMIN" : "TS Price Manager"}
                   </h2>
-                  <p className="text-[10px] font-extrabold text-indigo-600 uppercase tracking-widest mt-2">
-                    Enterprise Suite
+                  <p className={`text-[10px] font-extrabold uppercase tracking-widest mt-2 transition-colors duration-500 ${
+                    isAdminPortalActive ? 'text-indigo-400' : 'text-indigo-600'
+                  }`}>
+                    {isAdminPortalActive ? "OPERATOR GATEWAY v2.2" : "Enterprise Suite"}
                   </p>
                 </div>
 
                 <AnimatePresence mode="wait">
-                  {authMode === 'options' && (
+                  {isAdminPortalActive ? (
+                    <motion.div
+                      key="admin-portal"
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className="space-y-6"
+                    >
+                      {/* Security Status Badge */}
+                      <div className="flex justify-center">
+                        <div className="inline-flex items-center gap-1.5 bg-indigo-500/10 border border-indigo-500/30 rounded-full px-4 py-1.5 text-[9px] font-black uppercase tracking-widest text-indigo-400 shadow-sm font-mono">
+                          <LockKeyhole size={11} className="text-pink-500 animate-pulse" />
+                          <span>ENCRYPTED GATEWAY</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        {/* Whitelisted Emails info list */}
+                        <div className="bg-slate-900/60 border border-slate-900 rounded-2xl p-4.5 space-y-2 text-left">
+                          <span className="text-[8px] font-mono text-slate-500 font-bold uppercase tracking-wider block">Whitelisted System Operators</span>
+                          <div className="space-y-1.5 text-[10px] font-mono font-bold text-slate-300">
+                            <div className="flex items-center gap-2">
+                              <span className="h-1.5 w-1.5 rounded-full bg-teal-500 shrink-0" />
+                              <span>stalha2110@gmail.com</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="h-1.5 w-1.5 rounded-full bg-teal-500 shrink-0" />
+                              <span>shakirsir2122@gmail.com</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="h-1.5 w-1.5 rounded-full bg-teal-500 shrink-0" />
+                              <span>gzone212006@gmail.com</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Admin Continue with Google Button */}
+                        <button
+                          onClick={() => handleGoogleClick()}
+                          disabled={isLoggingInGoogle}
+                          className="w-full relative flex items-center justify-center gap-3 bg-indigo-600 hover:bg-indigo-500 text-white transition-all py-4 px-6 rounded-2xl cursor-pointer active:scale-95 shadow-[0_10px_30px_rgba(99,102,241,0.35)] disabled:opacity-50 disabled:pointer-events-none font-black text-xs uppercase tracking-wider"
+                        >
+                          {isLoggingInGoogle ? (
+                            <div className="h-4.5 w-4.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <ShieldCheck size={16} className="text-teal-400 shrink-0" />
+                          )}
+                          <span>
+                            {isLoggingInGoogle ? "Verifying..." : "Authenticate Admin"}
+                          </span>
+                        </button>
+
+                        {/* Return to Merchant Login */}
+                        <button
+                          onClick={() => setIsAdminPortalActive(false)}
+                          disabled={isLoggingInGoogle}
+                          className="w-full relative flex items-center justify-center gap-2 bg-transparent hover:bg-slate-900 text-slate-400 hover:text-white border border-slate-900 transition-all font-black text-xs uppercase tracking-widest py-4 px-6 rounded-2xl cursor-pointer active:scale-95 disabled:opacity-50"
+                        >
+                          <ChevronLeft size={13} />
+                          <span>Merchant Login</span>
+                        </button>
+                      </div>
+                    </motion.div>
+                  ) : authMode === 'options' && (
                     <motion.div
                       key="options"
                       initial={{ opacity: 0, y: 15 }}
