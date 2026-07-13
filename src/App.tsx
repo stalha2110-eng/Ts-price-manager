@@ -444,8 +444,21 @@ function deduplicateById<T extends { id: string }>(arr: T[]): T[] {
 }
 
 const getInitialState = (): AppState => {
-  const savedSettings = localStorage.getItem('price_manager_settings');
-  const savedState = localStorage.getItem('price_manager_state');
+  let cachedUser = null;
+  const cachedUserStr = localStorage.getItem('ts_cached_auth_user');
+  if (cachedUserStr) {
+    try {
+      cachedUser = JSON.parse(cachedUserStr);
+    } catch (e) {
+      console.warn("Failed to parse cached auth user", e);
+    }
+  } else if (localStorage.getItem('ts_guest_logged_in') === 'true') {
+    cachedUser = { uid: 'guest_user', email: 'Guest Merchant' };
+  }
+
+  const userUid = cachedUser?.uid || 'guest';
+  const savedSettings = localStorage.getItem(`price_manager_settings_${userUid}`) || localStorage.getItem('price_manager_settings');
+  const savedState = localStorage.getItem(`price_manager_state_${userUid}`) || localStorage.getItem('price_manager_state');
   
   let settings = INITIAL_SETTINGS;
   if (savedSettings) {
@@ -486,18 +499,6 @@ const getInitialState = (): AppState => {
     } catch (e) {
       console.error("Failed to parse saved state", e);
     }
-  }
-
-  let cachedUser = null;
-  const cachedUserStr = localStorage.getItem('ts_cached_auth_user');
-  if (cachedUserStr) {
-    try {
-      cachedUser = JSON.parse(cachedUserStr);
-    } catch (e) {
-      console.warn("Failed to parse cached auth user", e);
-    }
-  } else if (localStorage.getItem('ts_guest_logged_in') === 'true') {
-    cachedUser = { uid: 'guest_user', email: 'Guest Merchant' };
   }
 
   return {
@@ -964,7 +965,17 @@ export default function App() {
 
   // Startup Immersive Self-Healing & Session Recovery Overlay Trigger
   useEffect(() => {
-    const cached = localStorage.getItem('price_manager_state');
+    const cachedUserStr = localStorage.getItem('ts_cached_auth_user');
+    let userUid = 'guest';
+    if (cachedUserStr) {
+      try {
+        const parsed = JSON.parse(cachedUserStr);
+        if (parsed?.uid) userUid = parsed.uid;
+      } catch (e) {}
+    } else if (localStorage.getItem('ts_guest_logged_in') === 'true') {
+      userUid = 'guest_user';
+    }
+    const cached = localStorage.getItem(`price_manager_state_${userUid}`) || localStorage.getItem('price_manager_state');
     if (cached) {
       setShowRecoveryOverlay(true);
       setSyncStatus('Recovering');
@@ -1369,6 +1380,13 @@ export default function App() {
   } | null>(null);
 
   const [showWelcomeVoicePopup, setShowWelcomeVoicePopup] = useState(false);
+  const [welcomeSoundLevel, setWelcomeSoundLevel] = useState<'high' | 'medium' | 'low' | 'muted'>(() => {
+    const saved = localStorage.getItem('ts_welcome_sound_level');
+    if (saved === 'high' || saved === 'medium' || saved === 'low' || saved === 'muted') {
+      return saved as any;
+    }
+    return 'high';
+  });
   const [showPermissionsCenter, setShowPermissionsCenter] = useState(false);
 
   // Auto-trigger System Permissions Center on initial launch
@@ -1382,12 +1400,12 @@ export default function App() {
     }
   }, [isInitializing]);
 
-  // Auto-dismiss welcome voice popup after 9 seconds
+  // Auto-dismiss welcome voice popup after 12 seconds
   useEffect(() => {
     if (showWelcomeVoicePopup) {
       const timer = setTimeout(() => {
         setShowWelcomeVoicePopup(false);
-      }, 9000);
+      }, 12000);
       return () => clearTimeout(timer);
     }
   }, [showWelcomeVoicePopup]);
@@ -1398,8 +1416,59 @@ export default function App() {
     }
     setShowWelcomeVoicePopup(false);
     window.dispatchEvent(new CustomEvent('app-add-toast', { 
-      detail: { message: "Voice Announcement Muted / आवाज़ बंद कर दी गई है", type: 'info' } 
+      detail: { message: "Voice Announcement Closed / आवाज़ बंद कर दी गई है", type: 'info' } 
     }));
+  };
+
+  const handleCycleSoundLevel = () => {
+    let nextLevel: 'high' | 'medium' | 'low' | 'muted' = 'high';
+    if (welcomeSoundLevel === 'high') nextLevel = 'medium';
+    else if (welcomeSoundLevel === 'medium') nextLevel = 'low';
+    else if (welcomeSoundLevel === 'low') nextLevel = 'muted';
+    else if (welcomeSoundLevel === 'muted') nextLevel = 'high';
+
+    setWelcomeSoundLevel(nextLevel);
+    localStorage.setItem('ts_welcome_sound_level', nextLevel);
+
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      
+      if (nextLevel !== 'muted') {
+        const announcementMap = {
+          high: "Volume: Full (100%) / पूर्ण आवाज़",
+          medium: "Volume: Reduced (60%) / मध्यम आवाज़",
+          low: "Volume: Low (25%) / धीमी आवाज़"
+        };
+        
+        window.dispatchEvent(new CustomEvent('app-add-toast', { 
+          detail: { message: announcementMap[nextLevel], type: 'info' } 
+        }));
+
+        const text = nextLevel === 'high' 
+          ? "Volume high." 
+          : nextLevel === 'medium' 
+            ? "Volume reduced." 
+            : "Volume low.";
+        const utterance = new SpeechSynthesisUtterance(text);
+        if (typeof window.speechSynthesis.getVoices === 'function') {
+          const voices = window.speechSynthesis.getVoices();
+          const englishVoice = voices.find(v => v.lang.startsWith('en') && v.localService) || 
+                               voices.find(v => v.lang.startsWith('en'));
+          if (englishVoice) {
+            utterance.voice = englishVoice;
+          }
+        }
+        utterance.rate = 1.0;
+        utterance.pitch = 1.05;
+        const volMultiplier = nextLevel === 'high' ? 1.0 : nextLevel === 'medium' ? 0.6 : 0.25;
+        utterance.volume = ((state.settings?.soundOverallVolume ?? 100) / 100) * volMultiplier * 0.95;
+        window.speechSynthesis.speak(utterance);
+      } else {
+        window.dispatchEvent(new CustomEvent('app-add-toast', { 
+          detail: { message: "Volume: Muted (0%) / आवाज़ बंद", type: 'info' } 
+        }));
+      }
+    }
   };
 
   // Welcome Speech Voice Announcement Effect
@@ -1410,8 +1479,25 @@ export default function App() {
     const triggerSpeech = () => {
       if (spoken) return;
       spoken = true;
-      const played = playWelcomeAnnouncement(state.settings);
+      
+      const currentLevel = localStorage.getItem('ts_welcome_sound_level') || 'high';
+      if (currentLevel === 'muted') {
+        setShowWelcomeVoicePopup(true);
+        cleanup();
+        return;
+      }
+
+      const volMultiplier = currentLevel === 'high' ? 1.0 : currentLevel === 'medium' ? 0.6 : 0.25;
+      const customSettings = {
+        ...state.settings,
+        soundFeedbackMode: 'vibrate_sound' as const,
+        soundOverallVolume: Math.round((state.settings?.soundOverallVolume ?? 100) * volMultiplier)
+      };
+
+      const played = playWelcomeAnnouncement(customSettings);
       if (played) {
+        setShowWelcomeVoicePopup(true);
+      } else {
         setShowWelcomeVoicePopup(true);
       }
       cleanup();
@@ -2573,20 +2659,113 @@ export default function App() {
           localStorage.setItem('ts_last_logged_in_email', user.email);
           localStorage.setItem('ts_cached_auth_user', JSON.stringify({ uid: user.uid, email: user.email }));
         }
-        setState(prev => ({ 
-          ...prev, 
-          user: { uid: user.uid, email: user.email } 
-        }));
+        
+        // Load user-specific state upon successful login
+        const userUid = user.uid;
+        const userStateKey = `price_manager_state_${userUid}`;
+        const userSettingsKey = `price_manager_settings_${userUid}`;
+        const savedSettings = localStorage.getItem(userSettingsKey) || localStorage.getItem('price_manager_settings');
+        const savedState = localStorage.getItem(userStateKey);
+        
+        let settings = INITIAL_SETTINGS;
+        if (savedSettings) {
+          try {
+            const parsedSettings = JSON.parse(savedSettings);
+            if (parsedSettings) {
+              settings = { ...INITIAL_SETTINGS, ...parsedSettings };
+            }
+          } catch (e) {}
+        }
+        
+        let items = [];
+        let notes = [];
+        let bills = [];
+        let udharCustomers = [];
+        let udharTransactions = [];
+        if (savedState) {
+          try {
+            const parsed = JSON.parse(savedState);
+            if (parsed) {
+              items = parsed.items || [];
+              notes = parsed.notes || [];
+              bills = parsed.bills || [];
+              udharCustomers = parsed.udharCustomers || [];
+              udharTransactions = parsed.udharTransactions || [];
+            }
+          } catch (e) {}
+        }
+
+        setState({
+          items: deduplicateById(items),
+          notes: deduplicateById(notes),
+          categories: DEFAULT_CATEGORIES,
+          settings,
+          user: { uid: user.uid, email: user.email },
+          bills: deduplicateById(bills),
+          udharCustomers: deduplicateById(udharCustomers),
+          udharTransactions: deduplicateById(udharTransactions),
+        });
       } else {
         const isGuest = localStorage.getItem('ts_guest_logged_in') === 'true';
         if (isGuest) {
-          setState(prev => ({ 
-            ...prev, 
-            user: { uid: 'guest_user', email: 'Guest Merchant' } 
-          }));
+          // Load guest user state upon guest login
+          const userUid = 'guest_user';
+          const userStateKey = `price_manager_state_${userUid}`;
+          const userSettingsKey = `price_manager_settings_${userUid}`;
+          const savedSettings = localStorage.getItem(userSettingsKey) || localStorage.getItem('price_manager_settings');
+          const savedState = localStorage.getItem(userStateKey) || localStorage.getItem('price_manager_state');
+          
+          let settings = INITIAL_SETTINGS;
+          if (savedSettings) {
+            try {
+              const parsedSettings = JSON.parse(savedSettings);
+              if (parsedSettings) {
+                settings = { ...INITIAL_SETTINGS, ...parsedSettings };
+              }
+            } catch (e) {}
+          }
+          
+          let items = [];
+          let notes = [];
+          let bills = [];
+          let udharCustomers = [];
+          let udharTransactions = [];
+          if (savedState) {
+            try {
+              const parsed = JSON.parse(savedState);
+              if (parsed) {
+                items = parsed.items || [];
+                notes = parsed.notes || [];
+                bills = parsed.bills || [];
+                udharCustomers = parsed.udharCustomers || [];
+                udharTransactions = parsed.udharTransactions || [];
+              }
+            } catch (e) {}
+          }
+
+          setState({
+            items: deduplicateById(items),
+            notes: deduplicateById(notes),
+            categories: DEFAULT_CATEGORIES,
+            settings,
+            user: { uid: 'guest_user', email: 'Guest Merchant' },
+            bills: deduplicateById(bills),
+            udharCustomers: deduplicateById(udharCustomers),
+            udharTransactions: deduplicateById(udharTransactions),
+          });
         } else {
           localStorage.removeItem('ts_cached_auth_user');
-          setState(prev => ({ ...prev, user: null }));
+          // Start clean/empty upon real logout
+          setState({
+            items: [],
+            notes: [],
+            categories: DEFAULT_CATEGORIES,
+            settings: INITIAL_SETTINGS,
+            user: null,
+            bills: [],
+            udharCustomers: [],
+            udharTransactions: [],
+          });
         }
       }
       setIsAuthResolving(false);
@@ -2697,6 +2876,10 @@ export default function App() {
       });
       
       setState(prev => {
+        // Isolation check: Only merge if previous state's user matches current active user
+        if (!prev.user || prev.user.uid !== state.user!.uid) {
+          return { ...prev, items: deduplicateById(itemsList) };
+        }
         const localItems = prev.items || [];
         const unsyncedItems = localItems.filter(li => !itemsList.some(ci => ci.id === li.id));
         if (unsyncedItems.length > 0) {
@@ -2730,6 +2913,10 @@ export default function App() {
       snap.forEach(doc => notesList.push({ ...doc.data() as Note, id: doc.id }));
       
       setState(prev => {
+        // Isolation check: Only merge if previous state's user matches current active user
+        if (!prev.user || prev.user.uid !== state.user!.uid) {
+          return { ...prev, notes: deduplicateById(notesList) };
+        }
         const localNotes = prev.notes || [];
         const unsyncedNotes = localNotes.filter(ln => !notesList.some(cn => cn.id === ln.id));
         if (unsyncedNotes.length > 0) {
@@ -2786,6 +2973,11 @@ export default function App() {
       });
       
       setState(prev => {
+        // Isolation check: Only merge if previous state's user matches current active user
+        if (!prev.user || prev.user.uid !== state.user!.uid) {
+          setAnalyticsRenderKey(k => k + 1);
+          return { ...prev, bills: deduplicateById(billsList) };
+        }
         const localBills = prev.bills || [];
         const unsyncedBills = localBills.filter(lb => !billsList.some(cb => cb.id === lb.id));
         if (unsyncedBills.length > 0) {
@@ -2888,6 +3080,10 @@ export default function App() {
     } else {
       setSyncStatus('Saving');
     }
+
+    const userUid = state.user?.uid || 'guest';
+    localStorage.setItem(`price_manager_settings_${userUid}`, JSON.stringify(state.settings));
+    localStorage.setItem(`price_manager_state_${userUid}`, JSON.stringify(state));
 
     localStorage.setItem('price_manager_settings', JSON.stringify(state.settings));
     localStorage.setItem('price_manager_state', JSON.stringify(state));
@@ -6124,45 +6320,93 @@ export default function App() {
         {showWelcomeVoicePopup && (
           <motion.div
             key="welcome-voice-popup"
+            drag="x"
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={{ left: 0.6, right: 0.6 }}
+            onDragEnd={(event, info) => {
+              if (Math.abs(info.offset.x) > 100) {
+                setShowWelcomeVoicePopup(false);
+                window.dispatchEvent(new CustomEvent('app-add-toast', { 
+                  detail: { message: "Popup dismissed / स्वाइप करके हटा दिया गया", type: 'info' } 
+                }));
+              }
+            }}
             initial={{ opacity: 0, y: -50, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
             transition={{ type: "spring", damping: 20, stiffness: 120 }}
-            className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] w-[calc(100%-2rem)] max-w-md bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 dark:from-zinc-900 dark:via-zinc-950 dark:to-zinc-900 border border-amber-500/30 text-white p-4 rounded-2xl shadow-2xl shadow-amber-500/5 flex items-center justify-between gap-3 backdrop-blur-xl"
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] w-[calc(100%-2rem)] max-w-md bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 dark:from-zinc-900 dark:via-zinc-950 dark:to-zinc-900 border border-amber-500/30 text-white p-4 rounded-2xl shadow-2xl shadow-amber-500/5 flex flex-col gap-3 backdrop-blur-xl select-none cursor-grab active:cursor-grabbing"
+            title="Drag horizontally to swipe away"
           >
             {/* Left Ambient Glow */}
             <div className="absolute -left-10 -top-10 w-24 h-24 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
             <div className="absolute -right-10 -bottom-10 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
 
-            <div className="flex items-center gap-3 min-w-0">
-              {/* Pulsing Voice Icon */}
-              <div className="relative shrink-0 w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-                <span className="absolute inset-0 rounded-xl bg-amber-500/10 animate-ping opacity-75" />
-                <Volume2 size={18} className="animate-pulse" />
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                {/* Pulsing Voice Icon */}
+                <div className="relative shrink-0 w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                  <span className="absolute inset-0 rounded-xl bg-amber-500/10 animate-ping opacity-75" />
+                  <Volume2 size={18} className="animate-pulse" />
+                </div>
+
+                {/* Text content */}
+                <div className="text-left min-w-0">
+                  <span className="block text-[8px] font-black uppercase tracking-widest text-amber-400 leading-none mb-1">
+                    🔊 Voice Announcement Active
+                  </span>
+                  <h5 className="font-black text-[11px] tracking-tight uppercase leading-tight text-white truncate">
+                    WELCOME TO TS PRICE MANAGER APP
+                  </h5>
+                  <p className="text-[9px] text-gray-300 font-medium leading-none mt-1">
+                    टीएस प्राइस मैनेजर ऐप में आपका स्वागत है!
+                  </p>
+                </div>
               </div>
 
-              {/* Text content */}
-              <div className="text-left min-w-0">
-                <span className="block text-[8px] font-black uppercase tracking-widest text-amber-400 leading-none mb-1">
-                  🔊 Voice Announcement Active
-                </span>
-                <h5 className="font-black text-[11px] tracking-tight uppercase leading-tight text-white truncate">
-                  WELCOME TO TS PRICE MANAGER
-                </h5>
-                <p className="text-[9px] text-gray-300 font-medium leading-none mt-1">
-                  टीएस प्राइस मैनेजर में आपका स्वागत है!
-                </p>
-              </div>
+              {/* Close Button */}
+              <button
+                onClick={handleMuteWelcomeVoice}
+                className="shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Close welcome pop-up"
+              >
+                <X size={14} />
+              </button>
             </div>
 
-            {/* Mute Button */}
-            <button
-              onClick={handleMuteWelcomeVoice}
-              className="shrink-0 flex items-center gap-1.5 py-2 px-3.5 rounded-xl bg-rose-500/10 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/20 hover:border-rose-500/30 text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all active:scale-95 shadow-md shadow-rose-950/20"
-            >
-              <VolumeX size={12} />
-              <span>Mute</span>
-            </button>
+            {/* Bottom Actions Row */}
+            <div className="flex items-center justify-between mt-1 pt-2 border-t border-white/5 gap-2">
+              <span className="text-[8px] text-gray-400 flex items-center gap-1">
+                ↔ Swipe left/right to remove from screen
+              </span>
+              
+              {/* Sound Level Multi-functional Button */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCycleSoundLevel();
+                }}
+                className={cn(
+                  "shrink-0 flex items-center gap-1.5 py-1.5 px-3 rounded-xl text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all active:scale-95 shadow-md",
+                  welcomeSoundLevel === 'high' && "bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500 hover:text-white",
+                  welcomeSoundLevel === 'medium' && "bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500 hover:text-white",
+                  welcomeSoundLevel === 'low' && "bg-gray-500/20 text-gray-400 border border-gray-500/30 hover:bg-gray-500 hover:text-white",
+                  welcomeSoundLevel === 'muted' && "bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:bg-rose-500 hover:text-white"
+                )}
+                title="Click to cycle voice level: Full -> Reduced -> Low -> Muted"
+              >
+                {welcomeSoundLevel === 'high' && <Volume2 size={11} />}
+                {welcomeSoundLevel === 'medium' && <Volume2 size={11} className="opacity-80" />}
+                {welcomeSoundLevel === 'low' && <Volume2 size={11} className="opacity-60" />}
+                {welcomeSoundLevel === 'muted' && <VolumeX size={11} />}
+                <span>
+                  {welcomeSoundLevel === 'high' && "Vol: Max"}
+                  {welcomeSoundLevel === 'medium' && "Vol: Med"}
+                  {welcomeSoundLevel === 'low' && "Vol: Low"}
+                  {welcomeSoundLevel === 'muted' && "Muted"}
+                </span>
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

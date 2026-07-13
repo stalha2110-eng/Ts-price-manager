@@ -15,6 +15,7 @@ import { printerService, DEFAULT_PRINT_SETTINGS } from '../services/printerServi
 import { playFeedbackEvent } from '../services/soundFeedbackService';
 import { cleanAndValidateText } from '../services/languageEngine';
 import { GoogleContactPickerModal } from './GoogleContactPickerModal';
+import { RecoveryService } from '../services/recoveryService';
 
 interface BillingScreenProps {
   state: AppState;
@@ -286,6 +287,91 @@ export default function BillingScreen({
   const precision = state.settings.pricePrecision || 0;
 
   const [searchQuery, setSearchQuery] = useState('');
+
+  // State for Navigation and Inline Views
+  const [activePOSSection, setActivePOSSection] = useState<'billing' | 'history' | 'calculator'>('billing');
+  const [searchHistoryQuery, setSearchHistoryQuery] = useState('');
+  const [historyPaymentFilter, setHistoryPaymentFilter] = useState<'All' | 'Cash' | 'UPI' | 'Credit'>('All');
+  const [selectedHistoryBill, setSelectedHistoryBill] = useState<Bill | null>(null);
+  const [isEditingHistoryBill, setIsEditingHistoryBill] = useState(false);
+  const [editHistoryCustName, setEditHistoryCustName] = useState('');
+  const [editHistoryCustPhone, setEditHistoryCustPhone] = useState('');
+  const [editHistoryPayment, setEditHistoryPayment] = useState<'Cash' | 'UPI' | 'Credit'>('Cash');
+
+  // Press & Hold states for Calculator access
+  const [calcHoldProgress, setCalcHoldProgress] = useState(0);
+  const holdTimerRef = useRef<any>(null);
+  const holdIntervalRef = useRef<any>(null);
+  const wasHoldTriggeredRef = useRef(false);
+
+  const startCalculatorHold = (e: React.MouseEvent | React.TouchEvent) => {
+    wasHoldTriggeredRef.current = false;
+    setCalcHoldProgress(0);
+    
+    const holdDuration = 1000; // 1-second deliberate hold
+    const stepInterval = 25; 
+    const totalSteps = holdDuration / stepInterval;
+    let step = 0;
+
+    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+    if (holdIntervalRef.current) clearInterval(holdIntervalRef.current);
+
+    holdIntervalRef.current = setInterval(() => {
+      step++;
+      const percent = Math.min((step / totalSteps) * 100, 100);
+      setCalcHoldProgress(percent);
+    }, stepInterval);
+
+    holdTimerRef.current = setTimeout(() => {
+      if (holdIntervalRef.current) clearInterval(holdIntervalRef.current);
+      setCalcHoldProgress(0);
+      wasHoldTriggeredRef.current = true;
+      
+      // Dispatch custom event to open the app-wide Draggable Smart Calculator preview ("calc business")
+      window.dispatchEvent(new CustomEvent('tsm-open-calculator'));
+      addToast("💼 Launched Draggable Pro Business Calculator!", "success");
+      
+      try {
+        playFeedbackEvent('bill_saved', state.settings);
+      } catch (err) {}
+      try {
+        if (navigator.vibrate) navigator.vibrate(50);
+      } catch (err) {}
+    }, holdDuration);
+  };
+
+  const cancelCalculatorHold = () => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    if (holdIntervalRef.current) {
+      clearInterval(holdIntervalRef.current);
+      holdIntervalRef.current = null;
+    }
+    setCalcHoldProgress(0);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+      if (holdIntervalRef.current) clearInterval(holdIntervalRef.current);
+    };
+  }, []);
+
+  // Calculator states
+  const [calcInput, setCalcInput] = useState('');
+  const [calcResult, setCalcResult] = useState('');
+  const [cashCounts, setCashCounts] = useState<Record<string, string>>({
+    '2000': '',
+    '500': '',
+    '200': '',
+    '100': '',
+    '50': '',
+    '20': '',
+    '10': '',
+    '5': ''
+  });
   const [additionAnims, setAdditionAnims] = useState<{ id: string; name: string; price: number; x: number; y: number }[]>([]);
   const [activePredictionIndex, setActivePredictionIndex] = useState(-1);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -2078,8 +2164,1012 @@ export default function BillingScreen({
     alert("Invoice Record updated.");
   };
 
+  // --- NEW NAVIGATION RENDERERS & ACTIONS FOR THE DETAILED VIEWS ---
+  const downloadHistoryBillPdf = (bill: Bill) => {
+    try {
+      const doc = new jsPDF() as any;
+      const storeName = state.settings?.storeName || 'Store Receipt';
+      const storeAddress = state.settings?.storeAddress || '';
+      const storePhone = state.settings?.storePhone || '';
+
+      doc.setFontSize(22);
+      doc.setTextColor(79, 70, 229);
+      doc.setFont("helvetica", "bold");
+      doc.text(storeName.toUpperCase(), 14, 22);
+      
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(80);
+      if (storeAddress) doc.text(storeAddress, 14, 28);
+      if (storePhone) doc.text(`Phone: ${storePhone}`, 14, 33);
+
+      doc.setFontSize(11);
+      doc.setTextColor(33, 37, 41);
+      doc.text(`Receipt Reference: #${bill.billNumber}`, 14, 44);
+      doc.text(`Timestamp: ${new Date(bill.timestamp).toLocaleString()}`, 14, 50);
+      doc.text(`Method of Payment: ${bill.paymentMethod}`, 14, 56);
+      
+      if (bill.customerName) {
+        doc.setFont("helvetica", "bold");
+        doc.text("GUEST / CLIENT:", 14, 68);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(80);
+        doc.text(`Name: ${bill.customerName}`, 14, 74);
+        if (bill.customerPhone) {
+          doc.text(`Mobile: ${bill.customerPhone}`, 14, 80);
+        }
+      }
+      
+      const rowsData = bill.items.map((it, idx) => [
+        idx + 1,
+        it.name,
+        `${it.quantity} ${it.unit}`,
+        `₹${it.price.toFixed(2)}`,
+        `₹${(it.price * it.quantity).toFixed(2)}`
+      ]);
+      
+      autoTable(doc, {
+        startY: bill.customerName ? 88 : 64,
+        head: [['#', 'Item Name', 'Quantity', 'Rate', 'Line Total']],
+        body: rowsData,
+        theme: 'grid',
+        headStyles: { fillColor: [79, 70, 229] },
+        styles: { fontSize: 9 },
+        margin: { left: 14, right: 14 }
+      });
+      
+      const currentFinalY = (doc as any).lastAutoTable.finalY + 12;
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(33, 37, 41);
+      doc.text(`Subtotal : ₹${bill.subtotal.toFixed(2)}`, 130, currentFinalY);
+      
+      let nextLineY = currentFinalY;
+      if (bill.discount > 0) {
+        nextLineY += 6;
+        doc.text(`Discount (${bill.discount}%) : -₹${((bill.subtotal * bill.discount) / 100).toFixed(2)}`, 130, nextLineY);
+      }
+      if (bill.tax > 0) {
+        nextLineY += 6;
+        doc.text(`Tax (${bill.tax}%) : +₹${(((bill.subtotal - (bill.subtotal * bill.discount / 100)) * bill.tax) / 100).toFixed(2)}`, 130, nextLineY);
+      }
+      
+      nextLineY += 10;
+      doc.setFontSize(14);
+      doc.setTextColor(79, 70, 229);
+      doc.text(`GRAND TOTAL: ₹${bill.total.toFixed(2)}`, 130, nextLineY);
+      
+      doc.save(`Invoice_${bill.billNumber}.pdf`);
+      addToast(`Downloaded PDF for Invoice #${bill.billNumber}`, 'success');
+    } catch (err) {
+      console.error(err);
+      addToast('Error generating PDF', 'error');
+    }
+  };
+
+  const deleteHistoryBillInvoice = (bill: Bill) => {
+    showCustomConfirm(
+      "Confirm Invoice Removal",
+      `Are you sure you want to permanently remove invoice record #${bill.billNumber}? Stored inventory stocks will be reverted, and credit accounts rectified automatically.`,
+      () => {
+        const restoredItems = state.items.map(item => {
+          const matchInBill = bill.items.find(bi => bi.itemId === item.id);
+          if (matchInBill) {
+            return {
+              ...item,
+              quantity: parseFloat((item.quantity + matchInBill.quantity).toFixed(3))
+            };
+          }
+          return item;
+        });
+
+        const nextBills = (state.bills || []).filter(b => b.id !== bill.id);
+        
+        let updatedCustomers = [...(state.udharCustomers || [])];
+        let updatedTransactions = [...(state.udharTransactions || [])];
+        
+        if (bill.paymentMethod === 'Credit') {
+          const associatedTx = updatedTransactions.find(tx => tx.note?.includes(bill.billNumber));
+          if (associatedTx) {
+            updatedTransactions = updatedTransactions.filter(tx => tx.id !== associatedTx.id);
+            updatedCustomers = updatedCustomers.map(cust => {
+              if (cust.id === associatedTx.customerId) {
+                return {
+                  ...cust,
+                  totalUdhar: Math.max(0, parseFloat((cust.totalUdhar - associatedTx.amount).toFixed(2))),
+                  lastUpdated: new Date().toISOString()
+                };
+              }
+              return cust;
+            });
+          }
+        }
+
+        onUpdateState({
+          items: restoredItems,
+          bills: nextBills,
+          udharCustomers: updatedCustomers,
+          udharTransactions: updatedTransactions
+        }, "Deleted Bill");
+
+        RecoveryService.recordDeletion(
+          state.user?.uid || null,
+          'bill',
+          bill,
+          `Bill #${bill.billNumber}`,
+          `Customer: ${bill.customerName || 'General Cash'}, Grand Total: ₹${bill.total}`,
+          state.user?.email || 'Store Owner',
+          30
+        ).catch(e => console.error(e));
+
+        setSelectedHistoryBill(null);
+        addToast(`Successfully removed Invoice record #${bill.billNumber}`, 'success');
+      },
+      true,
+      "Delete Invoice",
+      "Cancel"
+    );
+  };
+
+  const saveEditedHistoryBill = (bill: Bill) => {
+    let updatedCustomers = [...(state.udharCustomers || [])];
+    let updatedTransactions = [...(state.udharTransactions || [])];
+
+    if (bill.paymentMethod === 'Credit' && editHistoryPayment !== 'Credit') {
+      const associatedTx = updatedTransactions.find(tx => tx.note?.includes(bill.billNumber));
+      if (associatedTx) {
+        updatedTransactions = updatedTransactions.filter(tx => tx.id !== associatedTx.id);
+        updatedCustomers = updatedCustomers.map(cust => {
+          if (cust.id === associatedTx.customerId) {
+            return {
+              ...cust,
+              totalUdhar: Math.max(0, parseFloat((cust.totalUdhar - associatedTx.amount).toFixed(2))),
+              lastUpdated: new Date().toISOString()
+            };
+          }
+          return cust;
+        });
+      }
+    } else if (bill.paymentMethod !== 'Credit' && editHistoryPayment === 'Credit') {
+      alert("Converting payment method to Credit directly is not supported from this screen. Please use the core Billing workspace to map Udhar entries safely.");
+      return;
+    }
+
+    const updatedInvoiceObj: Bill = {
+      ...bill,
+      customerName: editHistoryCustName.trim(),
+      customerPhone: editHistoryCustPhone.trim(),
+      paymentMethod: editHistoryPayment
+    };
+
+    onUpdateState({
+      bills: (state.bills || []).map(b => b.id === bill.id ? updatedInvoiceObj : b),
+      udharCustomers: updatedCustomers,
+      udharTransactions: updatedTransactions
+    }, "Edited Bill Details");
+
+    setSelectedHistoryBill(updatedInvoiceObj);
+    setIsEditingHistoryBill(false);
+    addToast(`Successfully updated details for Invoice #${bill.billNumber}`, 'success');
+  };
+
+  const handleCalculatorKeyPress = (key: string) => {
+    if (key === 'AC') {
+      setCalcInput('');
+      setCalcResult('');
+    } else if (key === '⌫') {
+      setCalcInput(prev => prev.slice(0, -1));
+    } else if (key === '=') {
+      try {
+        const cleaned = calcInput.replace(/[^0-9+\-*/%.()]/g, '');
+        if (!cleaned) return;
+        const evaluated = Function(`"use strict"; return (${cleaned})`)();
+        setCalcResult(String(evaluated));
+        setCalcInput(String(evaluated));
+      } catch {
+        setCalcResult('Error');
+      }
+    } else {
+      setCalcInput(prev => prev + key);
+    }
+  };
+
+  const applyBusinessOperator = (operator: string) => {
+    try {
+      const cleaned = calcInput.replace(/[^0-9+\-*/%.()]/g, '');
+      const evaluated = cleaned ? parseFloat(Function(`"use strict"; return (${cleaned})`)() || '0') : 0;
+      let finalVal = evaluated;
+      if (operator === '+18% GST') {
+        finalVal = evaluated * 1.18;
+      } else if (operator === '+12% GST') {
+        finalVal = evaluated * 1.12;
+      } else if (operator === '+5% GST') {
+        finalVal = evaluated * 1.05;
+      } else if (operator === '-10% Disc') {
+        finalVal = evaluated * 0.90;
+      } else if (operator === '-20% Disc') {
+        finalVal = evaluated * 0.80;
+      }
+      setCalcInput(String(parseFloat(finalVal.toFixed(2))));
+      setCalcResult(String(parseFloat(finalVal.toFixed(2))));
+    } catch {
+      setCalcResult('Error');
+    }
+  };
+
+  const renderNavigationBar = () => {
+    return (
+      <div className="flex bg-[var(--card)]/90 backdrop-blur-md p-1 rounded-xl border border-[var(--border)] gap-1 shadow-xs max-w-sm">
+        <button
+          onClick={() => {
+            setActivePOSSection('billing');
+            setSelectedHistoryBill(null);
+            setIsEditingHistoryBill(false);
+          }}
+          className={cn(
+            "flex-1 py-1.5 px-3 rounded-lg font-black text-[9px] uppercase tracking-wider transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5",
+            activePOSSection === 'billing'
+              ? "bg-[var(--primary)] text-white shadow-xs"
+              : "text-[var(--foreground)]/60 hover:text-[var(--foreground)] hover:bg-[var(--foreground)]/5"
+          )}
+        >
+          <ShoppingCart size={11} />
+          <span>Billing</span>
+        </button>
+        <button
+          onClick={() => {
+            setActivePOSSection('history');
+            setSelectedHistoryBill(null);
+            setIsEditingHistoryBill(false);
+          }}
+          className={cn(
+            "flex-1 py-1.5 px-3 rounded-lg font-black text-[9px] uppercase tracking-wider transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5",
+            activePOSSection === 'history'
+              ? "bg-[var(--primary)] text-white shadow-xs"
+              : "text-[var(--foreground)]/60 hover:text-[var(--foreground)] hover:bg-[var(--foreground)]/5"
+          )}
+        >
+          <ReceiptText size={11} />
+          <span>Bill History</span>
+        </button>
+        <button
+          onMouseDown={startCalculatorHold}
+          onTouchStart={startCalculatorHold}
+          onMouseUp={cancelCalculatorHold}
+          onMouseLeave={cancelCalculatorHold}
+          onTouchEnd={cancelCalculatorHold}
+          className={cn(
+            "flex-1 py-1.5 px-3 rounded-lg font-black text-[9px] uppercase tracking-wider transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5 relative overflow-hidden select-none",
+            activePOSSection === 'calculator'
+              ? "bg-[var(--primary)] text-white shadow-xs"
+              : "text-[var(--foreground)]/60 hover:text-[var(--foreground)] hover:bg-[var(--foreground)]/5"
+          )}
+          onClick={(e) => {
+            e.preventDefault();
+            if (wasHoldTriggeredRef.current) {
+              wasHoldTriggeredRef.current = false;
+              return;
+            }
+            setActivePOSSection('calculator');
+            setSelectedHistoryBill(null);
+            setIsEditingHistoryBill(false);
+          }}
+        >
+          {calcHoldProgress > 0 && (
+            <div 
+              className="absolute left-0 top-0 bottom-0 bg-[var(--primary)]/30 pointer-events-none transition-all duration-75"
+              style={{ width: `${calcHoldProgress}%` }}
+            />
+          )}
+          <span className="relative z-10">🧮</span>
+          <span className="relative z-10">
+            {calcHoldProgress > 0 ? `Hold (${Math.round(calcHoldProgress)}%)` : "Calculator"}
+          </span>
+        </button>
+      </div>
+    );
+  };
+
+  const renderHistoryView = () => {
+    const historyInvoices = state.bills || [];
+    const allCount = historyInvoices.length;
+    const cashCount = historyInvoices.filter(b => b.paymentMethod === 'Cash').length;
+    const upiCount = historyInvoices.filter(b => b.paymentMethod === 'UPI').length;
+    const creditCount = historyInvoices.filter(b => b.paymentMethod === 'Credit').length;
+
+    // Filter history invoices based on query and payment method
+    const filteredHistoryInvoices = historyInvoices.filter(bill => {
+      const q = searchHistoryQuery.trim().toLowerCase();
+      const matchesSearch = !q || 
+        bill.billNumber.toLowerCase().includes(q) ||
+        bill.customerName.toLowerCase().includes(q) ||
+        (bill.customerPhone && bill.customerPhone.includes(q)) ||
+        bill.items.some(it => it.name.toLowerCase().includes(q));
+      
+      const matchesPayment = historyPaymentFilter === 'All' || bill.paymentMethod === historyPaymentFilter;
+      
+      return matchesSearch && matchesPayment;
+    });
+
+    const totalHistoryRev = filteredHistoryInvoices.reduce((sum, b) => sum + b.total, 0);
+
+    const totalHistoryProfit = filteredHistoryInvoices.reduce((sum, b) => {
+      const itemsProfit = b.items.reduce((acc, it) => acc + ((it.price - (it.cost || 0)) * it.quantity), 0);
+      const discountVal = b.subtotal * (b.discount / 100);
+      return sum + (itemsProfit - discountVal);
+    }, 0);
+
+    const avgHistoryTicket = filteredHistoryInvoices.length === 0 ? 0 : totalHistoryRev / filteredHistoryInvoices.length;
+
+    return (
+      <div className="space-y-4">
+        {/* KPI Dashboard Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="bg-[var(--card)] border border-[var(--border)] p-3.5 rounded-xl space-y-1">
+            <span className="text-[8px] font-black uppercase tracking-widest opacity-50 block">Gross Billings</span>
+            <span className="font-mono text-base font-black text-[var(--foreground)] block">₹{formatNumber(totalHistoryRev, precision)}</span>
+            <span className="text-[7.5px] font-bold text-emerald-500 uppercase tracking-wider block">Live Ledger Total</span>
+          </div>
+          
+          <div className="bg-[var(--card)] border border-[var(--border)] p-3.5 rounded-xl space-y-1">
+            <span className="text-[8px] font-black uppercase tracking-widest opacity-50 block">Net Margin Profits</span>
+            <span className="font-mono text-base font-black text-emerald-500 block">₹{formatNumber(totalHistoryProfit, precision)}</span>
+            <span className="text-[7.5px] font-bold text-emerald-500 uppercase tracking-wider block">Est. Revenue Profit</span>
+          </div>
+
+          <div className="bg-[var(--card)] border border-[var(--border)] p-3.5 rounded-xl space-y-1">
+            <span className="text-[8px] font-black uppercase tracking-widest opacity-50 block">Total Receipts</span>
+            <span className="font-mono text-base font-black text-[var(--foreground)] block">{filteredHistoryInvoices.length}</span>
+            <span className="text-[7.5px] font-bold opacity-50 uppercase tracking-wider block">Invoiced Receipts</span>
+          </div>
+
+          <div className="bg-[var(--card)] border border-[var(--border)] p-3.5 rounded-xl space-y-1">
+            <span className="text-[8px] font-black uppercase tracking-widest opacity-50 block">Average Ticket Size</span>
+            <span className="font-mono text-base font-black text-[var(--foreground)] block">₹{formatNumber(avgHistoryTicket, precision)}</span>
+            <span className="text-[7.5px] font-bold opacity-50 uppercase tracking-wider block">Avg Spent per Guest</span>
+          </div>
+        </div>
+
+        {/* Filters and search bar */}
+        <div className="bg-[var(--card)] border border-[var(--border)] p-3 rounded-xl flex flex-wrap gap-3 items-center justify-between">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
+            <input
+              type="text"
+              placeholder="Search by Invoice #, Guest name, Mobile, or item..."
+              value={searchHistoryQuery}
+              onChange={(e) => setSearchHistoryQuery(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--foreground)]/[0.02] text-[10px] font-medium focus:outline-none focus:ring-1 focus:ring-[var(--primary)] text-[var(--foreground)] placeholder-[var(--foreground)]/40 animate-none"
+            />
+            {searchHistoryQuery && (
+              <button onClick={() => setSearchHistoryQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-xs opacity-50 hover:opacity-100 cursor-pointer">
+                <X size={11} />
+              </button>
+            )}
+          </div>
+
+          {/* Segmented Payment Filter */}
+          <div className="flex bg-[var(--foreground)]/5 p-0.5 rounded-lg border border-[var(--border)] gap-0.5 text-[8px] font-black uppercase select-none">
+            {(['All', 'Cash', 'UPI', 'Credit'] as const).map(filter => {
+              const counts: Record<string, number> = { All: allCount, Cash: cashCount, UPI: upiCount, Credit: creditCount };
+              const isSel = historyPaymentFilter === filter;
+              return (
+                <button
+                  key={filter}
+                  onClick={() => setHistoryPaymentFilter(filter)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1.5",
+                    isSel 
+                      ? "bg-[var(--primary)] text-white shadow-xs font-black" 
+                      : "text-[var(--foreground)]/60 hover:text-[var(--foreground)] hover:bg-[var(--foreground)]/5 font-bold"
+                  )}
+                >
+                  <span>{filter}</span>
+                  <span className={cn("px-1 py-0.5 rounded-full text-[6.5px] font-bold leading-none", isSel ? "bg-white/20 text-white" : "bg-[var(--foreground)]/10 text-[var(--foreground)]/60")}>
+                    {counts[filter]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Ledger Split Layout */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+          
+          {/* Invoice List Panel */}
+          <div className={cn("md:col-span-5 bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden flex flex-col max-h-[500px]", selectedHistoryBill && "hidden md:flex")}>
+            <div className="p-3 border-b border-[var(--border)] bg-[var(--foreground)]/[0.01] flex justify-between items-center">
+              <span className="text-[9px] font-black uppercase tracking-wider">Historical Transactions ({filteredHistoryInvoices.length})</span>
+            </div>
+            
+            <div className="p-2 overflow-y-auto divide-y divide-[var(--border)]/60 flex-1">
+              {filteredHistoryInvoices.length === 0 ? (
+                <div className="text-center py-12 px-4 space-y-1.5">
+                  <span className="text-lg opacity-40 block">📁</span>
+                  <span className="text-[10px] font-black opacity-50 uppercase tracking-widest block">No Matching Records</span>
+                  <p className="text-[8px] opacity-40 font-medium">Try adjusting your search keywords or filter queries</p>
+                </div>
+              ) : (
+                filteredHistoryInvoices.map((bill) => {
+                  const isSel = selectedHistoryBill?.id === bill.id;
+                  const itemLabels = bill.items.map(it => `${it.quantity}x ${it.name}`).join(', ');
+                  return (
+                    <button
+                      key={bill.id}
+                      onClick={() => {
+                        setSelectedHistoryBill(bill);
+                        setIsEditingHistoryBill(false);
+                      }}
+                      className={cn(
+                        "w-full p-3 text-left transition-all flex justify-between items-start cursor-pointer hover:bg-[var(--foreground)]/[0.02]",
+                        isSel && "bg-[var(--primary)]/5 border-l-2 border-[var(--primary)]"
+                      )}
+                    >
+                      <div className="space-y-1 max-w-[70%]">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[9px] font-black uppercase tracking-wide">#{bill.billNumber}</span>
+                          <span className={cn(
+                            "text-[6.5px] font-black uppercase px-1.5 py-0.5 rounded-full leading-none",
+                            bill.paymentMethod === 'Cash' && "bg-emerald-500/10 text-emerald-500",
+                            bill.paymentMethod === 'UPI' && "bg-blue-500/10 text-blue-500",
+                            bill.paymentMethod === 'Credit' && "bg-rose-500/10 text-rose-500"
+                          )}>
+                            {bill.paymentMethod}
+                          </span>
+                        </div>
+                        
+                        <span className="text-[9px] font-semibold opacity-60 block truncate">
+                          {bill.customerName ? bill.customerName.toUpperCase() : 'WALK-IN CUSTOMER'}
+                        </span>
+                        
+                        <span className="text-[7.5px] opacity-40 block font-mono truncate">
+                          {itemLabels}
+                        </span>
+
+                        <span className="text-[7px] opacity-30 block font-mono">
+                          {new Date(bill.timestamp).toLocaleString()}
+                        </span>
+                      </div>
+
+                      <div className="text-right space-y-1">
+                        <span className="font-mono text-xs font-black text-[var(--foreground)] block">₹{bill.total.toFixed(2)}</span>
+                        <span className="text-[7.5px] font-mono opacity-40 block">{bill.items.length} items</span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Invoice Details Panel */}
+          <div className={cn("md:col-span-7 bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden flex flex-col min-h-[450px]", !selectedHistoryBill && "hidden md:flex")}>
+            {!selectedHistoryBill ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-2.5">
+                <div className="h-10 w-10 rounded-full bg-[var(--primary)]/10 text-[var(--primary)] flex items-center justify-center animate-pulse">
+                  <ReceiptText size={18} />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-wider opacity-60 block">Select Invoice Ledger</span>
+                  <p className="text-[8.5px] opacity-40 max-w-sm font-medium">
+                    Click any transaction record in the ledger list to run audit trail reviews, thermal print receipts, generate PDF files, or rectify accounts.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col max-h-[500px]">
+                
+                {/* HUD Header Actions */}
+                <div className="p-3 border-b border-[var(--border)] bg-[var(--foreground)]/[0.01] flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => setSelectedHistoryBill(null)}
+                      className="md:hidden h-6.5 w-6.5 rounded-lg border border-[var(--border)] hover:bg-[var(--foreground)]/5 flex items-center justify-center cursor-pointer"
+                    >
+                      <X size={12} />
+                    </button>
+                    <span className="text-[9px] font-black uppercase tracking-wider">Invoice Details: #{selectedHistoryBill.billNumber}</span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    {isEditingHistoryBill ? (
+                      <>
+                        <button
+                          onClick={() => saveEditedHistoryBill(selectedHistoryBill)}
+                          className="h-6.5 px-2.5 rounded-lg bg-emerald-500 text-white font-black text-[8px] uppercase tracking-wider hover:bg-emerald-600 transition-all cursor-pointer flex items-center gap-1 select-none"
+                        >
+                          <Save size={9.5} /> Save Details
+                        </button>
+                        <button
+                          onClick={() => setIsEditingHistoryBill(false)}
+                          className="h-6.5 px-2.5 rounded-lg border border-[var(--border)] font-black text-[8px] uppercase tracking-wider hover:bg-[var(--foreground)]/5 transition-all cursor-pointer select-none"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => {
+                            setEditHistoryCustName(selectedHistoryBill.customerName || '');
+                            setEditHistoryCustPhone(selectedHistoryBill.customerPhone || '');
+                            setEditHistoryPayment(selectedHistoryBill.paymentMethod);
+                            setIsEditingHistoryBill(true);
+                          }}
+                          className="h-6.5 px-2 rounded-lg border border-[var(--border)] text-[8px] font-black uppercase tracking-wider hover:bg-[var(--foreground)]/5 transition-all flex items-center gap-1 cursor-pointer"
+                        >
+                          <Edit2 size={9} /> Edit Info
+                        </button>
+                        <button
+                          onClick={() => downloadHistoryBillPdf(selectedHistoryBill)}
+                          className="h-6.5 px-2 rounded-lg border border-[var(--border)] text-[8px] font-black uppercase tracking-wider hover:bg-[var(--foreground)]/5 transition-all flex items-center gap-1 cursor-pointer"
+                        >
+                          <Download size={9} /> Download PDF
+                        </button>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await printerService.printViaSystem(selectedHistoryBill, printSettings);
+                              addToast(`Printed Invoice #${selectedHistoryBill.billNumber} successfully!`, 'success');
+                            } catch {
+                              addToast('Print pipeline execution failed', 'error');
+                            }
+                          }}
+                          className="h-6.5 px-2 rounded-lg border border-[var(--border)] text-[8px] font-black uppercase tracking-wider hover:bg-[var(--foreground)]/5 transition-all flex items-center gap-1 cursor-pointer"
+                        >
+                          <Printer size={9} /> Print Receipt
+                        </button>
+                        <button
+                          onClick={() => deleteHistoryBillInvoice(selectedHistoryBill)}
+                          className="h-6.5 px-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[8px] font-black uppercase tracking-wider hover:bg-rose-500 hover:text-white transition-all flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash size={9} /> Delete
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Printable receipt sheet body */}
+                <div className="flex-1 p-4.5 overflow-y-auto space-y-4 font-mono select-none bg-[var(--foreground)]/[0.01]">
+                  
+                  {isEditingHistoryBill ? (
+                    /* Inline Editing Fields */
+                    <div className="space-y-3 bg-[var(--card)] p-4 rounded-xl border border-[var(--border)]">
+                      <span className="text-[9px] font-black uppercase tracking-wider text-[var(--primary)] block">Edit Invoice Guest Details</span>
+                      
+                      <div className="space-y-1">
+                        <label className="text-[7.5px] font-black uppercase opacity-50 block">Customer Name</label>
+                        <input
+                          type="text"
+                          value={editHistoryCustName}
+                          onChange={(e) => setEditHistoryCustName(e.target.value)}
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-[var(--border)] bg-transparent text-[9.5px] font-bold focus:outline-none focus:ring-1 focus:ring-[var(--primary)] text-[var(--foreground)]"
+                          placeholder="Walk-In Customer"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[7.5px] font-black uppercase opacity-50 block">Customer Phone</label>
+                        <input
+                          type="text"
+                          value={editHistoryCustPhone}
+                          onChange={(e) => setEditHistoryCustPhone(e.target.value)}
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-[var(--border)] bg-transparent text-[9.5px] font-bold focus:outline-none focus:ring-1 focus:ring-[var(--primary)] text-[var(--foreground)]"
+                          placeholder="e.g. 9876543210"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[7.5px] font-black uppercase opacity-50 block">Payment Method</label>
+                        <select
+                          value={editHistoryPayment}
+                          onChange={(e: any) => setEditHistoryPayment(e.target.value)}
+                          className="w-full px-2 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[9.5px] font-bold focus:outline-none focus:ring-1 focus:ring-[var(--primary)] text-[var(--foreground)]"
+                        >
+                          <option value="Cash">Cash</option>
+                          <option value="UPI">UPI</option>
+                          <option value="Credit">Credit (Udhar Ledger)</option>
+                        </select>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Standard Receipt Display */
+                    <div className="space-y-3.5 bg-[var(--card)] border border-[var(--border)] p-4 rounded-xl shadow-xs relative">
+                      <div className="text-center border-b border-[var(--border)] pb-3.5 space-y-1">
+                        <span className="text-xs font-black uppercase tracking-wider block">{state.settings?.storeName || 'TS Price Manager'}</span>
+                        {state.settings?.storeAddress && <p className="text-[7.5px] opacity-50 leading-tight uppercase max-w-[200px] mx-auto">{state.settings.storeAddress}</p>}
+                        {state.settings?.storePhone && <p className="text-[7.5px] opacity-50 uppercase leading-none mt-0.5">Contact: {state.settings.storePhone}</p>}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-[8px] leading-relaxed border-b border-[var(--border)] pb-3">
+                        <div>
+                          <span className="opacity-40 block">INVOICE NO:</span>
+                          <span className="font-bold text-[8.5px]">#{selectedHistoryBill.billNumber}</span>
+                          
+                          <span className="opacity-40 block mt-1.5">TIMESTAMPS:</span>
+                          <span className="font-bold text-[7.5px]">{new Date(selectedHistoryBill.timestamp).toLocaleString()}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="opacity-40 block">CLIENT ACCT:</span>
+                          <span className="font-bold uppercase text-[8px]">{selectedHistoryBill.customerName || 'Standard Walk-In'}</span>
+                          {selectedHistoryBill.customerPhone && <p className="font-bold text-[7.5px]">{selectedHistoryBill.customerPhone}</p>}
+                          
+                          <span className="opacity-40 block mt-1.5">PAYMENT METHOD:</span>
+                          <span className="font-bold text-[8px] uppercase">{selectedHistoryBill.paymentMethod}</span>
+                        </div>
+                      </div>
+
+                      {/* Items Grid */}
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-12 text-[7.5px] font-black uppercase opacity-40 border-b border-[var(--border)] pb-1.5">
+                          <span className="col-span-6">Item Desc</span>
+                          <span className="col-span-2 text-center">Qty</span>
+                          <span className="col-span-2 text-right">Price</span>
+                          <span className="col-span-2 text-right">Total</span>
+                        </div>
+
+                        <div className="space-y-1.5 divide-y divide-[var(--border)]/30 max-h-[160px] overflow-y-auto pr-1">
+                          {selectedHistoryBill.items.map((it, idx) => (
+                            <div key={idx} className="grid grid-cols-12 text-[8px] pt-1.5 first:pt-0">
+                              <span className="col-span-6 truncate font-medium">{it.name}</span>
+                              <span className="col-span-2 text-center font-bold">{it.quantity} {it.unit}</span>
+                              <span className="col-span-2 text-right">₹{it.price.toFixed(2)}</span>
+                              <span className="col-span-2 text-right font-bold">₹{(it.price * it.quantity).toFixed(2)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Cash totals Summary breakdown */}
+                      <div className="border-t border-[var(--border)] pt-3 text-[8.5px] space-y-1.5">
+                        <div className="flex justify-between">
+                          <span className="opacity-50 font-semibold">Subtotal :</span>
+                          <span>₹{selectedHistoryBill.subtotal.toFixed(2)}</span>
+                        </div>
+                        {selectedHistoryBill.discount > 0 && (
+                          <div className="flex justify-between text-rose-500 font-medium">
+                            <span>Discount Deduction ({selectedHistoryBill.discount}%) :</span>
+                            <span>-₹{((selectedHistoryBill.subtotal * selectedHistoryBill.discount) / 100).toFixed(2)}</span>
+                          </div>
+                        )}
+                        {selectedHistoryBill.tax > 0 && (
+                          <div className="flex justify-between opacity-75">
+                            <span>SGST/CGST Tax ({selectedHistoryBill.tax}%) :</span>
+                            <span>+₹{(((selectedHistoryBill.subtotal - (selectedHistoryBill.subtotal * selectedHistoryBill.discount / 100)) * selectedHistoryBill.tax) / 100).toFixed(2)}</span>
+                          </div>
+                        )}
+                        
+                        <div className="flex justify-between items-center text-[10.5px] font-black border-t border-[var(--border)]/80 pt-2 text-[var(--primary)]">
+                          <span>GRAND TOTAL :</span>
+                          <span>₹{selectedHistoryBill.total.toFixed(2)}</span>
+                        </div>
+                      </div>
+
+                    </div>
+                  )}
+
+                </div>
+              </div>
+            )}
+          </div>
+
+        </div>
+      </div>
+    );
+  };
+
+  const renderCalculatorView = () => {
+    // Denominations tally calculator
+    const cashTotals = Object.keys(cashCounts).reduce((acc, denom) => {
+      const qty = parseInt(cashCounts[denom] || '0', 10);
+      const val = parseInt(denom, 10);
+      return acc + (qty * val);
+    }, 0);
+
+    const handleDenomChange = (denom: string, val: string) => {
+      const cleanVal = val.replace(/[^0-9]/g, '');
+      setCashCounts(prev => ({
+        ...prev,
+        [denom]: cleanVal
+      }));
+    };
+
+    const incrementDenom = (denom: string) => {
+      const current = parseInt(cashCounts[denom] || '0', 10);
+      setCashCounts(prev => ({
+        ...prev,
+        [denom]: String(current + 1)
+      }));
+    };
+
+    const decrementDenom = (denom: string) => {
+      const current = parseInt(cashCounts[denom] || '0', 10);
+      if (current <= 0) return;
+      setCashCounts(prev => ({
+        ...prev,
+        [denom]: current - 1 === 0 ? '' : String(current - 1)
+      }));
+    };
+
+    const clearCashCounts = () => {
+      setCashCounts({
+        '2000': '',
+        '500': '',
+        '200': '',
+        '100': '',
+        '50': '',
+        '20': '',
+        '10': '',
+        '5': ''
+      });
+    };
+
+    return (
+      <div className="space-y-4">
+        {/* Dual panel Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+          
+          {/* Tactical Business Pad Panel */}
+          <div className="md:col-span-6 bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4.5 space-y-4 flex flex-col justify-between">
+            <div className="space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-wider text-[var(--primary)] block">PRO ARITHMETIC REGISTER</span>
+              <p className="text-[7.5px] opacity-40 uppercase tracking-widest block leading-none">Instant business multiplier modifiers included</p>
+            </div>
+
+            {/* Arithmetic display panel */}
+            <div className="bg-[var(--foreground)]/[0.03] border border-[var(--border)] p-4 rounded-xl text-right font-mono min-h-[90px] flex flex-col justify-between relative overflow-hidden">
+              <div className="text-xs opacity-50 tracking-wide select-all break-all overflow-y-auto max-h-[35px] leading-tight font-medium">
+                {calcInput || '0'}
+              </div>
+              <div className="text-2xl font-black text-[var(--foreground)] select-all truncate">
+                ₹{calcResult || '0.00'}
+              </div>
+              {calcResult && (
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(calcResult);
+                    addToast(`Copied ₹${calcResult} to clipboard!`, 'info');
+                  }}
+                  className="absolute left-3 bottom-3 p-1 rounded hover:bg-[var(--foreground)]/10 text-[var(--foreground)] opacity-40 hover:opacity-100 cursor-pointer transition-all"
+                  title="Copy Calculation Result"
+                >
+                  <Copy size={11} />
+                </button>
+              )}
+            </div>
+
+            {/* Modifiers row */}
+            <div className="grid grid-cols-5 gap-1.5 font-sans font-bold">
+              {[
+                { label: '+18% GST', op: '+18% GST', style: 'bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[7px]' },
+                { label: '+12% GST', op: '+12% GST', style: 'bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[7px]' },
+                { label: '+5% GST', op: '+5% GST', style: 'bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[7px]' },
+                { label: '-10% Disc', op: '-10% Disc', style: 'bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 text-[7px]' },
+                { label: '-20% Disc', op: '-20% Disc', style: 'bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 text-[7px]' }
+              ].map(btn => (
+                <button
+                  key={btn.label}
+                  onClick={() => applyBusinessOperator(btn.op)}
+                  className={cn("py-2 px-1 rounded-lg text-center font-black uppercase tracking-wider cursor-pointer active:scale-95 transition-all hover:brightness-95 select-none", btn.style)}
+                >
+                  {btn.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Keys Pad Matrix */}
+            <div className="grid grid-cols-4 gap-2 font-mono text-center font-bold">
+              {/* Row 1 */}
+              <button 
+                onClick={() => handleCalculatorKeyPress('AC')} 
+                className="h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500 hover:text-white text-rose-500 font-black text-[9px] uppercase tracking-wider cursor-pointer transition-all flex items-center justify-center select-none"
+              >
+                Clear
+              </button>
+              <button 
+                onClick={() => handleCalculatorKeyPress('⌫')} 
+                className="h-10 rounded-xl bg-[var(--foreground)]/5 border border-[var(--border)] hover:bg-[var(--foreground)]/10 text-[var(--foreground)] font-black text-[11px] cursor-pointer transition-all flex items-center justify-center select-none"
+              >
+                ⌫
+              </button>
+              <button 
+                onClick={() => handleCalculatorKeyPress('%')} 
+                className="h-10 rounded-xl bg-[var(--foreground)]/5 border border-[var(--border)] hover:bg-[var(--foreground)]/10 text-[var(--foreground)] font-black text-xs cursor-pointer transition-all flex items-center justify-center select-none"
+              >
+                %
+              </button>
+              <button 
+                onClick={() => handleCalculatorKeyPress('/')} 
+                className="h-10 rounded-xl bg-[var(--primary)]/10 border border-[var(--primary)]/20 hover:bg-[var(--primary)] hover:text-white text-[var(--primary)] font-black text-xs cursor-pointer transition-all flex items-center justify-center select-none"
+              >
+                /
+              </button>
+
+              {/* Row 2 */}
+              {['7', '8', '9'].map(k => (
+                <button 
+                  key={k} 
+                  onClick={() => handleCalculatorKeyPress(k)} 
+                  className="h-10 rounded-xl bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--foreground)]/5 text-[var(--foreground)] font-bold text-sm cursor-pointer transition-all flex items-center justify-center select-none"
+                >
+                  {k}
+                </button>
+              ))}
+              <button 
+                onClick={() => handleCalculatorKeyPress('*')} 
+                className="h-10 rounded-xl bg-[var(--primary)]/10 border border-[var(--primary)]/20 hover:bg-[var(--primary)] hover:text-white text-[var(--primary)] font-black text-xs cursor-pointer transition-all flex items-center justify-center select-none"
+              >
+                *
+              </button>
+
+              {/* Row 3 */}
+              {['4', '5', '6'].map(k => (
+                <button 
+                  key={k} 
+                  onClick={() => handleCalculatorKeyPress(k)} 
+                  className="h-10 rounded-xl bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--foreground)]/5 text-[var(--foreground)] font-bold text-sm cursor-pointer transition-all flex items-center justify-center select-none"
+                >
+                  {k}
+                </button>
+              ))}
+              <button 
+                onClick={() => handleCalculatorKeyPress('-')} 
+                className="h-10 rounded-xl bg-[var(--primary)]/10 border border-[var(--primary)]/20 hover:bg-[var(--primary)] hover:text-white text-[var(--primary)] font-black text-sm cursor-pointer transition-all flex items-center justify-center select-none"
+              >
+                -
+              </button>
+
+              {/* Row 4 */}
+              {['1', '2', '3'].map(k => (
+                <button 
+                  key={k} 
+                  onClick={() => handleCalculatorKeyPress(k)} 
+                  className="h-10 rounded-xl bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--foreground)]/5 text-[var(--foreground)] font-bold text-sm cursor-pointer transition-all flex items-center justify-center select-none"
+                >
+                  {k}
+                </button>
+              ))}
+              <button 
+                onClick={() => handleCalculatorKeyPress('+')} 
+                className="h-10 rounded-xl bg-[var(--primary)]/10 border border-[var(--primary)]/20 hover:bg-[var(--primary)] hover:text-white text-[var(--primary)] font-black text-sm cursor-pointer transition-all flex items-center justify-center select-none"
+              >
+                +
+              </button>
+
+              {/* Row 5 */}
+              <button 
+                onClick={() => handleCalculatorKeyPress('0')} 
+                className="col-span-2 h-10 rounded-xl bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--foreground)]/5 text-[var(--foreground)] font-bold text-sm cursor-pointer transition-all flex items-center justify-center select-none"
+              >
+                0
+              </button>
+              <button 
+                onClick={() => handleCalculatorKeyPress('.')} 
+                className="h-10 rounded-xl bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--foreground)]/5 text-[var(--foreground)] font-bold text-sm cursor-pointer transition-all flex items-center justify-center select-none"
+              >
+                .
+              </button>
+              <button 
+                onClick={() => handleCalculatorKeyPress('=')} 
+                className="h-10 rounded-xl bg-emerald-500 text-white hover:bg-emerald-600 font-black text-sm cursor-pointer transition-all flex items-center justify-center shadow-md shadow-emerald-500/25 select-none"
+              >
+                =
+              </button>
+            </div>
+          </div>
+
+          {/* Cash Denomination Reconciler Panel */}
+          <div className="md:col-span-6 bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4.5 space-y-4 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <span className="text-[9px] font-black uppercase tracking-wider text-emerald-500 block">CASH DENOMINATION TALLY</span>
+                <p className="text-[7.5px] opacity-40 uppercase tracking-widest block leading-none">Tally physical cash counter notes</p>
+              </div>
+              <button
+                onClick={clearCashCounts}
+                className="px-2 py-1 text-[7px] border border-rose-500/20 bg-rose-500/5 hover:bg-rose-500 hover:text-white rounded-md text-rose-500 font-black uppercase tracking-wider cursor-pointer transition-all select-none"
+              >
+                Reset Tally
+              </button>
+            </div>
+
+            {/* Denomination rows list container */}
+            <div className="space-y-2 max-h-[280px] overflow-y-auto divide-y divide-[var(--border)]/30 pr-1">
+              {[
+                { note: '2000', color: 'bg-fuchsia-500/10 text-fuchsia-600 border-fuchsia-500/20' },
+                { note: '500', color: 'bg-stone-500/10 text-stone-600 border-stone-500/20' },
+                { note: '200', color: 'bg-amber-500/10 text-amber-600 border-amber-500/20' },
+                { note: '100', color: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20' },
+                { note: '50', color: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' },
+                { note: '20', color: 'bg-red-500/10 text-red-600 border-red-500/20' },
+                { note: '10', color: 'bg-orange-500/10 text-orange-600 border-orange-500/20' },
+                { note: '5', color: 'bg-teal-500/10 text-teal-600 border-teal-500/20' }
+              ].map(item => {
+                const qty = cashCounts[item.note] || '';
+                const totalVal = (parseInt(qty, 10) || 0) * parseInt(item.note, 10);
+                return (
+                  <div key={item.note} className="flex items-center justify-between pt-2 first:pt-0">
+                    <div className="flex items-center gap-2">
+                      <span className={cn("px-2.5 py-1 rounded-md text-[9px] font-black border font-mono tracking-wider text-center w-[54px] shadow-2xs leading-none uppercase", item.color)}>
+                        ₹{item.note}
+                      </span>
+                      <span className="text-[8px] opacity-40 font-mono font-bold leading-none">X</span>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button 
+                        type="button"
+                        onClick={() => decrementDenom(item.note)}
+                        className="h-6 w-6 rounded-md bg-[var(--foreground)]/5 border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--foreground)]/10 font-bold font-mono text-[10px] cursor-pointer flex items-center justify-center transition-all select-none"
+                      >
+                        -
+                      </button>
+                      
+                      <input
+                        type="text"
+                        placeholder="0"
+                        value={qty}
+                        onChange={(e) => handleDenomChange(item.note, e.target.value)}
+                        className="w-12 h-6 border border-[var(--border)] rounded-md text-center font-mono text-[9.5px] font-bold bg-transparent text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                      />
+                      
+                      <button 
+                        type="button"
+                        onClick={() => incrementDenom(item.note)}
+                        className="h-6 w-6 rounded-md bg-[var(--foreground)]/5 border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--foreground)]/10 font-bold font-mono text-[10px] cursor-pointer flex items-center justify-center transition-all select-none"
+                      >
+                        +
+                      </button>
+                    </div>
+
+                    <div className="w-24 text-right">
+                      <span className="font-mono text-[9.5px] font-bold text-[var(--foreground)]">₹{formatNumber(totalVal, 0)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Reconciliation summary output */}
+            <div className="bg-emerald-500/5 border border-emerald-500/20 p-4 rounded-xl flex items-center justify-between flex-wrap gap-2.5">
+              <div className="space-y-0.5">
+                <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest leading-none block">TOTAL CASH TALLY</span>
+                <p className="text-[7px] font-semibold opacity-40 uppercase tracking-widest leading-none">Calculated Cash Register sum</p>
+              </div>
+              <div className="text-right">
+                <span className="font-mono text-lg font-black text-emerald-500 block">₹{formatNumber(cashTotals, 0)}</span>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      </div>
+    );
+  };
+
+  if (activePOSSection === 'history') {
+    return (
+      <div className="space-y-4 pb-24 max-w-7xl mx-auto text-[var(--foreground)] relative">
+        {renderNavigationBar()}
+        {renderHistoryView()}
+      </div>
+    );
+  }
+
+  if (activePOSSection === 'calculator') {
+    return (
+      <div className="space-y-4 pb-24 max-w-7xl mx-auto text-[var(--foreground)] relative">
+        {renderNavigationBar()}
+        {renderCalculatorView()}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4 pb-24 max-w-7xl mx-auto text-[var(--foreground)] relative">
+      {renderNavigationBar()}
       
       {/* 📁 MULTI-WINDOW POS DRAFT BILLING TABS & SMART REGISTER DECK */}
       <div className="bg-[var(--card)]/80 backdrop-blur-md rounded-2xl border border-[var(--border)] p-4.5 space-y-3.5 shadow-lg relative overflow-hidden group">
@@ -2725,23 +3815,27 @@ export default function BillingScreen({
             ))}
           </div>
 
-          <button
-            onClick={() => onOpenHistoryDrawer?.()}
-            className="px-2.5 py-1 text-[8px] font-black uppercase tracking-wider rounded-lg border border-[var(--border)] bg-amber-500/10 hover:bg-amber-500 hover:text-white transition-all flex items-center gap-1 cursor-pointer select-none"
-          >
-            <ReceiptText size={10} />
-            <span>Reports History ({state.bills?.length || 0})</span>
-          </button>
+          {activePOSSection !== 'billing' && (
+            <>
+              <button
+                onClick={() => onOpenHistoryDrawer?.()}
+                className="px-2.5 py-1 text-[8px] font-black uppercase tracking-wider rounded-lg border border-[var(--border)] bg-amber-500/10 hover:bg-amber-500 hover:text-white transition-all flex items-center gap-1 cursor-pointer select-none"
+              >
+                <ReceiptText size={10} />
+                <span>Reports History ({state.bills?.length || 0})</span>
+              </button>
 
-          {/* Draggable Mini Calculator Toggle */}
-          <button
-            onClick={() => window.dispatchEvent(new CustomEvent('tsm-open-calculator'))}
-            className="px-2.5 py-1 text-[8px] font-black uppercase tracking-wider rounded-lg border border-[var(--border)] bg-amber-500/10 text-amber-500 hover:bg-amber-500 hover:text-white transition-all flex items-center gap-1 cursor-pointer select-none"
-            title="Launch Draggable Smart Calculator"
-          >
-            <span>🧮</span>
-            <span>Calc Business</span>
-          </button>
+              {/* Draggable Mini Calculator Toggle */}
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('tsm-open-calculator'))}
+                className="px-2.5 py-1 text-[8px] font-black uppercase tracking-wider rounded-lg border border-[var(--border)] bg-amber-500/10 text-amber-500 hover:bg-amber-500 hover:text-white transition-all flex items-center gap-1 cursor-pointer select-none"
+                title="Launch Draggable Smart Calculator"
+              >
+                <span>🧮</span>
+                <span>Calc Business</span>
+              </button>
+            </>
+          )}
 
           {/* Real-time Bill Preview Toggle */}
           <button
