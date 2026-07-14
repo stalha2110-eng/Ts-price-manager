@@ -44,7 +44,15 @@ export function LoginScreen({ onGoogleLogin, onGuestLogin, settings }: LoginScre
   const [isLoggingInGuest, setIsLoggingInGuest] = useState(false);
 
   // Secure Admin Gesture States
-  const [isAdminPortalActive, setIsAdminPortalActive] = useState(false);
+  const [isAdminPortalActive, setIsAdminPortalActive] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname.toLowerCase().replace(/\/$/, '');
+      const hash = window.location.hash.toLowerCase();
+      const params = new URLSearchParams(window.location.search);
+      return path === '/admin' || hash === '#/admin' || params.get('route') === 'admin';
+    }
+    return false;
+  });
   const [adminClickCount, setAdminClickCount] = useState(0);
   const [adminToast, setAdminToast] = useState<string | null>(null);
 
@@ -556,7 +564,12 @@ export function LoginScreen({ onGoogleLogin, onGuestLogin, settings }: LoginScre
 
                         {/* Return to Merchant Login */}
                         <button
-                          onClick={() => setIsAdminPortalActive(false)}
+                          onClick={() => {
+                            setIsAdminPortalActive(false);
+                            if (typeof window !== 'undefined') {
+                              window.history.replaceState({}, document.title, '/');
+                            }
+                          }}
                           disabled={isLoggingInGoogle}
                           className="w-full relative flex items-center justify-center gap-2 bg-transparent hover:bg-slate-900 text-slate-400 hover:text-white border border-slate-900 transition-all font-black text-xs uppercase tracking-widest py-4 px-6 rounded-2xl cursor-pointer active:scale-95 disabled:opacity-50"
                         >

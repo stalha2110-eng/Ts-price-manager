@@ -2918,6 +2918,34 @@ export default function App() {
     }
   }, []);
 
+  // URL /admin Gateway Routing Handler
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname.toLowerCase().replace(/\/$/, '');
+      const hash = window.location.hash.toLowerCase();
+      const params = new URLSearchParams(window.location.search);
+      const isRouteAdmin = path === '/admin' || hash === '#/admin' || params.get('route') === 'admin';
+
+      if (isRouteAdmin && state.user) {
+        // Logged-in admin access verification
+        const isUIDWhitelisted = ADMIN_UIDS.includes(state.user.uid);
+        const isEmailWhitelisted = state.user.email && ADMIN_EMAILS.includes(state.user.email.toLowerCase());
+
+        if (isUIDWhitelisted || isEmailWhitelisted) {
+          if (!isAdminMode) {
+            localStorage.setItem('ts_admin_mode_active', 'true');
+            setIsAdminMode(true);
+            addToast("ADMIN SECURITY PORTAL VERIFIED via URL routing", "success");
+          }
+        } else {
+          addToast("SECURITY VERIFICATION: User is not in administrator whitelist", "warning");
+          // Re-route to regular workspace cleanly
+          window.history.replaceState({}, document.title, '/');
+        }
+      }
+    }
+  }, [state.user, isAdminMode, addToast]);
+
   // --- Real-time Firestore Sync ---
   useEffect(() => {
     if (!state.user || state.user.uid === 'guest_user' || !state.settings.autoCloudSync) {
@@ -4410,6 +4438,9 @@ export default function App() {
         onExitAdmin={() => {
           localStorage.removeItem('ts_admin_mode_active');
           setIsAdminMode(false);
+          if (typeof window !== 'undefined') {
+            window.history.replaceState({}, document.title, '/');
+          }
           addToast("Returned to merchant workspace", "info");
         }}
       />
