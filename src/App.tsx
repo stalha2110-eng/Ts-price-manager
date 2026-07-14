@@ -2711,45 +2711,32 @@ export default function App() {
         if (user.email && user.uid !== 'guest_user') {
           localStorage.setItem('ts_last_logged_in_email', user.email);
           localStorage.setItem('ts_cached_auth_user', JSON.stringify({ uid: user.uid, email: user.email }));
-          
-          // Secure validation check for disabled user & auto-registry sync
-          const checkUserStatusAndSync = async () => {
-            try {
-              const userDocRef = doc(db, 'users', user.uid);
-              const docSnap = await getDoc(userDocRef);
-              
-              if (docSnap.exists()) {
-                const data = docSnap.data();
-                if (data.isDisabled === true) {
-                  await auth.signOut();
-                  localStorage.removeItem('ts_cached_auth_user');
-                  localStorage.removeItem('ts_guest_logged_in');
-                  localStorage.removeItem('ts_admin_mode_active');
-                  setIsAdminMode(false);
-                  setState(prev => ({ ...prev, user: null }));
-                  alert("Your account has been deactivated by the Administrator. Please contact support.");
-                  return;
-                }
-              }
-
-              // Merge latest profile tracking data
-              await setDoc(userDocRef, {
-                uid: user.uid,
-                email: user.email || '',
-                lastLoginAt: new Date().toISOString()
-              }, { merge: true });
-
-            } catch (e) {
-              console.warn("User validation / sync warning:", e);
-            }
-          };
-          checkUserStatusAndSync();
         }
         
         // Load user-specific state upon successful login
         const userUid = user.uid;
         const userStateKey = `price_manager_state_${userUid}`;
         const userSettingsKey = `price_manager_settings_${userUid}`;
+
+        // Auto-migration check: If there's general state but no user-specific state,
+        // and we are logging in for the first time, migrate the general state.
+        if (userUid !== 'guest_user') {
+          if (!localStorage.getItem(userStateKey)) {
+            const generalState = localStorage.getItem('price_manager_state');
+            if (generalState) {
+              localStorage.setItem(userStateKey, generalState);
+              console.log("Migrated previous general state to user-specific state for:", userUid);
+            }
+          }
+          if (!localStorage.getItem(userSettingsKey)) {
+            const generalSettings = localStorage.getItem('price_manager_settings');
+            if (generalSettings) {
+              localStorage.setItem(userSettingsKey, generalSettings);
+              console.log("Migrated previous general settings to user-specific settings for:", userUid);
+            }
+          }
+        }
+        
         const savedSettings = localStorage.getItem(userSettingsKey) || localStorage.getItem('price_manager_settings');
         const savedState = localStorage.getItem(userStateKey);
         
@@ -2779,6 +2766,47 @@ export default function App() {
               udharTransactions = parsed.udharTransactions || [];
             }
           } catch (e) {}
+        }
+
+        if (user.email && user.uid !== 'guest_user') {
+          // Secure validation check for disabled user & auto-registry sync
+          const checkUserStatusAndSync = async () => {
+            try {
+              const userDocRef = doc(db, 'users', user.uid);
+              const docSnap = await getDoc(userDocRef);
+              
+              if (docSnap.exists()) {
+                const data = docSnap.data();
+                if (data.isDisabled === true) {
+                  await auth.signOut();
+                  localStorage.removeItem('ts_cached_auth_user');
+                  localStorage.removeItem('ts_guest_logged_in');
+                  localStorage.removeItem('ts_admin_mode_active');
+                  setIsAdminMode(false);
+                  setState(prev => ({ ...prev, user: null }));
+                  alert("Your account has been deactivated by the Administrator. Please contact support.");
+                  return;
+                }
+              }
+
+              // Merge latest profile tracking data and active business profile metadata
+              await setDoc(userDocRef, {
+                uid: user.uid,
+                email: user.email || '',
+                lastLoginAt: new Date().toISOString(),
+                storeName: settings.storeName || 'Merchant POS Store',
+                storeOwnerName: settings.storeOwnerName || 'Active Merchant',
+                storePhone: settings.storePhone || 'None Registered',
+                storeAddress: settings.storeAddress || 'Address Not Disclosed',
+                businessMode: 'Retail',
+                subscriptionPlan: 'Basic Tier'
+              }, { merge: true });
+
+            } catch (e) {
+              console.warn("User validation / sync warning:", e);
+            }
+          };
+          checkUserStatusAndSync();
         }
 
         setState({

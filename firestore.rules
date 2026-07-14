@@ -14,7 +14,12 @@ service cloud.firestore {
       return isSignedIn() && (
         request.auth.uid == "8zvT2OITGeUj8nkaCK6sQbnmDGD2" ||
         request.auth.uid == "fWwFwc1QL6baVX9hYsSeFFFZZHe2" ||
-        request.auth.uid == "oLvNJhJsTfVONWrMhtQa22bAF1g1"
+        request.auth.uid == "oLvNJhJsTfVONWrMhtQa22bAF1g1" ||
+        (request.auth.token.email != null && (
+          request.auth.token.email == "stalha2110@gmail.com" ||
+          request.auth.token.email == "shakirsir2122@gmail.com" ||
+          request.auth.token.email == "gzone212006@gmail.com"
+        ))
       );
     }
 
