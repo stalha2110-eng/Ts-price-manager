@@ -935,6 +935,39 @@ export default function App() {
     return typeof window !== 'undefined' && localStorage.getItem('ts_admin_mode_active') === 'true';
   });
 
+  // Admin Entry logo click states inside App
+  const [logoClicks, setLogoClicks] = useState<number>(0);
+  const [showLogoFeedback, setShowLogoFeedback] = useState<boolean>(false);
+
+  const handleLogoClickInApp = () => {
+    setLogoClicks(prev => {
+      const next = prev + 1;
+      if (next >= 3) {
+        setShowLogoFeedback(true);
+        setTimeout(() => setShowLogoFeedback(false), 3000);
+        
+        if (state.user) {
+          const isUIDWhitelisted = ADMIN_UIDS.includes(state.user.uid);
+          const isEmailWhitelisted = state.user.email && ADMIN_EMAILS.includes(state.user.email.toLowerCase());
+          
+          if (isUIDWhitelisted || isEmailWhitelisted) {
+            localStorage.setItem('ts_admin_mode_active', 'true');
+            setIsAdminMode(true);
+            addToast("ADMIN SECURITY PORTAL VERIFIED", "success");
+          } else {
+            addToast("SECURITY VERIFICATION: User is not in administrator whitelist", "warning");
+          }
+        } else {
+          addToast("ADMIN SYSTEM PROCESS INITIATED (No active user session)", "warning");
+        }
+        return 0; // reset
+      } else {
+        addToast(`Operator link: Click registered (${next}/3)`, "info");
+      }
+      return next;
+    });
+  };
+
   const [activeTab, setActiveTab] = useState<'home' | 'billing' | 'analytics' | 'udhar' | 'notes' | 'shift' | 'goals' | 'history'>('home');
   const [showPlusActionMenu, setShowPlusActionMenu] = useState(false);
   const [showSmartBulkEntry, setShowSmartBulkEntry] = useState(false);
@@ -4731,6 +4764,19 @@ export default function App() {
             description={isVerifyingOldPIN ? "Enter current PIN to proceed with change" : "Define your new 6-digit cryptographic sequence"}
           />
         )}
+
+        {/* Floating Admin Security Notice Banner */}
+        {showLogoFeedback && (
+          <motion.div
+            initial={{ opacity: 0, y: -50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 backdrop-blur border border-slate-800 text-white font-mono text-xs font-black uppercase tracking-wider px-6 py-3.5 rounded-full shadow-[0_12px_40px_rgba(15,23,42,0.3)] flex items-center gap-2.5"
+          >
+            <div className="h-2 w-2 rounded-full bg-pink-500 animate-pulse" />
+            <span>🔐 Admin System Gateway Link Active!</span>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       {/* Header */}
@@ -4747,12 +4793,27 @@ export default function App() {
               <div className={`absolute -inset-1.5 bg-gradient-to-r rounded-2xl blur-md opacity-30 group-hover:opacity-70 transition-opacity duration-500 pointer-events-none ${getLogoBackplateClass(state.settings.theme).gradient}`} />
               
               {/* Premium seamless borderless container with custom aspect-ratio and zoom handling */}
-              <div className="relative h-14 overflow-visible flex items-center justify-center transform group-hover:scale-105 active:scale-95 transition-all duration-300 select-none pointer-events-none shrink-0">
+              <motion.div 
+                className="relative h-14 overflow-visible flex items-center justify-center select-none pointer-events-auto cursor-pointer shrink-0"
+                onClick={handleLogoClickInApp}
+                animate={showLogoFeedback ? {
+                  scale: [1, 1.25, 1.05, 1.25, 1],
+                  rotate: [0, 6, -6, 6, 0]
+                } : {}}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                transition={showLogoFeedback ? {
+                  duration: 0.8,
+                  ease: "easeInOut"
+                } : {
+                  type: "spring", stiffness: 400, damping: 15
+                }}
+              >
                 {/* Custom multi-stage SVG drop-shadow filter for sharp outlines on any background */}
                 <img 
                   src={appLogo} 
                   alt="TS App Logo" 
-                  className="h-14 w-auto max-w-[140px] object-contain transition-all duration-350"
+                  className="h-14 w-auto max-w-[140px] object-contain transition-all duration-350 pointer-events-none"
                   style={{
                     filter: getLogoGlowFilter(state.settings.theme)
                   }}
@@ -4766,7 +4827,7 @@ export default function App() {
                 <div className="hidden flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 shadow-inner shrink-0">
                   <Package size={28} className="text-white" />
                 </div>
-              </div>
+              </motion.div>
             </div>
             <div className="flex flex-col justify-center shrink-0">
               <h1 className="text-2xl font-black tracking-tighter text-white mb-0 leading-none flex items-baseline">
