@@ -22,17 +22,7 @@ import {
 
 function getSavedSettings() {
   try {
-    const cachedUserStr = localStorage.getItem('ts_cached_auth_user');
-    let userUid = 'guest';
-    if (cachedUserStr) {
-      try {
-        const parsed = JSON.parse(cachedUserStr);
-        if (parsed?.uid) userUid = parsed.uid;
-      } catch (e) {}
-    } else if (localStorage.getItem('ts_guest_logged_in') === 'true') {
-      userUid = 'guest_user';
-    }
-    const data = localStorage.getItem(`price_manager_settings_${userUid}`) || localStorage.getItem('price_manager_settings');
+    const data = localStorage.getItem('price_manager_settings');
     if (data) return JSON.parse(data);
   } catch (e) {}
   return {};

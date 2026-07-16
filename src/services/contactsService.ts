@@ -1,5 +1,5 @@
 import { getCachedAccessToken, auth } from '../firebase';
-import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup, linkWithPopup, reauthenticateWithPopup } from 'firebase/auth';
 
 export interface GoogleContact {
   id: string;
@@ -27,7 +27,33 @@ export function requestIndependentContactsToken(): Promise<{ accessToken: string
       provider.addScope('https://www.googleapis.com/auth/contacts.readonly');
       provider.addScope('https://www.googleapis.com/auth/userinfo.email');
 
-      const result = await signInWithPopup(auth, provider);
+      let result;
+      const currentUser = auth.currentUser;
+
+      if (currentUser && currentUser.uid !== 'guest_user') {
+        // Safe Session-Preserving Google Auth Linking
+        try {
+          console.log("[Contacts OAuth] Attempting to link Google Contacts scopes to current user...");
+          result = await linkWithPopup(currentUser, provider);
+        } catch (linkErr: any) {
+          console.warn("[Contacts OAuth] linkWithPopup failed, attempting reauthenticateWithPopup...", linkErr);
+          if (linkErr.code === 'auth/provider-already-linked' || linkErr.code === 'auth/credential-already-in-use') {
+            try {
+              result = await reauthenticateWithPopup(currentUser, provider);
+            } catch (reauthErr) {
+              console.warn("[Contacts OAuth] reauthenticateWithPopup failed, falling back to signInWithPopup...", reauthErr);
+              result = await signInWithPopup(auth, provider);
+            }
+          } else {
+            console.warn("[Contacts OAuth] linkWithPopup failed with other error, falling back to signInWithPopup...");
+            result = await signInWithPopup(auth, provider);
+          }
+        }
+      } else {
+        // For guest/new sessions, use direct signInWithPopup
+        result = await signInWithPopup(auth, provider);
+      }
+
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (!credential?.accessToken) {
         reject(new Error("Failed to get Google Access Token from Firebase auth popup. (फायरबेस ऑथ पॉपअप से गूगल एक्सेस टोकन प्राप्त करने में असमर्थ।)"));

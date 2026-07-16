@@ -15,10 +15,11 @@ import { printerService, DEFAULT_PRINT_SETTINGS } from '../services/printerServi
 import { playFeedbackEvent } from '../services/soundFeedbackService';
 
 interface BillHistoryDrawerProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
   state: AppState;
   onUpdateState: (updates: Partial<AppState>) => void;
+  isInline?: boolean;
 }
 
 interface CartItem {
@@ -31,7 +32,7 @@ interface CartItem {
   unit: string;
 }
 
-export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateState }: BillHistoryDrawerProps) {
+export default function BillHistoryDrawer({ isOpen = false, onClose = () => {}, state, onUpdateState, isInline = false }: BillHistoryDrawerProps) {
   const [activeBillDetail, setActiveBillDetail] = useState<Bill | null>(null);
   const [isEditing, setIsEditing] = useState(false);
 
@@ -883,43 +884,31 @@ Do you want to permanently delete these ${group.bills.length} bills from history
     );
   };
 
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <div className="fixed inset-0 z-50 overflow-hidden flex justify-start overscroll-contain">
-          {/* Backdrop blur overlay */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-xs cursor-pointer select-none"
-          />
-
-          {/* Sliding Side Drawer panel */}
-          <motion.div
-            initial={{ x: '-100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '-100%' }}
-            transition={{ type: 'spring', damping: 26, stiffness: 220 }}
-            className="relative w-full max-w-sm sm:max-w-md bg-[var(--card)] shadow-2xl border-r border-[var(--border)] flex flex-col h-full z-50 text-left overflow-hidden overscroll-contain"
-          >
-            {/* Drawer Header */}
-            <div className="flex items-center justify-between p-4 border-b border-[var(--border)] shrink-0 bg-slate-50/50 dark:bg-slate-950/20">
-              <div className="flex items-center gap-2">
-                <ReceiptText className="text-[var(--primary)] animate-pulse" size={18} />
-                <div>
-                  <h3 className="font-extrabold text-sm uppercase tracking-wider text-[var(--foreground)]">Billing History</h3>
-                  <p className="text-[9px] text-[var(--foreground)]/60 font-semibold leading-none mt-0.5">Explore day's ledger accounts</p>
-                </div>
-              </div>
-              <button
-                onClick={onClose}
-                className="p-1 px-3 rounded-xl bg-[var(--foreground)]/5 hover:bg-[var(--foreground)]/10 text-[9px] font-extrabold uppercase tracking-wider cursor-pointer transition-all border border-[var(--border)]"
-              >
-                Close
-              </button>
+  const renderPanel = () => {
+    return (
+      <div className={cn(
+        isInline 
+          ? "relative w-full bg-[var(--card)]/80 backdrop-blur-md rounded-2xl border border-[var(--border)] flex flex-col h-[700px] text-left overflow-hidden shadow-lg"
+          : "relative w-full max-w-sm sm:max-w-md bg-[var(--card)] shadow-2xl border-r border-[var(--border)] flex flex-col h-full z-50 text-left overflow-hidden overscroll-contain"
+      )}>
+        {/* Drawer Header */}
+        <div className="flex items-center justify-between p-4 border-b border-[var(--border)] shrink-0 bg-slate-50/50 dark:bg-slate-950/20">
+          <div className="flex items-center gap-2">
+            <ReceiptText className="text-[var(--primary)] animate-pulse" size={18} />
+            <div>
+              <h3 className="font-extrabold text-sm uppercase tracking-wider text-[var(--foreground)]">Billing History</h3>
+              <p className="text-[9px] text-[var(--foreground)]/60 font-semibold leading-none mt-0.5">Explore day's ledger accounts</p>
             </div>
+          </div>
+          {!isInline && (
+            <button
+              onClick={onClose}
+              className="p-1 px-3 rounded-xl bg-[var(--foreground)]/5 hover:bg-[var(--foreground)]/10 text-[9px] font-extrabold uppercase tracking-wider cursor-pointer transition-all border border-[var(--border)]"
+            >
+              Close
+            </button>
+          )}
+        </div>
 
             {/* Quick stats grid for invoices */}
             <div className="grid grid-cols-3 gap-2 p-3 bg-gradient-to-r from-[var(--primary)]/5 via-slate-50/10 to-transparent border-b border-[var(--border)] shrink-0">
@@ -1530,9 +1519,8 @@ Do you want to permanently delete these ${group.bills.length} bills from history
               )}
             </AnimatePresence>
 
-          </motion.div>
 
-          {/* 🔮 CUSTOM CONFIRM DIALOG */}
+            {/* 🔮 CUSTOM CONFIRM DIALOG */}
           <AnimatePresence>
             {customConfirm && (
               <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
@@ -1649,6 +1637,37 @@ Do you want to permanently delete these ${group.bills.length} bills from history
               ))}
             </AnimatePresence>
           </div>
+      </div>
+    );
+  };
+
+  if (isInline) {
+    return renderPanel();
+  }
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-50 overflow-hidden flex justify-start overscroll-contain">
+          {/* Backdrop blur overlay */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs cursor-pointer select-none"
+          />
+
+          {/* Sliding Side Drawer panel */}
+          <motion.div
+            initial={{ x: '-100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '-100%' }}
+            transition={{ type: 'spring', damping: 26, stiffness: 220 }}
+            className="relative w-full max-w-sm sm:max-w-md h-full z-50 text-left"
+          >
+            {renderPanel()}
+          </motion.div>
         </div>
       )}
     </AnimatePresence>

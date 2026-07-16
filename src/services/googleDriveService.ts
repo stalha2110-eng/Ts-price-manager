@@ -1,6 +1,6 @@
 import { getIndependentContactsToken } from './contactsService';
 import { auth } from '../firebase';
-import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup, linkWithPopup, reauthenticateWithPopup } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 export function getIndependentDriveToken(): string | null {
@@ -21,7 +21,33 @@ export function requestIndependentDriveToken(): Promise<{ accessToken: string; e
       provider.addScope('https://www.googleapis.com/auth/drive.file');
       provider.addScope('https://www.googleapis.com/auth/userinfo.email');
 
-      const result = await signInWithPopup(auth, provider);
+      let result;
+      const currentUser = auth.currentUser;
+
+      if (currentUser && currentUser.uid !== 'guest_user') {
+        // Safe Session-Preserving Google Auth Linking
+        try {
+          console.log("[Drive OAuth] Attempting to link Google Drive scopes to current user...");
+          result = await linkWithPopup(currentUser, provider);
+        } catch (linkErr: any) {
+          console.warn("[Drive OAuth] linkWithPopup failed, attempting reauthenticateWithPopup...", linkErr);
+          if (linkErr.code === 'auth/provider-already-linked' || linkErr.code === 'auth/credential-already-in-use') {
+            try {
+              result = await reauthenticateWithPopup(currentUser, provider);
+            } catch (reauthErr) {
+              console.warn("[Drive OAuth] reauthenticateWithPopup failed, falling back to signInWithPopup...", reauthErr);
+              result = await signInWithPopup(auth, provider);
+            }
+          } else {
+            console.warn("[Drive OAuth] linkWithPopup failed with other error, falling back to signInWithPopup...");
+            result = await signInWithPopup(auth, provider);
+          }
+        }
+      } else {
+        // For guest/new sessions, use direct signInWithPopup
+        result = await signInWithPopup(auth, provider);
+      }
+
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (!credential?.accessToken) {
         reject(new Error("Failed to get Google Access Token from Firebase auth popup. (फायरबेस ऑथ पॉपअप से गूगल एक्सेस टोकन प्राप्त करने में असमर्थ।)"));
@@ -260,6 +286,47 @@ export class GoogleDriveService {
   }
 
   /**
+   * Fetch a list of JSON backup files from Google Drive using REST API
+   */
+  static async listBackupFiles(mimeType?: string): Promise<Array<{ id: string; name: string; mimeType: string; createdTime?: string; size?: string }>> {
+    const token = await this.getValidToken();
+    let q = "trashed = false";
+    if (mimeType) {
+      q += ` and mimeType = '${mimeType}'`;
+    } else {
+      q += " and mimeType = 'application/json'";
+    }
+    // Optimize search for TS Price Manager backup files specifically (speeds up Drive response significantly)
+    q += " and (name contains 'TS_Price_Manager_Full_Backup' or name contains 'TS_PRICE_MANAGER_Backup')";
+    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,createdTime,size)&orderBy=createdTime desc&pageSize=100`;
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        localStorage.removeItem('ts_google_drive_token');
+        const refreshedToken = await this.getValidToken();
+        const retryRes = await fetch(url, {
+          headers: { Authorization: `Bearer ${refreshedToken}` }
+        });
+        if (retryRes.ok) {
+          const data = await retryRes.json();
+          return data.files || [];
+        }
+      }
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error?.message || `Failed to fetch files from Google Drive: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.files || [];
+  }
+
+  /**
    * Use Google Picker to pick a file from Google Drive
    */
   static async openFilePicker(allowedMimeTypes?: string): Promise<{ id: string; name: string; mimeType: string } | null> {
@@ -273,11 +340,14 @@ export class GoogleDriveService {
         return;
       }
 
-      const pickerOrigin =
-        window.location.ancestorOrigins &&
-        window.location.ancestorOrigins.length > 0
-          ? window.location.ancestorOrigins[window.location.ancestorOrigins.length - 1]
-          : window.location.origin;
+      let pickerOrigin = window.location.origin;
+      try {
+        if (window.location.ancestorOrigins && window.location.ancestorOrigins.length > 0) {
+          pickerOrigin = window.location.ancestorOrigins[window.location.ancestorOrigins.length - 1];
+        }
+      } catch (originErr) {
+        console.warn("[Picker] Access to ancestorOrigins blocked, using fallback origin:", pickerOrigin);
+      }
 
       try {
         const view = new g.google.picker.DocsView(g.google.picker.ViewId.DOCS);
@@ -285,11 +355,13 @@ export class GoogleDriveService {
           view.setMimeTypes(allowedMimeTypes);
         }
 
+        const projectNumber = (firebaseConfig as any).messagingSenderId || (firebaseConfig as any).projectId;
+
         const picker = new g.google.picker.PickerBuilder()
           .addView(view)
           .setOAuthToken(token)
           .setDeveloperKey(firebaseConfig.apiKey)
-          .setAppId(firebaseConfig.appId)
+          .setAppId(projectNumber)
           .setOrigin(pickerOrigin)
           .setCallback((data: any) => {
             if (data.action === g.google.picker.Action.PICKED) {
@@ -336,11 +408,15 @@ export class GoogleDriveService {
   }
 }
 
+let pickerLoadPromise: Promise<void> | null = null;
+
 /**
  * Loads the Google Picker API (GAPI + Picker client library)
  */
 export function loadPickerApi(): Promise<void> {
-  return new Promise((resolve, reject) => {
+  if (pickerLoadPromise) return pickerLoadPromise;
+
+  pickerLoadPromise = new Promise((resolve, reject) => {
     const g = window as any;
     if (g.gapi && g.google && g.google.picker) {
       resolve();
@@ -375,4 +451,6 @@ export function loadPickerApi(): Promise<void> {
     };
     document.head.appendChild(script);
   });
+
+  return pickerLoadPromise;
 }

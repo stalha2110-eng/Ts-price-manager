@@ -60,6 +60,7 @@ if (typeof window !== 'undefined' && window.self === window.top) {
 
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/contacts.readonly');
+googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
 
 let cachedAccessToken: string | null = null;
 
@@ -78,6 +79,21 @@ export const loginWithGoogle = async () => {
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (credential?.accessToken) {
       cachedAccessToken = credential.accessToken;
+      
+      // Auto-cache Google Drive and Google Contacts tokens so users are linked instantly
+      localStorage.setItem('ts_google_contacts_token', credential.accessToken);
+      localStorage.setItem('ts_google_contacts_token_expiry', String(Date.now() + 3500 * 1000));
+      localStorage.setItem('ts_google_drive_token', credential.accessToken);
+      localStorage.setItem('ts_google_drive_token_expiry', String(Date.now() + 3500 * 1000));
+      
+      if (result.user.email) {
+        localStorage.setItem('ts_google_contacts_email', result.user.email);
+        localStorage.setItem('ts_google_drive_email', result.user.email);
+        
+        // Dispatch immediate events for UI update
+        window.dispatchEvent(new Event('ts_contacts_email_changed'));
+        window.dispatchEvent(new Event('ts_drive_email_changed'));
+      }
     }
     return result.user;
   } catch (error: any) {

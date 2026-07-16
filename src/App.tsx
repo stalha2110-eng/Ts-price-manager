@@ -144,14 +144,14 @@ import {
 } from './firebase';
 import { EmailAuthProvider, linkWithCredential, updatePassword } from 'firebase/auth';
 import { LoginScreen } from './components/LoginScreen';
-import { AdminDashboard } from './components/AdminDashboard';
 import { OnboardingForm } from './components/OnboardingForm';
 import { requestIndependentContactsToken } from './services/contactsService';
-import { requestIndependentDriveToken, GoogleDriveService } from './services/googleDriveService';
+import { requestIndependentDriveToken, GoogleDriveService, getIndependentDriveToken } from './services/googleDriveService';
 import { 
   doc, 
   setDoc, 
   getDoc,
+  getDocs,
   onSnapshot, 
   collection, 
   query, 
@@ -177,7 +177,9 @@ import {
   DeviceRegistration,
   HistoryEntry,
   BusinessGoal,
-  BusinessShift
+  BusinessShift,
+  UdharCustomer,
+  UdharTransaction
 } from './types';
 import { 
   NotificationService, 
@@ -446,21 +448,8 @@ function deduplicateById<T extends { id: string }>(arr: T[]): T[] {
 }
 
 const getInitialState = (): AppState => {
-  let cachedUser = null;
-  const cachedUserStr = localStorage.getItem('ts_cached_auth_user');
-  if (cachedUserStr) {
-    try {
-      cachedUser = JSON.parse(cachedUserStr);
-    } catch (e) {
-      console.warn("Failed to parse cached auth user", e);
-    }
-  } else if (localStorage.getItem('ts_guest_logged_in') === 'true') {
-    cachedUser = { uid: 'guest_user', email: 'Guest Merchant' };
-  }
-
-  const userUid = cachedUser?.uid || 'guest';
-  const savedSettings = localStorage.getItem(`price_manager_settings_${userUid}`) || localStorage.getItem('price_manager_settings');
-  const savedState = localStorage.getItem(`price_manager_state_${userUid}`) || localStorage.getItem('price_manager_state');
+  const savedSettings = localStorage.getItem('price_manager_settings');
+  const savedState = localStorage.getItem('price_manager_state');
   
   let settings = INITIAL_SETTINGS;
   if (savedSettings) {
@@ -501,6 +490,18 @@ const getInitialState = (): AppState => {
     } catch (e) {
       console.error("Failed to parse saved state", e);
     }
+  }
+
+  let cachedUser = null;
+  const cachedUserStr = localStorage.getItem('ts_cached_auth_user');
+  if (cachedUserStr) {
+    try {
+      cachedUser = JSON.parse(cachedUserStr);
+    } catch (e) {
+      console.warn("Failed to parse cached auth user", e);
+    }
+  } else if (localStorage.getItem('ts_guest_logged_in') === 'true') {
+    cachedUser = { uid: 'guest_user', email: 'Guest Merchant' };
   }
 
   return {
@@ -914,59 +915,13 @@ const OpenUdharIcon = ({ isHovered, className }: { isHovered: boolean; className
   </svg>
 );
 
-// --- Admin Whitelists ---
-const ADMIN_UIDS = [
-  '8zvT2OITGeUj8nkaCK6sQbnmDGD2',
-  'fWwFwc1QL6baVX9hYsSeFFFZZHe2',
-  'oLvNJhJsTfVONWrMhtQa22bAF1g1'
-];
-const ADMIN_EMAILS = [
-  'stalha2110@gmail.com',
-  'shakirsir2122@gmail.com',
-  'gzone212006@gmail.com'
-];
-
 // --- App Component ---
 export default function App() {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
-  
-  // Admin Mode activation state
-  const [isAdminMode, setIsAdminMode] = useState<boolean>(() => {
-    return typeof window !== 'undefined' && localStorage.getItem('ts_admin_mode_active') === 'true';
-  });
-
-  // Admin Entry logo click states inside App
-  const [logoClicks, setLogoClicks] = useState<number>(0);
-  const [showLogoFeedback, setShowLogoFeedback] = useState<boolean>(false);
-
-  const handleLogoClickInApp = () => {
-    setLogoClicks(prev => {
-      const next = prev + 1;
-      if (next >= 3) {
-        setShowLogoFeedback(true);
-        setTimeout(() => setShowLogoFeedback(false), 3000);
-        
-        if (state.user) {
-          const isUIDWhitelisted = ADMIN_UIDS.includes(state.user.uid);
-          const isEmailWhitelisted = state.user.email && ADMIN_EMAILS.includes(state.user.email.toLowerCase());
-          
-          if (isUIDWhitelisted || isEmailWhitelisted) {
-            localStorage.setItem('ts_admin_mode_active', 'true');
-            setIsAdminMode(true);
-            addToast("ADMIN SECURITY PORTAL VERIFIED", "success");
-          } else {
-            addToast("SECURITY VERIFICATION: User is not in administrator whitelist", "warning");
-          }
-        } else {
-          addToast("ADMIN SYSTEM PROCESS INITIATED (No active user session)", "warning");
-        }
-        return 0; // reset
-      } else {
-        addToast(`Operator link: Click registered (${next}/3)`, "info");
-      }
-      return next;
-    });
-  };
+  const latestStateRef = useRef(state);
+  useEffect(() => {
+    latestStateRef.current = state;
+  }, [state]);
 
   const [activeTab, setActiveTab] = useState<'home' | 'billing' | 'analytics' | 'udhar' | 'notes' | 'shift' | 'goals' | 'history'>('home');
   const [showPlusActionMenu, setShowPlusActionMenu] = useState(false);
@@ -1018,17 +973,7 @@ export default function App() {
 
   // Startup Immersive Self-Healing & Session Recovery Overlay Trigger
   useEffect(() => {
-    const cachedUserStr = localStorage.getItem('ts_cached_auth_user');
-    let userUid = 'guest';
-    if (cachedUserStr) {
-      try {
-        const parsed = JSON.parse(cachedUserStr);
-        if (parsed?.uid) userUid = parsed.uid;
-      } catch (e) {}
-    } else if (localStorage.getItem('ts_guest_logged_in') === 'true') {
-      userUid = 'guest_user';
-    }
-    const cached = localStorage.getItem(`price_manager_state_${userUid}`) || localStorage.getItem('price_manager_state');
+    const cached = localStorage.getItem('price_manager_state');
     if (cached) {
       setShowRecoveryOverlay(true);
       setSyncStatus('Recovering');
@@ -1433,13 +1378,6 @@ export default function App() {
   } | null>(null);
 
   const [showWelcomeVoicePopup, setShowWelcomeVoicePopup] = useState(false);
-  const [welcomeSoundLevel, setWelcomeSoundLevel] = useState<'high' | 'medium' | 'low' | 'muted'>(() => {
-    const saved = localStorage.getItem('ts_welcome_sound_level');
-    if (saved === 'high' || saved === 'medium' || saved === 'low' || saved === 'muted') {
-      return saved as any;
-    }
-    return 'high';
-  });
   const [showPermissionsCenter, setShowPermissionsCenter] = useState(false);
 
   // Auto-trigger System Permissions Center on initial launch
@@ -1453,12 +1391,12 @@ export default function App() {
     }
   }, [isInitializing]);
 
-  // Auto-dismiss welcome voice popup after 12 seconds
+  // Auto-dismiss welcome voice popup after 9 seconds
   useEffect(() => {
     if (showWelcomeVoicePopup) {
       const timer = setTimeout(() => {
         setShowWelcomeVoicePopup(false);
-      }, 12000);
+      }, 9000);
       return () => clearTimeout(timer);
     }
   }, [showWelcomeVoicePopup]);
@@ -1469,59 +1407,8 @@ export default function App() {
     }
     setShowWelcomeVoicePopup(false);
     window.dispatchEvent(new CustomEvent('app-add-toast', { 
-      detail: { message: "Voice Announcement Closed / आवाज़ बंद कर दी गई है", type: 'info' } 
+      detail: { message: "Voice Announcement Muted / आवाज़ बंद कर दी गई है", type: 'info' } 
     }));
-  };
-
-  const handleCycleSoundLevel = () => {
-    let nextLevel: 'high' | 'medium' | 'low' | 'muted' = 'high';
-    if (welcomeSoundLevel === 'high') nextLevel = 'medium';
-    else if (welcomeSoundLevel === 'medium') nextLevel = 'low';
-    else if (welcomeSoundLevel === 'low') nextLevel = 'muted';
-    else if (welcomeSoundLevel === 'muted') nextLevel = 'high';
-
-    setWelcomeSoundLevel(nextLevel);
-    localStorage.setItem('ts_welcome_sound_level', nextLevel);
-
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-      
-      if (nextLevel !== 'muted') {
-        const announcementMap = {
-          high: "Volume: Full (100%) / पूर्ण आवाज़",
-          medium: "Volume: Reduced (60%) / मध्यम आवाज़",
-          low: "Volume: Low (25%) / धीमी आवाज़"
-        };
-        
-        window.dispatchEvent(new CustomEvent('app-add-toast', { 
-          detail: { message: announcementMap[nextLevel], type: 'info' } 
-        }));
-
-        const text = nextLevel === 'high' 
-          ? "Volume high." 
-          : nextLevel === 'medium' 
-            ? "Volume reduced." 
-            : "Volume low.";
-        const utterance = new SpeechSynthesisUtterance(text);
-        if (typeof window.speechSynthesis.getVoices === 'function') {
-          const voices = window.speechSynthesis.getVoices();
-          const englishVoice = voices.find(v => v.lang.startsWith('en') && v.localService) || 
-                               voices.find(v => v.lang.startsWith('en'));
-          if (englishVoice) {
-            utterance.voice = englishVoice;
-          }
-        }
-        utterance.rate = 1.0;
-        utterance.pitch = 1.05;
-        const volMultiplier = nextLevel === 'high' ? 1.0 : nextLevel === 'medium' ? 0.6 : 0.25;
-        utterance.volume = ((state.settings?.soundOverallVolume ?? 100) / 100) * volMultiplier * 0.95;
-        window.speechSynthesis.speak(utterance);
-      } else {
-        window.dispatchEvent(new CustomEvent('app-add-toast', { 
-          detail: { message: "Volume: Muted (0%) / आवाज़ बंद", type: 'info' } 
-        }));
-      }
-    }
   };
 
   // Welcome Speech Voice Announcement Effect
@@ -1532,25 +1419,8 @@ export default function App() {
     const triggerSpeech = () => {
       if (spoken) return;
       spoken = true;
-      
-      const currentLevel = localStorage.getItem('ts_welcome_sound_level') || 'high';
-      if (currentLevel === 'muted') {
-        setShowWelcomeVoicePopup(true);
-        cleanup();
-        return;
-      }
-
-      const volMultiplier = currentLevel === 'high' ? 1.0 : currentLevel === 'medium' ? 0.6 : 0.25;
-      const customSettings = {
-        ...state.settings,
-        soundFeedbackMode: 'vibrate_sound' as const,
-        soundOverallVolume: Math.round((state.settings?.soundOverallVolume ?? 100) * volMultiplier)
-      };
-
-      const played = playWelcomeAnnouncement(customSettings);
+      const played = playWelcomeAnnouncement(state.settings);
       if (played) {
-        setShowWelcomeVoicePopup(true);
-      } else {
         setShowWelcomeVoicePopup(true);
       }
       cleanup();
@@ -1638,6 +1508,12 @@ export default function App() {
     format: 'excel' | 'pdf' | null;
   }>({ isOpen: false, format: null });
   const [selectedUdharCustomerId, setSelectedUdharCustomerId] = useState<string | null>(null);
+
+  // --- Google Drive Custom Picker States ---
+  const [showDriveRestoreModal, setShowDriveRestoreModal] = useState(false);
+  const [driveBackupsList, setDriveBackupsList] = useState<Array<{ id: string; name: string; mimeType: string; createdTime?: string; size?: string }>>([]);
+  const [driveBackupsLoading, setDriveBackupsLoading] = useState(false);
+  const [driveAuthPending, setDriveAuthPending] = useState(false);
 
   // --- Dynamic Shift & Revenue Goals States ---
   const [showGoalPanel, setShowGoalPanel] = useState(false);
@@ -2680,206 +2556,283 @@ export default function App() {
   };
 
   const handleRestoreFromDrive = async () => {
-    try {
-      // 1. Trigger Google Picker to select a JSON file
-      const selectedFile = await GoogleDriveService.openFilePicker('application/json');
-      if (!selectedFile) {
-        // User cancelled or no file selected
+    // 1. Dynamic Pre-authentication Check to prevent silent hanging or frozen loads
+    const hasToken = getIndependentDriveToken();
+    if (!hasToken) {
+      setShowDriveRestoreModal(true);
+      setDriveAuthPending(true);
+      setDriveBackupsLoading(true);
+      setDriveBackupsList([]);
+      addToast("Connecting to Google Drive... Please authorize in the secure popup window. (गूगल ड्राइव से जुड़ रहे हैं... कृपया पॉपअप विंडो में अनुमति दें।)", "info");
+      try {
+        await requestIndependentDriveToken();
+        addToast("Google Drive Connected successfully! (गूगल ड्राइव सफलतापूर्वक कनेक्ट हो गया!)", "success");
+      } catch (authErr: any) {
+        console.error("[Drive Restore] Auth flow failed:", authErr);
+        addToast(`Google authentication failed: ${authErr?.message || authErr}`, "error");
+        setDriveBackupsLoading(false);
+        setDriveAuthPending(false);
         return;
+      } finally {
+        setDriveAuthPending(false);
       }
+    }
 
-      // 2. Fetch/download file content
-      const fileData = await GoogleDriveService.downloadFileContent(selectedFile.id);
-
-      // 3. Confirm overwrite and apply state
-      if (fileData && fileData.settings && fileData.items) {
-        if (confirm(`Restoring from Google Drive file '${selectedFile.name}' will overwrite your current settings and items. Proceed?`)) {
+    // 2. Dual-Path: Attempt to launch native Google Picker first (optimized and fixed)
+    addToast("Opening Google Drive file selector... (गूगल ड्राइव फाइल पिकर खुल रहा है...)", "info");
+    try {
+      const pickedFile = await GoogleDriveService.openFilePicker('application/json');
+      if (pickedFile) {
+        addToast(`Downloading chosen backup: ${pickedFile.name}... (बैकअप डाउनलोड हो रहा है...)`, "info");
+        const fileData = await GoogleDriveService.downloadFileContent(pickedFile.id);
+        
+        if (fileData && fileData.settings && fileData.items) {
           setState(fileData);
-          alert('System Restored successfully from Google Drive!');
+          setShowDriveRestoreModal(false);
+          addToast('System Restored successfully from Google Drive! / गूगल ड्राइव से बैकअप सफलतापूर्वक रीस्टोर हुआ!', 'success');
+        } else {
+          addToast('The selected file does not appear to be a valid backup file. (चुनी गई फ़ाइल मान्य बैकअप फ़ाइल नहीं है।)', 'error');
         }
+        return; // Complete flow successfully using Native Picker!
+      } else {
+        // User closed or cancelled the picker
+        addToast("Native picker closed. Showing custom backups list. (नेटिव पिकर बंद हुआ। कस्टम बैकअप सूची दिखाई जा रही है।)", "info");
+      }
+    } catch (pickerErr: any) {
+      console.warn("[Drive Restore] Native Google Picker failed or was blocked by iframe container:", pickerErr);
+      addToast("Native picker blocked or unsupported in current view. Falling back to custom backup list! (पूर्वावलोकन में नेटिव पिकर ब्लॉक है। कस्टम बैकअप सूची दिखाई जा रही है!)", "info");
+    }
+
+    // 3. Fallback Path: Load custom file backup list modal inside the app as a robust fallback
+    setShowDriveRestoreModal(true);
+    setDriveBackupsLoading(true);
+    setDriveBackupsList([]);
+    try {
+      const files = await GoogleDriveService.listBackupFiles('application/json');
+      setDriveBackupsList(files);
+    } catch (error: any) {
+      console.error(error);
+      addToast(`Failed to fetch backups from Google Drive: ${error?.message || error}`, "error");
+    } finally {
+      setDriveBackupsLoading(false);
+      setDriveAuthPending(false);
+    }
+  };
+
+  const handleSelectDriveBackupFile = async (fileId: string, fileName: string) => {
+    if (!confirm(`Restoring from Google Drive file '${fileName}' will overwrite your current settings and items. Proceed? (गूगल ड्राइव फ़ाइल से रीस्टोर करने पर आपका वर्तमान डेटा ओवरराइट हो जाएगा। क्या आप जारी रखना चाहते हैं?)`)) {
+      return;
+    }
+    
+    setDriveBackupsLoading(true);
+    try {
+      const fileData = await GoogleDriveService.downloadFileContent(fileId);
+      
+      if (fileData && fileData.settings && fileData.items) {
+        setState(fileData);
+        setShowDriveRestoreModal(false);
+        addToast('System Restored successfully from Google Drive! / गूगल ड्राइव से बैकअप सफलतापूर्वक रीस्टोर हुआ!', 'success');
       } else {
         alert('The selected file does not appear to be a valid backup file. (चुनी गई फ़ाइल मान्य बैकअप फ़ाइल नहीं है।)');
       }
     } catch (error: any) {
       console.error(error);
       alert(`Failed to restore from Google Drive: ${error?.message || error}`);
+    } finally {
+      setDriveBackupsLoading(false);
     }
   };
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        if (user.email && user.uid !== 'guest_user') {
-          localStorage.setItem('ts_last_logged_in_email', user.email);
-          localStorage.setItem('ts_cached_auth_user', JSON.stringify({ uid: user.uid, email: user.email }));
-        }
+
+  const checkAndRecoverData = async (uid: string, email: string) => {
+    if (!uid || uid === 'guest_user') return;
+    try {
+      const itemsRef = collection(db, 'users', uid, 'items');
+      const itemsSnap = await getDocs(query(itemsRef, limit(1)));
+      
+      if (!itemsSnap.empty) {
+        console.log("[Logic Bridge] Existing server data detected for UID:", uid);
         
-        // Load user-specific state upon successful login
-        const userUid = user.uid;
-        const userStateKey = `price_manager_state_${userUid}`;
-        const userSettingsKey = `price_manager_settings_${userUid}`;
-
-        // Auto-migration check: If there's general state but no user-specific state,
-        // and we are logging in for the first time, migrate the general state.
-        if (userUid !== 'guest_user') {
-          if (!localStorage.getItem(userStateKey)) {
-            const generalState = localStorage.getItem('price_manager_state');
-            if (generalState) {
-              localStorage.setItem(userStateKey, generalState);
-              console.log("Migrated previous general state to user-specific state for:", userUid);
+        // Fetch all items
+        const itemsList: Item[] = [];
+        const fullItemsSnap = await getDocs(collection(db, 'users', uid, 'items'));
+        fullItemsSnap.forEach(docSnap => {
+          const data = docSnap.data();
+          itemsList.push({
+            ...data,
+            id: docSnap.id,
+            translations: {
+              en: data.name || '',
+              hi: '',
+              mr: '',
+              'hi-en': '',
+              ...(data.translations || {})
             }
-          }
-          if (!localStorage.getItem(userSettingsKey)) {
-            const generalSettings = localStorage.getItem('price_manager_settings');
-            if (generalSettings) {
-              localStorage.setItem(userSettingsKey, generalSettings);
-              console.log("Migrated previous general settings to user-specific settings for:", userUid);
-            }
-          }
-        }
-        
-        const savedSettings = localStorage.getItem(userSettingsKey) || localStorage.getItem('price_manager_settings');
-        const savedState = localStorage.getItem(userStateKey);
-        
-        let settings = INITIAL_SETTINGS;
-        if (savedSettings) {
-          try {
-            const parsedSettings = JSON.parse(savedSettings);
-            if (parsedSettings) {
-              settings = { ...INITIAL_SETTINGS, ...parsedSettings };
-            }
-          } catch (e) {}
-        }
-        
-        let items = [];
-        let notes = [];
-        let bills = [];
-        let udharCustomers = [];
-        let udharTransactions = [];
-        if (savedState) {
-          try {
-            const parsed = JSON.parse(savedState);
-            if (parsed) {
-              items = parsed.items || [];
-              notes = parsed.notes || [];
-              bills = parsed.bills || [];
-              udharCustomers = parsed.udharCustomers || [];
-              udharTransactions = parsed.udharTransactions || [];
-            }
-          } catch (e) {}
-        }
-
-        if (user.email && user.uid !== 'guest_user') {
-          // Secure validation check for disabled user & auto-registry sync
-          const checkUserStatusAndSync = async () => {
-            try {
-              const userDocRef = doc(db, 'users', user.uid);
-              const docSnap = await getDoc(userDocRef);
-              
-              if (docSnap.exists()) {
-                const data = docSnap.data();
-                if (data.isDisabled === true) {
-                  await auth.signOut();
-                  localStorage.removeItem('ts_cached_auth_user');
-                  localStorage.removeItem('ts_guest_logged_in');
-                  localStorage.removeItem('ts_admin_mode_active');
-                  setIsAdminMode(false);
-                  setState(prev => ({ ...prev, user: null }));
-                  alert("Your account has been deactivated by the Administrator. Please contact support.");
-                  return;
-                }
-              }
-
-              // Merge latest profile tracking data and active business profile metadata
-              await setDoc(userDocRef, {
-                uid: user.uid,
-                email: user.email || '',
-                lastLoginAt: new Date().toISOString(),
-                storeName: settings.storeName || 'Merchant POS Store',
-                storeOwnerName: settings.storeOwnerName || 'Active Merchant',
-                storePhone: settings.storePhone || 'None Registered',
-                storeAddress: settings.storeAddress || 'Address Not Disclosed',
-                businessMode: 'Retail',
-                subscriptionPlan: 'Basic Tier'
-              }, { merge: true });
-
-            } catch (e) {
-              console.warn("User validation / sync warning:", e);
-            }
-          };
-          checkUserStatusAndSync();
-        }
-
-        setState({
-          items: deduplicateById(items),
-          notes: deduplicateById(notes),
-          categories: DEFAULT_CATEGORIES,
-          settings,
-          user: { uid: user.uid, email: user.email },
-          bills: deduplicateById(bills),
-          udharCustomers: deduplicateById(udharCustomers),
-          udharTransactions: deduplicateById(udharTransactions),
+          } as Item);
         });
+
+        // Fetch all notes
+        const notesList: Note[] = [];
+        const notesSnap = await getDocs(collection(db, 'users', uid, 'notes'));
+        notesSnap.forEach(docSnap => {
+          notesList.push({ ...docSnap.data() as Note, id: docSnap.id });
+        });
+
+        // Fetch all bills
+        const billsList: Bill[] = [];
+        const billsSnap = await getDocs(collection(db, 'users', uid, 'bills'));
+        billsSnap.forEach(docSnap => {
+          const data = docSnap.data();
+          billsList.push({
+            id: docSnap.id,
+            billNumber: data.billNumber || `INV-${Date.now()}`,
+            customerName: data.customerName || '',
+            customerPhone: data.customerPhone || '',
+            items: Array.isArray(data.items) ? data.items.map((item: any) => ({
+              itemId: item.itemId || item.id || '',
+              name: item.name || '',
+              quantity: item.quantity || 0,
+              cost: item.cost || item.buyingPrice || 0,
+              price: item.price || item.retailPrice || 0,
+              unit: item.unit || 'pcs'
+            })) : [],
+            discount: typeof data.discount === 'number' ? data.discount : 0,
+            tax: typeof data.tax === 'number' ? data.tax : 0,
+            subtotal: typeof data.subtotal === 'number' ? data.subtotal : 0,
+            total: typeof data.total === 'number' ? data.total : 0,
+            paymentMethod: data.paymentMethod || 'Cash',
+            timestamp: data.timestamp || new Date().toISOString(),
+            deviceId: data.deviceId || '',
+            deviceName: data.deviceName || ''
+          });
+        });
+
+        // Fetch all udharCustomers
+        const customersList: UdharCustomer[] = [];
+        const customersSnap = await getDocs(collection(db, 'users', uid, 'udharCustomers'));
+        customersSnap.forEach(docSnap => {
+          customersList.push({ ...docSnap.data() as UdharCustomer, id: docSnap.id });
+        });
+
+        // Fetch all udharTransactions
+        const txsList: UdharTransaction[] = [];
+        const txsSnap = await getDocs(collection(db, 'users', uid, 'udharTransactions'));
+        txsSnap.forEach(docSnap => {
+          txsList.push({ ...docSnap.data() as UdharTransaction, id: docSnap.id });
+        });
+
+        // Fetch Settings
+        const userDocRef = doc(db, 'users', uid);
+        const userDoc = await getDoc(userDocRef);
+        let recoveredSettings = {};
+        if (userDoc.exists()) {
+          recoveredSettings = userDoc.data();
+        }
+
+        setState(prev => {
+          const newState = {
+            ...prev,
+            user: { uid, email },
+            items: deduplicateById(itemsList),
+            notes: deduplicateById(notesList),
+            bills: deduplicateById(billsList),
+            udharCustomers: deduplicateById(customersList),
+            udharTransactions: deduplicateById(txsList),
+            settings: { ...prev.settings, ...recoveredSettings }
+          };
+          
+          localStorage.setItem('price_manager_settings', JSON.stringify(newState.settings));
+          localStorage.setItem('price_manager_state', JSON.stringify(newState));
+          return newState;
+        });
+        
+        console.log("[Logic Bridge] Seamless server data recovery completed.");
+      } else {
+        console.log("[Logic Bridge] No server data found for UID:", uid);
+      }
+    } catch (err) {
+      console.error("[Logic Bridge] Error checking/recovering data:", err);
+    }
+  };
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const cachedUserStr = localStorage.getItem('ts_cached_auth_user');
+        let prevUid = null;
+        if (cachedUserStr) {
+          try {
+            prevUid = JSON.parse(cachedUserStr).uid;
+          } catch {}
+        }
+
+        const wasGuest = localStorage.getItem('ts_guest_logged_in') === 'true' || prevUid === 'guest_user';
+        const uidChanged = prevUid && prevUid !== user.uid && prevUid !== 'guest_user';
+
+        if (user.uid && user.uid !== 'guest_user') {
+          if (wasGuest) {
+            console.log("[Migration] Moving Guest data to Firestore for UID:", user.uid);
+            try {
+              const currentSt = latestStateRef.current;
+              const settingsToMigrate = currentSt.settings || {};
+              await setDoc(doc(db, 'users', user.uid), sanitizeForFirestore(settingsToMigrate), { merge: true });
+
+              for (const item of (currentSt.items || [])) {
+                await setDoc(doc(db, 'users', user.uid, 'items', item.id), sanitizeForFirestore(item));
+              }
+              for (const note of ((currentSt as any).notes || [])) {
+                await setDoc(doc(db, 'users', user.uid, 'notes', note.id), sanitizeForFirestore(note));
+              }
+              for (const bill of (currentSt.bills || [])) {
+                await setDoc(doc(db, 'users', user.uid, 'bills', bill.id), sanitizeForFirestore(bill));
+              }
+              for (const cust of (currentSt.udharCustomers || [])) {
+                await setDoc(doc(db, 'users', user.uid, 'udharCustomers', cust.id), sanitizeForFirestore(cust));
+              }
+              for (const tx of (currentSt.udharTransactions || [])) {
+                await setDoc(doc(db, 'users', user.uid, 'udharTransactions', tx.id), sanitizeForFirestore(tx));
+              }
+              console.log("[Migration] Guest data migration to Firestore completed successfully.");
+            } catch (migrateErr) {
+              console.error("[Migration] Error migrating guest data to Firestore:", migrateErr);
+            }
+          }
+
+          localStorage.removeItem('ts_guest_logged_in');
+          localStorage.setItem('ts_cached_auth_user', JSON.stringify({ uid: user.uid, email: user.email || 'Registered Merchant' }));
+          if (user.email) {
+            localStorage.setItem('ts_last_logged_in_email', user.email);
+          }
+        }
+
+        if (uidChanged) {
+          setState(prev => ({ 
+            ...prev, 
+            user: { uid: user.uid, email: user.email },
+            items: [],
+            notes: [],
+            bills: [],
+            udharCustomers: [],
+            udharTransactions: []
+          }));
+        } else {
+          setState(prev => ({ 
+            ...prev, 
+            user: { uid: user.uid, email: user.email } 
+          }));
+        }
+
+        // Trigger data recovery asynchronously
+        await checkAndRecoverData(user.uid, user.email || '');
       } else {
         const isGuest = localStorage.getItem('ts_guest_logged_in') === 'true';
         if (isGuest) {
-          // Load guest user state upon guest login
-          const userUid = 'guest_user';
-          const userStateKey = `price_manager_state_${userUid}`;
-          const userSettingsKey = `price_manager_settings_${userUid}`;
-          const savedSettings = localStorage.getItem(userSettingsKey) || localStorage.getItem('price_manager_settings');
-          const savedState = localStorage.getItem(userStateKey) || localStorage.getItem('price_manager_state');
-          
-          let settings = INITIAL_SETTINGS;
-          if (savedSettings) {
-            try {
-              const parsedSettings = JSON.parse(savedSettings);
-              if (parsedSettings) {
-                settings = { ...INITIAL_SETTINGS, ...parsedSettings };
-              }
-            } catch (e) {}
-          }
-          
-          let items = [];
-          let notes = [];
-          let bills = [];
-          let udharCustomers = [];
-          let udharTransactions = [];
-          if (savedState) {
-            try {
-              const parsed = JSON.parse(savedState);
-              if (parsed) {
-                items = parsed.items || [];
-                notes = parsed.notes || [];
-                bills = parsed.bills || [];
-                udharCustomers = parsed.udharCustomers || [];
-                udharTransactions = parsed.udharTransactions || [];
-              }
-            } catch (e) {}
-          }
-
-          setState({
-            items: deduplicateById(items),
-            notes: deduplicateById(notes),
-            categories: DEFAULT_CATEGORIES,
-            settings,
-            user: { uid: 'guest_user', email: 'Guest Merchant' },
-            bills: deduplicateById(bills),
-            udharCustomers: deduplicateById(udharCustomers),
-            udharTransactions: deduplicateById(udharTransactions),
-          });
+          setState(prev => ({ 
+            ...prev, 
+            user: { uid: 'guest_user', email: 'Guest Merchant' } 
+          }));
         } else {
           localStorage.removeItem('ts_cached_auth_user');
-          // Start clean/empty upon real logout
-          setState({
-            items: [],
-            notes: [],
-            categories: DEFAULT_CATEGORIES,
-            settings: INITIAL_SETTINGS,
-            user: null,
-            bills: [],
-            udharCustomers: [],
-            udharTransactions: [],
-          });
+          setState(prev => ({ ...prev, user: null }));
         }
       }
       setIsAuthResolving(false);
@@ -2946,34 +2899,6 @@ export default function App() {
     }
   }, []);
 
-  // URL /admin Gateway Routing Handler
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const path = window.location.pathname.toLowerCase().replace(/\/$/, '');
-      const hash = window.location.hash.toLowerCase();
-      const params = new URLSearchParams(window.location.search);
-      const isRouteAdmin = path === '/admin' || hash === '#/admin' || params.get('route') === 'admin';
-
-      if (isRouteAdmin && state.user) {
-        // Logged-in admin access verification
-        const isUIDWhitelisted = ADMIN_UIDS.includes(state.user.uid);
-        const isEmailWhitelisted = state.user.email && ADMIN_EMAILS.includes(state.user.email.toLowerCase());
-
-        if (isUIDWhitelisted || isEmailWhitelisted) {
-          if (!isAdminMode) {
-            localStorage.setItem('ts_admin_mode_active', 'true');
-            setIsAdminMode(true);
-            addToast("ADMIN SECURITY PORTAL VERIFIED via URL routing", "success");
-          }
-        } else {
-          addToast("SECURITY VERIFICATION: User is not in administrator whitelist", "warning");
-          // Re-route to regular workspace cleanly
-          window.history.replaceState({}, document.title, '/');
-        }
-      }
-    }
-  }, [state.user, isAdminMode, addToast]);
-
   // --- Real-time Firestore Sync ---
   useEffect(() => {
     if (!state.user || state.user.uid === 'guest_user' || !state.settings.autoCloudSync) {
@@ -3018,10 +2943,6 @@ export default function App() {
       });
       
       setState(prev => {
-        // Isolation check: Only merge if previous state's user matches current active user
-        if (!prev.user || prev.user.uid !== state.user!.uid) {
-          return { ...prev, items: deduplicateById(itemsList) };
-        }
         const localItems = prev.items || [];
         const unsyncedItems = localItems.filter(li => !itemsList.some(ci => ci.id === li.id));
         if (unsyncedItems.length > 0) {
@@ -3055,10 +2976,6 @@ export default function App() {
       snap.forEach(doc => notesList.push({ ...doc.data() as Note, id: doc.id }));
       
       setState(prev => {
-        // Isolation check: Only merge if previous state's user matches current active user
-        if (!prev.user || prev.user.uid !== state.user!.uid) {
-          return { ...prev, notes: deduplicateById(notesList) };
-        }
         const localNotes = prev.notes || [];
         const unsyncedNotes = localNotes.filter(ln => !notesList.some(cn => cn.id === ln.id));
         if (unsyncedNotes.length > 0) {
@@ -3115,11 +3032,6 @@ export default function App() {
       });
       
       setState(prev => {
-        // Isolation check: Only merge if previous state's user matches current active user
-        if (!prev.user || prev.user.uid !== state.user!.uid) {
-          setAnalyticsRenderKey(k => k + 1);
-          return { ...prev, bills: deduplicateById(billsList) };
-        }
         const localBills = prev.bills || [];
         const unsyncedBills = localBills.filter(lb => !billsList.some(cb => cb.id === lb.id));
         if (unsyncedBills.length > 0) {
@@ -3146,11 +3058,73 @@ export default function App() {
       }
     });
 
+    // Sync Udhar Customers (with automatic offline self-healing and data-recovery merge)
+    const customersRef = collection(db, 'users', state.user.uid, 'udharCustomers');
+    const unsubCustomers = onSnapshot(customersRef, (snap) => {
+      const customersList: UdharCustomer[] = [];
+      snap.forEach(docSnap => {
+        customersList.push({ ...docSnap.data() as UdharCustomer, id: docSnap.id });
+      });
+
+      setState(prev => {
+        const localCusts = prev.udharCustomers || [];
+        const unsyncedCusts = localCusts.filter(lc => !customersList.some(cc => cc.id === lc.id));
+        if (unsyncedCusts.length > 0) {
+          unsyncedCusts.forEach(async (cust) => {
+            try {
+              await setDoc(doc(db, 'users', state.user!.uid, 'udharCustomers', cust.id), sanitizeForFirestore(cust));
+            } catch (e) {
+              console.error("Self-healing background customer upload failed:", e);
+            }
+          });
+          const merged = [...customersList, ...unsyncedCusts];
+          return { ...prev, udharCustomers: deduplicateById(merged) };
+        }
+        return { ...prev, udharCustomers: deduplicateById(customersList) };
+      });
+    }, (error) => {
+      if (auth.currentUser) {
+        console.error("Udhar Customers sync error:", error);
+      }
+    });
+
+    // Sync Udhar Transactions (with automatic offline self-healing and data-recovery merge)
+    const transactionsRef = collection(db, 'users', state.user.uid, 'udharTransactions');
+    const unsubTransactions = onSnapshot(transactionsRef, (snap) => {
+      const transactionsList: UdharTransaction[] = [];
+      snap.forEach(docSnap => {
+        transactionsList.push({ ...docSnap.data() as UdharTransaction, id: docSnap.id });
+      });
+
+      setState(prev => {
+        const localTxs = prev.udharTransactions || [];
+        const unsyncedTxs = localTxs.filter(lt => !transactionsList.some(ct => ct.id === lt.id));
+        if (unsyncedTxs.length > 0) {
+          unsyncedTxs.forEach(async (tx) => {
+            try {
+              await setDoc(doc(db, 'users', state.user!.uid, 'udharTransactions', tx.id), sanitizeForFirestore(tx));
+            } catch (e) {
+              console.error("Self-healing background transaction upload failed:", e);
+            }
+          });
+          const merged = [...transactionsList, ...unsyncedTxs];
+          return { ...prev, udharTransactions: deduplicateById(merged) };
+        }
+        return { ...prev, udharTransactions: deduplicateById(transactionsList) };
+      });
+    }, (error) => {
+      if (auth.currentUser) {
+        console.error("Udhar Transactions sync error:", error);
+      }
+    });
+
     return () => {
       unsubSettings();
       unsubItems();
       unsubNotes();
       unsubBills();
+      unsubCustomers();
+      unsubTransactions();
     };
   }, [state.user, state.settings.autoCloudSync]);
 
@@ -3222,10 +3196,6 @@ export default function App() {
     } else {
       setSyncStatus('Saving');
     }
-
-    const userUid = state.user?.uid || 'guest';
-    localStorage.setItem(`price_manager_settings_${userUid}`, JSON.stringify(state.settings));
-    localStorage.setItem(`price_manager_state_${userUid}`, JSON.stringify(state));
 
     localStorage.setItem('price_manager_settings', JSON.stringify(state.settings));
     localStorage.setItem('price_manager_state', JSON.stringify(state));
@@ -3430,48 +3400,25 @@ export default function App() {
   const handleLogout = useCallback(async () => {
     localStorage.removeItem('ts_guest_logged_in');
     localStorage.removeItem('ts_cached_auth_user');
-    localStorage.removeItem('ts_admin_mode_active');
-    setIsAdminMode(false);
     await auth.signOut();
     setState(prev => ({ ...prev, user: null }));
     addToast("Session terminated / लॉगआउट सफल!", "success");
   }, []);
 
-  const handleGoogleLogin = useCallback(async (isAdminRequested: boolean = false) => {
+  const handleGoogleLogin = useCallback(async () => {
     try {
       const user = await loginWithGoogle();
       if (user) {
-        // Perform Admin authorization checks if admin login requested
-        if (isAdminRequested) {
-          const isUIDWhitelisted = ADMIN_UIDS.includes(user.uid);
-          const isEmailWhitelisted = user.email && ADMIN_EMAILS.includes(user.email.toLowerCase());
-
-          if (isUIDWhitelisted || isEmailWhitelisted) {
-            localStorage.setItem('ts_admin_mode_active', 'true');
-            setIsAdminMode(true);
-            addToast("ADMIN SECURITY PORTAL VERIFIED", "success");
-          } else {
-            // Unauthorized Admin Login - Block and Signout immediately
-            await auth.signOut();
-            localStorage.removeItem('ts_admin_mode_active');
-            setIsAdminMode(false);
-            alert("SECURITY VIOLATION: Unauthorized operator login attempt detected. This incident has been logged under administrative protocol.");
-            return;
-          }
-        } else {
-          // Normal login - force clear administrative mode
-          localStorage.removeItem('ts_admin_mode_active');
-          setIsAdminMode(false);
-        }
-
+        localStorage.removeItem('ts_guest_logged_in');
         if (user.email) {
           localStorage.setItem('ts_last_logged_in_email', user.email);
           localStorage.setItem('ts_cached_auth_user', JSON.stringify({ uid: user.uid, email: user.email }));
+        } else {
+          localStorage.setItem('ts_cached_auth_user', JSON.stringify({ uid: user.uid, email: 'Google Merchant' }));
         }
-
         setState(prev => ({ 
           ...prev, 
-          user: { uid: user.uid, email: user.email } 
+          user: { uid: user.uid, email: user.email || 'Google Merchant' } 
         }));
         addToast("Logged in with Google / गूगल लॉगिन सफल!", "success");
       }
@@ -3488,52 +3435,11 @@ export default function App() {
 
   const handleGuestLogin = useCallback(() => {
     localStorage.setItem('ts_guest_logged_in', 'true');
-    
-    const userUid = 'guest_user';
-    const userStateKey = `price_manager_state_${userUid}`;
-    const userSettingsKey = `price_manager_settings_${userUid}`;
-    const savedSettings = localStorage.getItem(userSettingsKey) || localStorage.getItem('price_manager_settings');
-    const savedState = localStorage.getItem(userStateKey) || localStorage.getItem('price_manager_state');
-    
-    let settings = INITIAL_SETTINGS;
-    if (savedSettings) {
-      try {
-        const parsedSettings = JSON.parse(savedSettings);
-        if (parsedSettings) {
-          settings = { ...INITIAL_SETTINGS, ...parsedSettings };
-        }
-      } catch (e) {}
-    }
-    
-    let items = [];
-    let notes = [];
-    let bills = [];
-    let udharCustomers = [];
-    let udharTransactions = [];
-    if (savedState) {
-      try {
-        const parsed = JSON.parse(savedState);
-        if (parsed) {
-          items = parsed.items || [];
-          notes = parsed.notes || [];
-          bills = parsed.bills || [];
-          udharCustomers = parsed.udharCustomers || [];
-          udharTransactions = parsed.udharTransactions || [];
-        }
-      } catch (e) {}
-    }
-
-    setState({
-      items: deduplicateById(items),
-      notes: deduplicateById(notes),
-      categories: DEFAULT_CATEGORIES,
-      settings: { ...settings, autoCloudSync: false },
+    setState(prev => ({ 
+      ...prev, 
       user: { uid: 'guest_user', email: 'Guest Merchant' },
-      bills: deduplicateById(bills),
-      udharCustomers: deduplicateById(udharCustomers),
-      udharTransactions: deduplicateById(udharTransactions),
-    });
-    
+      settings: { ...prev.settings, autoCloudSync: false }
+    }));
     addToast("Logged in as guest / गेस्ट लॉगिन सफल!", "success");
   }, []);
 
@@ -4356,11 +4262,69 @@ export default function App() {
             }
           }
         }
+
+        // (D) Sync udharCustomers if updated
+        if (updates.udharCustomers) {
+          const oldCusts = state.udharCustomers || [];
+          const newCusts = updates.udharCustomers;
+
+          const changedCusts = newCusts.filter(nc => {
+            const oc = oldCusts.find(c => c.id === nc.id);
+            return !oc || JSON.stringify(oc) !== JSON.stringify(nc);
+          });
+
+          const deletedCusts = oldCusts.filter(oc => !newCusts.some(nc => nc.id === oc.id));
+
+          for (const c of changedCusts) {
+            try {
+              await setDoc(doc(db, 'users', uId, 'udharCustomers', c.id), sanitizeForFirestore(c));
+            } catch (e) {
+              console.error("Error syncing customer:", e);
+            }
+          }
+
+          for (const c of deletedCusts) {
+            try {
+              await deleteDoc(doc(db, 'users', uId, 'udharCustomers', c.id));
+            } catch (e) {
+              console.error("Error deleting customer:", e);
+            }
+          }
+        }
+
+        // (E) Sync udharTransactions if updated
+        if (updates.udharTransactions) {
+          const oldTxs = state.udharTransactions || [];
+          const newTxs = updates.udharTransactions;
+
+          const changedTxs = newTxs.filter(nt => {
+            const ot = oldTxs.find(t => t.id === nt.id);
+            return !ot || JSON.stringify(ot) !== JSON.stringify(nt);
+          });
+
+          const deletedTxs = oldTxs.filter(ot => !newTxs.some(nt => nt.id === ot.id));
+
+          for (const t of changedTxs) {
+            try {
+              await setDoc(doc(db, 'users', uId, 'udharTransactions', t.id), sanitizeForFirestore(t));
+            } catch (e) {
+              console.error("Error syncing transaction:", e);
+            }
+          }
+
+          for (const t of deletedTxs) {
+            try {
+              await deleteDoc(doc(db, 'users', uId, 'udharTransactions', t.id));
+            } catch (e) {
+              console.error("Error deleting transaction:", e);
+            }
+          }
+        }
       } finally {
         setIsSyncing(false);
       }
     }
-  }, [state.user, state.settings.autoCloudSync, state.bills, state.items, state.notes]);
+  }, [state.user, state.settings.autoCloudSync, state.bills, state.items, state.notes, state.udharCustomers, state.udharTransactions]);
 
   const handleToggleLock = () => {
     if (state.settings.isLocked) {
@@ -4454,24 +4418,6 @@ export default function App() {
           settings={state.settings}
         />
       </div>
-    );
-  }
-
-  // --- Dynamic Secure Operator Routing ---
-  if (state.user && isAdminMode) {
-    return (
-      <AdminDashboard 
-        adminUser={state.user}
-        onLogout={handleLogout}
-        onExitAdmin={() => {
-          localStorage.removeItem('ts_admin_mode_active');
-          setIsAdminMode(false);
-          if (typeof window !== 'undefined') {
-            window.history.replaceState({}, document.title, '/');
-          }
-          addToast("Returned to merchant workspace", "info");
-        }}
-      />
     );
   }
 
@@ -4823,56 +4769,28 @@ export default function App() {
             description={isVerifyingOldPIN ? "Enter current PIN to proceed with change" : "Define your new 6-digit cryptographic sequence"}
           />
         )}
-
-        {/* Floating Admin Security Notice Banner */}
-        {showLogoFeedback && (
-          <motion.div
-            initial={{ opacity: 0, y: -50, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 backdrop-blur border border-slate-800 text-white font-mono text-xs font-black uppercase tracking-wider px-6 py-3.5 rounded-full shadow-[0_12px_40px_rgba(15,23,42,0.3)] flex items-center gap-2.5"
-          >
-            <div className="h-2 w-2 rounded-full bg-pink-500 animate-pulse" />
-            <span>🔐 Admin System Gateway Link Active!</span>
-          </motion.div>
-        )}
       </AnimatePresence>
 
       {/* Header */}
       <header 
         id="tour-header"
-        className="sticky top-0 z-40 px-6 py-4 text-[var(--primary-foreground)] shadow-2xl transition-all border-b border-white/10"
+        className="sticky top-0 z-40 px-3 sm:px-6 py-3 sm:py-4 text-[var(--primary-foreground)] shadow-2xl transition-all border-b border-white/10"
         style={{ backgroundColor: 'var(--primary)' }}
       >
-        <div className="flex items-center justify-between w-full max-w-7xl mx-auto gap-4">
-          <div className="flex items-center gap-4 select-none shrink-0 overflow-visible min-w-0">
+        <div className="flex items-center justify-between w-full max-w-7xl mx-auto gap-2 sm:gap-4">
+          <div className="flex items-center gap-2 sm:gap-4 select-none min-w-0 overflow-visible shrink">
             <div className="relative group shrink-0 overflow-visible flex items-center justify-center">
               {/* Dynamic theme-specific sharp luminous premium core glow */}
               <div className={`absolute inset-x-0 inset-y-0 rounded-full blur-xl opacity-60 group-hover:opacity-90 transition-opacity duration-300 pointer-events-none ${getLogoBackplateClass(state.settings.theme).glow}`} />
               <div className={`absolute -inset-1.5 bg-gradient-to-r rounded-2xl blur-md opacity-30 group-hover:opacity-70 transition-opacity duration-500 pointer-events-none ${getLogoBackplateClass(state.settings.theme).gradient}`} />
               
               {/* Premium seamless borderless container with custom aspect-ratio and zoom handling */}
-              <motion.div 
-                className="relative h-14 overflow-visible flex items-center justify-center select-none pointer-events-auto cursor-pointer shrink-0"
-                onClick={handleLogoClickInApp}
-                animate={showLogoFeedback ? {
-                  scale: [1, 1.25, 1.05, 1.25, 1],
-                  rotate: [0, 6, -6, 6, 0]
-                } : {}}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                transition={showLogoFeedback ? {
-                  duration: 0.8,
-                  ease: "easeInOut"
-                } : {
-                  type: "spring", stiffness: 400, damping: 15
-                }}
-              >
+              <div className="relative h-10 sm:h-14 overflow-visible flex items-center justify-center transform group-hover:scale-105 active:scale-95 transition-all duration-300 select-none pointer-events-none shrink-0">
                 {/* Custom multi-stage SVG drop-shadow filter for sharp outlines on any background */}
                 <img 
                   src={appLogo} 
                   alt="TS App Logo" 
-                  className="h-14 w-auto max-w-[140px] object-contain transition-all duration-350 pointer-events-none"
+                  className="h-10 sm:h-14 w-auto max-w-[100px] sm:max-w-[140px] object-contain transition-all duration-350"
                   style={{
                     filter: getLogoGlowFilter(state.settings.theme)
                   }}
@@ -4883,14 +4801,14 @@ export default function App() {
                 />
                 
                 {/* Non-intrusive fallback illustration block in case image fails to fetch */}
-                <div className="hidden flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 shadow-inner shrink-0">
-                  <Package size={28} className="text-white" />
+                <div className="hidden flex h-10 sm:h-14 w-10 sm:w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 shadow-inner shrink-0">
+                  <Package size={20} className="text-white" />
                 </div>
-              </motion.div>
+              </div>
             </div>
             <div className="flex flex-col justify-center shrink-0">
-              <h1 className="text-2xl font-black tracking-tighter text-white mb-0 leading-none flex items-baseline">
-                TS <span className="text-xs font-bold opacity-60 ml-1.5 tracking-[0.3em] uppercase">Price Manager</span>
+              <h1 className="text-lg sm:text-2xl font-black tracking-tighter text-white mb-0 leading-none flex items-baseline">
+                TS <span className="hidden sm:inline-block text-xs font-bold opacity-60 ml-1.5 tracking-[0.3em] uppercase">Price Manager</span>
               </h1>
               <div className="flex items-center gap-2 mt-1.5">
                 <button
@@ -4909,7 +4827,7 @@ export default function App() {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
 
 
             {/* Notification Badge Badge with sliding drawer */}
@@ -6575,93 +6493,45 @@ export default function App() {
         {showWelcomeVoicePopup && (
           <motion.div
             key="welcome-voice-popup"
-            drag="x"
-            dragConstraints={{ left: 0, right: 0 }}
-            dragElastic={{ left: 0.6, right: 0.6 }}
-            onDragEnd={(event, info) => {
-              if (Math.abs(info.offset.x) > 100) {
-                setShowWelcomeVoicePopup(false);
-                window.dispatchEvent(new CustomEvent('app-add-toast', { 
-                  detail: { message: "Popup dismissed / स्वाइप करके हटा दिया गया", type: 'info' } 
-                }));
-              }
-            }}
             initial={{ opacity: 0, y: -50, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
             transition={{ type: "spring", damping: 20, stiffness: 120 }}
-            className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] w-[calc(100%-2rem)] max-w-md bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 dark:from-zinc-900 dark:via-zinc-950 dark:to-zinc-900 border border-amber-500/30 text-white p-4 rounded-2xl shadow-2xl shadow-amber-500/5 flex flex-col gap-3 backdrop-blur-xl select-none cursor-grab active:cursor-grabbing"
-            title="Drag horizontally to swipe away"
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] w-[calc(100%-2rem)] max-w-md bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 dark:from-zinc-900 dark:via-zinc-950 dark:to-zinc-900 border border-amber-500/30 text-white p-4 rounded-2xl shadow-2xl shadow-amber-500/5 flex items-center justify-between gap-3 backdrop-blur-xl"
           >
             {/* Left Ambient Glow */}
             <div className="absolute -left-10 -top-10 w-24 h-24 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
             <div className="absolute -right-10 -bottom-10 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
 
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                {/* Pulsing Voice Icon */}
-                <div className="relative shrink-0 w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-                  <span className="absolute inset-0 rounded-xl bg-amber-500/10 animate-ping opacity-75" />
-                  <Volume2 size={18} className="animate-pulse" />
-                </div>
-
-                {/* Text content */}
-                <div className="text-left min-w-0">
-                  <span className="block text-[8px] font-black uppercase tracking-widest text-amber-400 leading-none mb-1">
-                    🔊 Voice Announcement Active
-                  </span>
-                  <h5 className="font-black text-[11px] tracking-tight uppercase leading-tight text-white truncate">
-                    WELCOME TO TS PRICE MANAGER APP
-                  </h5>
-                  <p className="text-[9px] text-gray-300 font-medium leading-none mt-1">
-                    टीएस प्राइस मैनेजर ऐप में आपका स्वागत है!
-                  </p>
-                </div>
+            <div className="flex items-center gap-3 min-w-0">
+              {/* Pulsing Voice Icon */}
+              <div className="relative shrink-0 w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                <span className="absolute inset-0 rounded-xl bg-amber-500/10 animate-ping opacity-75" />
+                <Volume2 size={18} className="animate-pulse" />
               </div>
 
-              {/* Close Button */}
-              <button
-                onClick={handleMuteWelcomeVoice}
-                className="shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                title="Close welcome pop-up"
-              >
-                <X size={14} />
-              </button>
+              {/* Text content */}
+              <div className="text-left min-w-0">
+                <span className="block text-[8px] font-black uppercase tracking-widest text-amber-400 leading-none mb-1">
+                  🔊 Voice Announcement Active
+                </span>
+                <h5 className="font-black text-[11px] tracking-tight uppercase leading-tight text-white truncate">
+                  WELCOME TO TS PRICE MANAGER
+                </h5>
+                <p className="text-[9px] text-gray-300 font-medium leading-none mt-1">
+                  टीएस प्राइस मैनेजर में आपका स्वागत है!
+                </p>
+              </div>
             </div>
 
-            {/* Bottom Actions Row */}
-            <div className="flex items-center justify-between mt-1 pt-2 border-t border-white/5 gap-2">
-              <span className="text-[8px] text-gray-400 flex items-center gap-1">
-                ↔ Swipe left/right to remove from screen
-              </span>
-              
-              {/* Sound Level Multi-functional Button */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleCycleSoundLevel();
-                }}
-                className={cn(
-                  "shrink-0 flex items-center gap-1.5 py-1.5 px-3 rounded-xl text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all active:scale-95 shadow-md",
-                  welcomeSoundLevel === 'high' && "bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500 hover:text-white",
-                  welcomeSoundLevel === 'medium' && "bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500 hover:text-white",
-                  welcomeSoundLevel === 'low' && "bg-gray-500/20 text-gray-400 border border-gray-500/30 hover:bg-gray-500 hover:text-white",
-                  welcomeSoundLevel === 'muted' && "bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:bg-rose-500 hover:text-white"
-                )}
-                title="Click to cycle voice level: Full -> Reduced -> Low -> Muted"
-              >
-                {welcomeSoundLevel === 'high' && <Volume2 size={11} />}
-                {welcomeSoundLevel === 'medium' && <Volume2 size={11} className="opacity-80" />}
-                {welcomeSoundLevel === 'low' && <Volume2 size={11} className="opacity-60" />}
-                {welcomeSoundLevel === 'muted' && <VolumeX size={11} />}
-                <span>
-                  {welcomeSoundLevel === 'high' && "Vol: Max"}
-                  {welcomeSoundLevel === 'medium' && "Vol: Med"}
-                  {welcomeSoundLevel === 'low' && "Vol: Low"}
-                  {welcomeSoundLevel === 'muted' && "Muted"}
-                </span>
-              </button>
-            </div>
+            {/* Mute Button */}
+            <button
+              onClick={handleMuteWelcomeVoice}
+              className="shrink-0 flex items-center gap-1.5 py-2 px-3.5 rounded-xl bg-rose-500/10 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/20 hover:border-rose-500/30 text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all active:scale-95 shadow-md shadow-rose-950/20"
+            >
+              <VolumeX size={12} />
+              <span>Mute</span>
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -6670,6 +6540,172 @@ export default function App() {
         isOpen={showPermissionsCenter} 
         onClose={() => setShowPermissionsCenter(false)} 
       />
+
+      {/* ☁️ Custom Google Drive Restore Picker Modal */}
+      <AnimatePresence>
+        {showDriveRestoreModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              transition={{ type: "spring", duration: 0.4 }}
+              className="w-full max-w-2xl bg-[#090e17] border border-emerald-500/20 rounded-[2rem] overflow-hidden shadow-2xl flex flex-col max-h-[85vh]"
+            >
+              {/* Header */}
+              <div className="p-6 border-b border-emerald-500/10 flex items-center justify-between bg-gradient-to-r from-emerald-950/20 to-transparent">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-2xl bg-emerald-500/10 text-emerald-400">
+                    <Cloud size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black uppercase tracking-wider text-white">Google Drive Backup Restore</h3>
+                    <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest mt-0.5">गूगल ड्राइव बैकअप रीस्टोर</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowDriveRestoreModal(false)}
+                  className="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-xl transition-colors cursor-pointer"
+                >
+                  <ArrowLeft size={18} />
+                </button>
+              </div>
+
+              {/* Search & Refresh */}
+              <div className="px-6 py-4 border-b border-emerald-500/10 flex gap-3 items-center bg-emerald-950/5">
+                <div className="relative flex-1">
+                  <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search backup file name... (बैकअप फ़ाइल खोजें...)"
+                    className="w-full pl-10 pr-4 py-2.5 bg-[#0e1622] text-sm text-white rounded-xl border border-emerald-500/10 focus:border-emerald-500/30 outline-none placeholder-gray-500 font-medium"
+                    id="drive-backup-search"
+                    onChange={(e) => {
+                      const query = e.target.value.toLowerCase();
+                      const items = document.querySelectorAll('.drive-backup-item');
+                      items.forEach((item: any) => {
+                        const name = item.dataset.filename.toLowerCase();
+                        if (name.includes(query)) {
+                          item.style.display = 'flex';
+                        } else {
+                          item.style.display = 'none';
+                        }
+                      });
+                    }}
+                  />
+                </div>
+                <button
+                  onClick={handleRestoreFromDrive}
+                  disabled={driveBackupsLoading}
+                  className="p-3 text-emerald-400 hover:text-white bg-emerald-500/5 hover:bg-emerald-500/20 border border-emerald-500/10 hover:border-emerald-500/30 rounded-xl transition-all disabled:opacity-50 cursor-pointer active:scale-95"
+                  title="Refresh Backups / रिफ्रेश करें"
+                >
+                  <RefreshCw size={16} className={driveBackupsLoading ? "animate-spin" : ""} />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar">
+                {driveAuthPending ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
+                    <div className="p-4 rounded-full bg-amber-500/10 text-amber-400 animate-pulse">
+                      <ShieldCheck size={36} />
+                    </div>
+                    <div className="max-w-md">
+                      <h4 className="text-sm font-black uppercase text-white tracking-wider">Authorize Google Drive Connection</h4>
+                      <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+                        A secure Google login popup has been requested. Please look for the popup window and allow authorization to load your backups.
+                      </p>
+                      <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest mt-1">
+                        सुरक्षित गूगल लॉगिन पॉपअप खुला है। कृपया पॉपअप अनुमति दें और लॉगिन पूर्ण करें।
+                      </p>
+                    </div>
+                    <Button 
+                      onClick={handleRestoreFromDrive} 
+                      className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-black font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg active:scale-95"
+                    >
+                      Open Sign-In Popup Again
+                    </Button>
+                  </div>
+                ) : driveBackupsLoading && driveBackupsList.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 space-y-4">
+                    <RefreshCw className="text-emerald-400 animate-spin" size={32} />
+                    <p className="text-xs font-black uppercase tracking-widest text-emerald-400 animate-pulse">Loading Backups from Google Drive...</p>
+                  </div>
+                ) : driveBackupsList.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
+                    <div className="p-4 rounded-full bg-rose-500/10 text-rose-400">
+                      <AlertCircle size={32} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-black uppercase text-white">No Backup Files Found</p>
+                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
+                        Make sure you have created a backup under "TS Price Manager Backups" folder.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-3">
+                      Showing {driveBackupsList.length} JSON Backup Files. Click a file to restore.
+                    </p>
+                    {driveBackupsList.map((file) => {
+                      const formattedDate = file.createdTime ? new Date(file.createdTime).toLocaleString() : 'Unknown Date';
+                      const formattedSize = file.size ? `${(parseInt(file.size) / 1024).toFixed(1)} KB` : 'N/A';
+                      return (
+                        <div
+                          key={file.id}
+                          className="drive-backup-item flex items-center justify-between p-4 bg-[#0e1622] hover:bg-emerald-500/5 border border-emerald-500/10 hover:border-emerald-500/30 rounded-2xl cursor-pointer transition-all hover:translate-x-1 group"
+                          data-filename={file.name}
+                          onClick={() => handleSelectDriveBackupFile(file.id, file.name)}
+                        >
+                          <div className="flex items-center gap-3.5 min-w-0">
+                            <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 group-hover:bg-emerald-500 group-hover:text-black transition-colors shrink-0">
+                              <FileText size={16} />
+                            </div>
+                            <div className="min-w-0">
+                              <h4 className="text-xs font-bold text-white truncate max-w-md group-hover:text-emerald-300 transition-colors">
+                                {file.name}
+                              </h4>
+                              <div className="flex items-center gap-3 text-[9px] text-gray-400 font-medium uppercase tracking-widest mt-1.5">
+                                <span className="flex items-center gap-1">
+                                  📅 {formattedDate}
+                                </span>
+                                <span className="h-1 w-1 rounded-full bg-emerald-500/30" />
+                                <span className="flex items-center gap-1 text-emerald-400 font-bold">
+                                  📦 {formattedSize}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <button
+                            className="py-1.5 px-3 rounded-lg bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-black text-[9px] font-black uppercase tracking-wider transition-all"
+                          >
+                            Restore
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="p-6 border-t border-emerald-500/10 bg-[#070b12] text-center">
+                <p className="text-[9px] text-gray-500 font-black uppercase tracking-widest leading-relaxed">
+                  🔒 Connection is 100% secured via Google OAuth. Restoring will replace local inventory, pricing and settings.
+                </p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Menu / Settings Overlay Drawer */}
       <AnimatePresence>

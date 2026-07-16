@@ -34,7 +34,7 @@ import {
 import { auth } from '../firebase';
 
 interface LoginScreenProps {
-  onGoogleLogin: (isAdminRequested?: boolean) => Promise<void>;
+  onGoogleLogin: () => Promise<void>;
   onGuestLogin: () => void;
   settings: AppSettings;
 }
@@ -42,19 +42,6 @@ interface LoginScreenProps {
 export function LoginScreen({ onGoogleLogin, onGuestLogin, settings }: LoginScreenProps) {
   const [isLoggingInGoogle, setIsLoggingInGoogle] = useState(false);
   const [isLoggingInGuest, setIsLoggingInGuest] = useState(false);
-
-  // Secure Admin Gesture States
-  const [isAdminPortalActive, setIsAdminPortalActive] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const path = window.location.pathname.toLowerCase().replace(/\/$/, '');
-      const hash = window.location.hash.toLowerCase();
-      const params = new URLSearchParams(window.location.search);
-      return path === '/admin' || hash === '#/admin' || params.get('route') === 'admin';
-    }
-    return false;
-  });
-  const [adminClickCount, setAdminClickCount] = useState(0);
-  const [adminToast, setAdminToast] = useState<string | null>(null);
 
   // Advanced Auth System states
   const [authMode, setAuthMode] = useState<'options' | 'login' | 'register' | 'forgot'>('options');
@@ -194,43 +181,13 @@ export function LoginScreen({ onGoogleLogin, onGuestLogin, settings }: LoginScre
     }
   };
 
-  // --- Secure Admin Click Trigger ---
-  const handleLogoClick = () => {
-    setAdminClickCount(prev => {
-      const next = prev + 1;
-      if (next >= 3) {
-        setIsAdminPortalActive(true);
-        setAdminToast("🔐 ADMIN SECURITY PORTAL ACTIVATED!");
-        setTimeout(() => setAdminToast(null), 4000);
-        try {
-          if (navigator.vibrate) {
-            navigator.vibrate([100, 50, 100]);
-          }
-        } catch (e) {}
-        return 0; // reset
-      } else {
-        setAdminToast(`🔑 Operator Link: Click registered (${next}/3)`);
-        // clear after 2.5s
-        setTimeout(() => {
-          setAdminToast(curr => curr?.includes(`(${next}/3)`) ? null : curr);
-        }, 2500);
-        try {
-          if (navigator.vibrate) {
-            navigator.vibrate(40);
-          }
-        } catch (e) {}
-      }
-      return next;
-    });
-  };
-
   // Retrieve previously logged-in email, defaulting to the custom user email for high-end preview look
   const previousEmail = localStorage.getItem('ts_last_logged_in_email') || 'stalha2110@gmail.com';
 
   const handleGoogleClick = async () => {
     setIsLoggingInGoogle(true);
     try {
-      await onGoogleLogin(isAdminPortalActive);
+      await onGoogleLogin();
     } catch (err) {
       console.error(err);
     } finally {
@@ -354,6 +311,14 @@ export function LoginScreen({ onGoogleLogin, onGuestLogin, settings }: LoginScre
       >
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
+            {/* Unconstrained logo with premium shadowless render */}
+            <img 
+              src={logoTSPM} 
+              alt="TS Price Manager Logo" 
+              className="h-10 md:h-12 w-auto object-contain transition-transform duration-300 hover:scale-110" 
+              referrerPolicy="no-referrer"
+            />
+            <div className="h-5 w-px bg-slate-200" />
             <h1 className="text-sm md:text-base font-black uppercase tracking-wider text-slate-900 leading-none">
               TS Price Manager
             </h1>
@@ -363,48 +328,9 @@ export function LoginScreen({ onGoogleLogin, onGuestLogin, settings }: LoginScre
             <span className="hidden sm:inline-flex items-center gap-1.5 bg-slate-100 text-slate-600 rounded-full px-3.5 py-1 text-[9px] font-mono font-extrabold border border-slate-200/60">
               SECURE SESSION
             </span>
-            <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 rounded-full px-3 py-1 text-[10px] font-mono font-bold text-indigo-700 shadow-sm mr-1">
+            <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 rounded-full px-3 py-1 text-[10px] font-mono font-bold text-indigo-700 shadow-sm">
               <span className="h-1.5 w-1.5 rounded-full bg-indigo-600 animate-pulse" />
               <span>v3.5.0</span>
-            </div>
-            {/* Operator gateway progress dots */}
-            <AnimatePresence>
-              {adminClickCount > 0 && (
-                <motion.div 
-                  initial={{ opacity: 0, x: 10, scale: 0.9 }}
-                  animate={{ opacity: 1, x: 0, scale: 1 }}
-                  exit={{ opacity: 0, x: 10, scale: 0.9 }}
-                  className="flex items-center gap-1.5 bg-slate-900 text-white border border-slate-800 px-2.5 py-1 rounded-full text-[9px] font-mono font-bold mr-1 shadow-sm"
-                >
-                  <span className="uppercase tracking-widest text-[8px] text-slate-400">GATEWAY</span>
-                  <div className="flex items-center gap-1">
-                    <span className={`h-1.5 w-1.5 rounded-full transition-all duration-300 ${adminClickCount >= 1 ? 'bg-pink-500 shadow-[0_0_8px_#ec4899]' : 'bg-slate-700'}`} />
-                    <span className={`h-1.5 w-1.5 rounded-full transition-all duration-300 ${adminClickCount >= 2 ? 'bg-pink-500 shadow-[0_0_8px_#ec4899]' : 'bg-slate-700'}`} />
-                    <span className={`h-1.5 w-1.5 rounded-full transition-all duration-300 ${adminClickCount >= 3 ? 'bg-pink-500 shadow-[0_0_8px_#ec4899]' : 'bg-slate-700'}`} />
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* The Logo at the top bar right corner */}
-            <div className="relative">
-              <motion.img 
-                key={`logo-click-${adminClickCount}`}
-                src={logoTSPM} 
-                alt="TS Price Manager Logo" 
-                className="h-10 md:h-12 w-auto object-contain cursor-pointer select-none" 
-                referrerPolicy="no-referrer"
-                onClick={handleLogoClick}
-                initial={{ scale: 0.9, rotate: -5 }}
-                animate={{ scale: 1, rotate: 0 }}
-                whileHover={{ scale: 1.1, rotate: 3 }}
-                whileTap={{ scale: 0.85, rotate: -10 }}
-                transition={{ type: "spring", stiffness: 400, damping: 12 }}
-              />
-              {/* Ripple Ring Effect on Click */}
-              {adminClickCount > 0 && (
-                <span className="absolute -inset-1 rounded-full border border-pink-500/30 animate-ping pointer-events-none" />
-              )}
             </div>
           </div>
         </div>
@@ -470,115 +396,35 @@ export function LoginScreen({ onGoogleLogin, onGuestLogin, settings }: LoginScre
             <motion.div 
               animate={{ y: [0, -6, 0] }}
               transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
-              className={`rounded-[2.5rem] p-8 md:p-10 relative overflow-hidden transition-all duration-500 ${
-                isAdminPortalActive 
-                  ? 'bg-slate-950 border border-indigo-500/50 shadow-[0_0_50px_rgba(99,102,241,0.25)]' 
-                  : 'bg-white border border-slate-200 shadow-[0_20px_50px_rgba(15,23,42,0.04)]'
-              }`}
+              className="bg-white border border-slate-200 shadow-[0_20px_50px_rgba(15,23,42,0.04)] rounded-[2.5rem] p-8 md:p-10 relative overflow-hidden"
             >
               {/* Modern Top Horizontal Subtle Accent line */}
-              <div className={`absolute top-0 left-0 right-0 h-1.5 transition-all duration-500 ${
-                isAdminPortalActive 
-                  ? 'bg-gradient-to-r from-indigo-600 via-pink-600 to-indigo-500' 
-                  : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-teal-400'
-              }`} />
+              <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-teal-400" />
               
               <div className="space-y-7">
                 
                 {/* App Logo & Corporate Identity - Perfect display, unconstrained and with label below */}
-                <div className="flex flex-col items-center justify-center pt-2 relative">
+                <div className="flex flex-col items-center justify-center pt-2">
                   <motion.img 
                     src={logoTSPM} 
                     alt="TS Price Manager Logo" 
-                    className="h-24 w-auto object-contain select-none relative z-10"
+                    className="h-24 w-auto object-contain select-none"
                     referrerPolicy="no-referrer"
                     whileHover={{ scale: 1.05, rotate: 2 }}
                     transition={{ type: "spring", stiffness: 300, damping: 15 }}
                   />
                   
                   {/* Brand Identifier */}
-                  <h2 className={`text-2xl font-black uppercase tracking-tight mt-4.5 leading-none transition-colors duration-500 ${
-                    isAdminPortalActive ? 'text-white' : 'text-slate-950'
-                  }`}>
-                    {isAdminPortalActive ? "SECURE ADMIN" : "TS Price Manager"}
+                  <h2 className="text-2xl font-black uppercase tracking-tight text-slate-950 mt-4.5 leading-none">
+                    TS Price Manager
                   </h2>
-                  <p className={`text-[10px] font-extrabold uppercase tracking-widest mt-2 transition-colors duration-500 ${
-                    isAdminPortalActive ? 'text-indigo-400' : 'text-indigo-600'
-                  }`}>
-                    {isAdminPortalActive ? "OPERATOR GATEWAY v2.2" : "Enterprise Suite"}
+                  <p className="text-[10px] font-extrabold text-indigo-600 uppercase tracking-widest mt-2">
+                    Enterprise Suite
                   </p>
                 </div>
 
                 <AnimatePresence mode="wait">
-                  {isAdminPortalActive ? (
-                    <motion.div
-                      key="admin-portal"
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      className="space-y-6"
-                    >
-                      {/* Security Status Badge */}
-                      <div className="flex justify-center">
-                        <div className="inline-flex items-center gap-1.5 bg-indigo-500/10 border border-indigo-500/30 rounded-full px-4 py-1.5 text-[9px] font-black uppercase tracking-widest text-indigo-400 shadow-sm font-mono">
-                          <LockKeyhole size={11} className="text-pink-500 animate-pulse" />
-                          <span>ENCRYPTED GATEWAY</span>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        {/* Whitelisted Emails info list */}
-                        <div className="bg-slate-900/60 border border-slate-900 rounded-2xl p-4.5 space-y-2 text-left">
-                          <span className="text-[8px] font-mono text-slate-500 font-bold uppercase tracking-wider block">Whitelisted System Operators</span>
-                          <div className="space-y-1.5 text-[10px] font-mono font-bold text-slate-300">
-                            <div className="flex items-center gap-2">
-                              <span className="h-1.5 w-1.5 rounded-full bg-teal-500 shrink-0" />
-                              <span>stalha2110@gmail.com</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="h-1.5 w-1.5 rounded-full bg-teal-500 shrink-0" />
-                              <span>shakirsir2122@gmail.com</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="h-1.5 w-1.5 rounded-full bg-teal-500 shrink-0" />
-                              <span>gzone212006@gmail.com</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Admin Continue with Google Button */}
-                        <button
-                          onClick={() => handleGoogleClick()}
-                          disabled={isLoggingInGoogle}
-                          className="w-full relative flex items-center justify-center gap-3 bg-indigo-600 hover:bg-indigo-500 text-white transition-all py-4 px-6 rounded-2xl cursor-pointer active:scale-95 shadow-[0_10px_30px_rgba(99,102,241,0.35)] disabled:opacity-50 disabled:pointer-events-none font-black text-xs uppercase tracking-wider"
-                        >
-                          {isLoggingInGoogle ? (
-                            <div className="h-4.5 w-4.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          ) : (
-                            <ShieldCheck size={16} className="text-teal-400 shrink-0" />
-                          )}
-                          <span>
-                            {isLoggingInGoogle ? "Verifying..." : "Authenticate Admin"}
-                          </span>
-                        </button>
-
-                        {/* Return to Merchant Login */}
-                        <button
-                          onClick={() => {
-                            setIsAdminPortalActive(false);
-                            if (typeof window !== 'undefined') {
-                              window.history.replaceState({}, document.title, '/');
-                            }
-                          }}
-                          disabled={isLoggingInGoogle}
-                          className="w-full relative flex items-center justify-center gap-2 bg-transparent hover:bg-slate-900 text-slate-400 hover:text-white border border-slate-900 transition-all font-black text-xs uppercase tracking-widest py-4 px-6 rounded-2xl cursor-pointer active:scale-95 disabled:opacity-50"
-                        >
-                          <ChevronLeft size={13} />
-                          <span>Merchant Login</span>
-                        </button>
-                      </div>
-                    </motion.div>
-                  ) : authMode === 'options' && (
+                  {authMode === 'options' && (
                     <motion.div
                       key="options"
                       initial={{ opacity: 0, y: 15 }}
@@ -1099,21 +945,6 @@ export function LoginScreen({ onGoogleLogin, onGuestLogin, settings }: LoginScre
           <span className="flex items-center gap-1.5">Offline-Capable SQL</span>
         </div>
       </motion.footer>
-
-      {/* Floating Admin Security Notification Banner */}
-      <AnimatePresence>
-        {adminToast && (
-          <motion.div
-            initial={{ opacity: 0, y: 50, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 backdrop-blur border border-slate-800 text-white font-mono text-xs font-black uppercase tracking-wider px-6 py-3.5 rounded-full shadow-[0_12px_40px_rgba(15,23,42,0.3)] flex items-center gap-2.5"
-          >
-            <div className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
-            <span>{adminToast}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
     </div>
   );
