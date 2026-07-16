@@ -28,7 +28,8 @@ const initializeDb = () => {
   try {
     return initializeFirestore(app, {
       experimentalForceLongPolling: true,
-    }, databaseId);
+      useFetchStreams: false,
+    } as any, databaseId);
   } catch (e) {
     console.warn('[Firebase Init] initializeFirestore failed, falling back to getFirestore:', e);
     try {

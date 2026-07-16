@@ -1,5 +1,5 @@
-import { getCachedAccessToken, auth } from '../firebase';
-import { GoogleAuthProvider, signInWithPopup, linkWithPopup, reauthenticateWithPopup } from 'firebase/auth';
+import { loadGsiScript } from './googleDriveService';
+import firebaseConfig from '../../firebase-applet-config.json';
 
 export interface GoogleContact {
   id: string;
@@ -23,60 +23,58 @@ export function getIndependentContactsToken(): string | null {
 export function requestIndependentContactsToken(): Promise<{ accessToken: string; email?: string }> {
   return new Promise(async (resolve, reject) => {
     try {
-      const provider = new GoogleAuthProvider();
-      provider.addScope('https://www.googleapis.com/auth/contacts.readonly');
-      provider.addScope('https://www.googleapis.com/auth/userinfo.email');
+      await loadGsiScript();
+      const g = window as any;
+      if (!g.google || !g.google.accounts || !g.google.accounts.oauth2) {
+        throw new Error("Google Identity Services library is not loaded.");
+      }
 
-      let result;
-      const currentUser = auth.currentUser;
-
-      if (currentUser && currentUser.uid !== 'guest_user') {
-        // Safe Session-Preserving Google Auth Linking
-        try {
-          console.log("[Contacts OAuth] Attempting to link Google Contacts scopes to current user...");
-          result = await linkWithPopup(currentUser, provider);
-        } catch (linkErr: any) {
-          console.warn("[Contacts OAuth] linkWithPopup failed, attempting reauthenticateWithPopup...", linkErr);
-          if (linkErr.code === 'auth/provider-already-linked' || linkErr.code === 'auth/credential-already-in-use') {
-            try {
-              result = await reauthenticateWithPopup(currentUser, provider);
-            } catch (reauthErr) {
-              console.warn("[Contacts OAuth] reauthenticateWithPopup failed, falling back to signInWithPopup...", reauthErr);
-              result = await signInWithPopup(auth, provider);
-            }
-          } else {
-            console.warn("[Contacts OAuth] linkWithPopup failed with other error, falling back to signInWithPopup...");
-            result = await signInWithPopup(auth, provider);
+      const client = g.google.accounts.oauth2.initTokenClient({
+        client_id: firebaseConfig.oAuthClientId,
+        scope: 'https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/userinfo.email',
+        callback: async (response: any) => {
+          if (response.error) {
+            reject(new Error(response.error_description || response.error));
+            return;
           }
+          const accessToken = response.access_token;
+          if (!accessToken) {
+            reject(new Error("Failed to retrieve access token from Google sign-in."));
+            return;
+          }
+
+          let email: string | undefined;
+          try {
+            const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+              headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            if (userRes.ok) {
+              const userData = await userRes.json();
+              email = userData.email;
+            }
+          } catch (e) {
+            console.warn("[Contacts GSI] Failed to retrieve email:", e);
+          }
+
+          if (email) {
+            localStorage.setItem('ts_google_contacts_email', email);
+            window.dispatchEvent(new Event('ts_contacts_email_changed'));
+          }
+
+          localStorage.setItem('ts_google_contacts_token', accessToken);
+          localStorage.setItem('ts_google_contacts_token_expiry', String(Date.now() + 3500 * 1000)); // 1 hour
+
+          resolve({ accessToken, email });
+        },
+        error_callback: (err: any) => {
+          reject(new Error(err?.message || "Google flow failed or popup blocked."));
         }
-      } else {
-        // For guest/new sessions, use direct signInWithPopup
-        result = await signInWithPopup(auth, provider);
-      }
+      });
 
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (!credential?.accessToken) {
-        reject(new Error("Failed to get Google Access Token from Firebase auth popup. (फायरबेस ऑथ पॉपअप से गूगल एक्सेस टोकन प्राप्त करने में असमर्थ।)"));
-        return;
-      }
-
-      const accessToken = credential.accessToken;
-      const email = result.user.email || undefined;
-
-      if (email) {
-        localStorage.setItem('ts_google_contacts_email', email);
-        // Also dispatch an event so that components can refresh immediately
-        window.dispatchEvent(new Event('ts_contacts_email_changed'));
-      }
-
-      // Cache the independent token
-      localStorage.setItem('ts_google_contacts_token', accessToken);
-      localStorage.setItem('ts_google_contacts_token_expiry', String(Date.now() + 3500 * 1000)); // 1 hour expiry
-
-      resolve({ accessToken, email });
+      client.requestAccessToken({ prompt: 'consent' });
     } catch (err: any) {
-      console.error("Firebase popup authentication failed for Contacts:", err);
-      reject(new Error(err?.message || "Google Authentication failed. Please check permissions and popups."));
+      console.error("[Contacts GSI] auth initialization failed:", err);
+      reject(new Error(err?.message || "Google Authentication initialization failed."));
     }
   });
 }

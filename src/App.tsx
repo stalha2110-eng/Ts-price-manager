@@ -43,6 +43,8 @@ import {
   Cloud,
   CheckCircle2,
   AlertCircle,
+  ExternalLink,
+  FolderOpen,
   Package,
   Weight,
   Hash,
@@ -1363,7 +1365,7 @@ export default function App() {
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [showManageCategories, setShowManageCategories] = useState(false);
   const [showVoiceAssistant, setShowVoiceAssistant] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(false);
   const [isAuthResolving, setIsAuthResolving] = useState(true);
   const [hoveredAction, setHoveredAction] = useState<string | null>(null);
 
@@ -2503,22 +2505,107 @@ export default function App() {
     }
   };
 
+  const syncImportedDataToCloud = async (
+    uid: string, 
+    data: {
+      items?: Item[];
+      notes?: Note[];
+      bills?: Bill[];
+      udharCustomers?: UdharCustomer[];
+      udharTransactions?: UdharTransaction[];
+      settings?: AppSettings;
+    }
+  ) => {
+    addToast("Saving imported data to your secure cloud account... (आयात किया गया डेटा क्लाउड पर सुरक्षित किया जा रहा है...)", "info");
+    
+    try {
+      const promises: Promise<void>[] = [];
+
+      if (data.settings) {
+        promises.push(
+          setDoc(doc(db, 'users', uid), sanitizeForFirestore(data.settings), { merge: true })
+            .catch(err => console.error("Error syncing settings on import:", err))
+        );
+      }
+
+      if (data.items && data.items.length > 0) {
+        data.items.forEach(item => {
+          promises.push(
+            setDoc(doc(db, 'users', uid, 'items', item.id), sanitizeForFirestore(item), { merge: true })
+              .catch(err => console.error("Error syncing item on import:", err))
+          );
+        });
+      }
+
+      if (data.notes && data.notes.length > 0) {
+        data.notes.forEach(note => {
+          promises.push(
+            setDoc(doc(db, 'users', uid, 'notes', note.id), sanitizeForFirestore(note), { merge: true })
+              .catch(err => console.error("Error syncing note on import:", err))
+          );
+        });
+      }
+
+      if (data.bills && data.bills.length > 0) {
+        data.bills.forEach(bill => {
+          promises.push(
+            setDoc(doc(db, 'users', uid, 'bills', bill.id), sanitizeForFirestore(bill), { merge: true })
+              .catch(err => console.error("Error syncing bill on import:", err))
+          );
+        });
+      }
+
+      if (data.udharCustomers && data.udharCustomers.length > 0) {
+        data.udharCustomers.forEach(cust => {
+          promises.push(
+            setDoc(doc(db, 'users', uid, 'udharCustomers', cust.id), sanitizeForFirestore(cust), { merge: true })
+              .catch(err => console.error("Error syncing customer on import:", err))
+          );
+        });
+      }
+
+      if (data.udharTransactions && data.udharTransactions.length > 0) {
+        data.udharTransactions.forEach(tx => {
+          promises.push(
+            setDoc(doc(db, 'users', uid, 'udharTransactions', tx.id), sanitizeForFirestore(tx), { merge: true })
+              .catch(err => console.error("Error syncing transaction on import:", err))
+          );
+        });
+      }
+
+      await Promise.all(promises);
+      addToast("Cloud backup complete! Your data is fully secured in your account. (क्लाउड बैकअप पूर्ण! आपका डेटा आपके खाते में पूरी तरह सुरक्षित है।)", "success");
+    } catch (err) {
+      console.error("Cloud synchronization on import failed:", err);
+      addToast("Local import succeeded, but cloud synchronization failed. We will retry syncing in the background. (स्थानीय आयात सफल रहा, लेकिन क्लाउड सिंक्रनाइज़ेशन विफल रहा।)", "warning");
+    }
+  };
+
   const importData = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
         if (json.items && Array.isArray(json.items)) {
-          if (confirm('Importing will merge with current data. Proceed?')) {
-            setState(prev => ({ ...prev, items: deduplicateById([...prev.items, ...json.items]) }));
-            alert('Import successful!');
+          if (confirm('Importing will merge with current data. Proceed? (डेटा आयात करने से वर्तमान डेटा मर्ज हो जाएगा। क्या आप जारी रखना चाहते हैं?)')) {
+            const mergedItems = deduplicateById([...state.items, ...json.items]);
+            
+            // If logged in, sync the newly imported items to cloud
+            if (state.user && state.user.uid !== 'guest_user') {
+              await syncImportedDataToCloud(state.user.uid, { items: json.items });
+            }
+
+            setState(prev => ({ ...prev, items: mergedItems }));
+            addToast('Import successful! / डेटा सफलतापूर्वक आयात किया गया!', 'success');
           }
+        } else {
+          addToast('Invalid file format. Please upload a valid JSON backup. (अमान्य फ़ाइल स्वरूप। कृपया मान्य बैकअप अपलोड करें।)', 'error');
         }
       } catch (err) {
-        alert('Invalid file format. Please upload a valid JSON backup.');
+        addToast('Invalid file format. Please upload a valid JSON backup.', 'error');
       }
     };
     reader.readAsText(file);
@@ -2539,88 +2626,158 @@ export default function App() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
         if (json.settings && json.items) {
-          if (confirm('Restoring will overwrite current settings and items. Proceed?')) {
-            setState(json);
-            alert('System Restored!');
+          if (confirm('Restoring will overwrite current settings and items. Proceed? (डेटा रीस्टोर करने से आपका वर्तमान डेटा ओवरराइट हो जाएगा। क्या आप जारी रखना चाहते हैं?)')) {
+            
+            // Preserve the logged-in user in state
+            const currentUser = state.user;
+            const restoredState: AppState = {
+              ...json,
+              user: currentUser, // Retain logged-in user session
+            };
+
+            // If user is currently logged in, sync all restored backup data to the cloud
+            if (currentUser && currentUser.uid !== 'guest_user') {
+              await syncImportedDataToCloud(currentUser.uid, {
+                settings: json.settings,
+                items: json.items,
+                notes: json.notes || [],
+                bills: json.bills || [],
+                udharCustomers: json.udharCustomers || [],
+                udharTransactions: json.udharTransactions || [],
+              });
+            }
+
+            setState(restoredState);
+            addToast('System Restored successfully! / बैकअप सफलतापूर्वक रीस्टोर किया गया!', 'success');
           }
+        } else {
+          addToast('Invalid backup file. (अमान्य बैकअप फ़ाइल।)', 'error');
         }
       } catch (err) {
-        alert('Invalid backup file.');
+        addToast('Invalid backup file.', 'error');
       }
     };
     reader.readAsText(file);
   };
 
+  const closeDriveRestoreModal = () => {
+    setShowDriveRestoreModal(false);
+    // Explicitly clean up any stuck Google Picker iframe/div overlays created by Google's native API
+    const dialogs = document.querySelectorAll('.picker-dialog, .picker-dialog-bg, [class*="picker-dialog"]');
+    dialogs.forEach((el) => {
+      try { el.remove(); } catch (e) {}
+    });
+  };
+
   const handleRestoreFromDrive = async () => {
-    // 1. Dynamic Pre-authentication Check to prevent silent hanging or frozen loads
+    // 1. Show modal instantly for prime responsiveness
+    setShowDriveRestoreModal(true);
+    setDriveBackupsLoading(true);
+    setDriveBackupsList([]);
+
+    // 2. Dynamic Pre-authentication Check to prevent silent hanging or frozen loads
     const hasToken = getIndependentDriveToken();
     if (!hasToken) {
-      setShowDriveRestoreModal(true);
       setDriveAuthPending(true);
-      setDriveBackupsLoading(true);
-      setDriveBackupsList([]);
       addToast("Connecting to Google Drive... Please authorize in the secure popup window. (गूगल ड्राइव से जुड़ रहे हैं... कृपया पॉपअप विंडो में अनुमति दें।)", "info");
       try {
         await requestIndependentDriveToken();
         addToast("Google Drive Connected successfully! (गूगल ड्राइव सफलतापूर्वक कनेक्ट हो गया!)", "success");
+        setDriveAuthPending(false);
       } catch (authErr: any) {
         console.error("[Drive Restore] Auth flow failed:", authErr);
         addToast(`Google authentication failed: ${authErr?.message || authErr}`, "error");
+        setDriveAuthPending(false);
         setDriveBackupsLoading(false);
-        setDriveAuthPending(false);
         return;
-      } finally {
-        setDriveAuthPending(false);
       }
     }
 
-    // 2. Dual-Path: Attempt to launch native Google Picker first (optimized and fixed)
-    addToast("Opening Google Drive file selector... (गूगल ड्राइव फाइल पिकर खुल रहा है...)", "info");
+    // 3. Load custom in-app backups list (extremely reliable, never blocked by iframe sandboxing)
     try {
-      const pickedFile = await GoogleDriveService.openFilePicker('application/json');
+      const files = await GoogleDriveService.listBackupFiles('application/json');
+      setDriveBackupsList(files);
+      if (files.length > 0) {
+        addToast("Available backups fetched successfully! (बैकअप सूची सफलतापूर्वक प्राप्त हुई!)", "success");
+      }
+    } catch (error: any) {
+      console.error("[Drive Restore] Custom backups list fetch failed:", error);
+      addToast(`Failed to retrieve backups list: ${error?.message || error}`, "error");
+    } finally {
+      setDriveBackupsLoading(false);
+    }
+  };
+
+  const handleOpenNativePicker = async () => {
+    addToast("Opening Google Drive file selector... (गूगल ड्राइव फाइल पिकर खुल रहा है...)", "info");
+    // Clean up any existing leftover picker elements first
+    const dialogs = document.querySelectorAll('.picker-dialog, .picker-dialog-bg, [class*="picker-dialog"]');
+    dialogs.forEach((el) => {
+      try { el.remove(); } catch (e) {}
+    });
+
+    try {
+      // Set a safety timeout - if picker is stuck/frozen, don't keep our app UI state frozen
+      const pickerPromise = GoogleDriveService.openFilePicker('application/json');
+      const timeoutPromise = new Promise<null>((_, reject) => 
+        setTimeout(() => reject(new Error("Picker timeout")), 12000)
+      );
+
+      const pickedFile = await Promise.race([pickerPromise, timeoutPromise]);
       if (pickedFile) {
         addToast(`Downloading chosen backup: ${pickedFile.name}... (बैकअप डाउनलोड हो रहा है...)`, "info");
         const fileData = await GoogleDriveService.downloadFileContent(pickedFile.id);
         
         if (fileData && fileData.settings && fileData.items) {
-          setState(fileData);
-          setShowDriveRestoreModal(false);
+          // Preserve current logged-in user
+          const currentUser = state.user;
+          const restoredState: AppState = {
+            ...fileData,
+            user: currentUser, // Retain logged-in user session
+          };
+
+          // Sync downloaded backup to the cloud if logged in
+          if (currentUser && currentUser.uid !== 'guest_user') {
+            await syncImportedDataToCloud(currentUser.uid, {
+              settings: fileData.settings,
+              items: fileData.items,
+              notes: fileData.notes || [],
+              bills: fileData.bills || [],
+              udharCustomers: fileData.udharCustomers || [],
+              udharTransactions: fileData.udharTransactions || [],
+            });
+          }
+
+          setState(restoredState);
+          closeDriveRestoreModal();
           addToast('System Restored successfully from Google Drive! / गूगल ड्राइव से बैकअप सफलतापूर्वक रीस्टोर हुआ!', 'success');
         } else {
           addToast('The selected file does not appear to be a valid backup file. (चुनी गई फ़ाइल मान्य बैकअप फ़ाइल नहीं है।)', 'error');
         }
-        return; // Complete flow successfully using Native Picker!
       } else {
-        // User closed or cancelled the picker
-        addToast("Native picker closed. Showing custom backups list. (नेटिव पिकर बंद हुआ। कस्टम बैकअप सूची दिखाई जा रही है।)", "info");
+        addToast("Dismissed Google Picker. (गूगल पिकर बंद किया गया।)", "info");
       }
     } catch (pickerErr: any) {
       console.warn("[Drive Restore] Native Google Picker failed or was blocked by iframe container:", pickerErr);
-      addToast("Native picker blocked or unsupported in current view. Falling back to custom backup list! (पूर्वावलोकन में नेटिव पिकर ब्लॉक है। कस्टम बैकअप सूची दिखाई जा रही है!)", "info");
-    }
-
-    // 3. Fallback Path: Load custom file backup list modal inside the app as a robust fallback
-    setShowDriveRestoreModal(true);
-    setDriveBackupsLoading(true);
-    setDriveBackupsList([]);
-    try {
-      const files = await GoogleDriveService.listBackupFiles('application/json');
-      setDriveBackupsList(files);
-    } catch (error: any) {
-      console.error(error);
-      addToast(`Failed to fetch backups from Google Drive: ${error?.message || error}`, "error");
-    } finally {
-      setDriveBackupsLoading(false);
-      setDriveAuthPending(false);
+      if (pickerErr?.message === "Picker timeout") {
+        addToast("Native picker is taking too long to load. Please use the In-App Backup list below! (गूगल पिकर रिस्पांस नहीं कर रहा है। कृपया नीचे दी गई इन-एप लिस्ट से सीधे रीस्टोर करें!)", "warning");
+      } else {
+        addToast("Native picker blocked or unsupported. Use the In-App Backup list! (नेटिव पिकर ब्लॉक है। नीचे दी गई लिस्ट का उपयोग करें!)", "info");
+      }
+      // Clean up the DOM to remove stuck thin white background
+      const leftOverDialogs = document.querySelectorAll('.picker-dialog, .picker-dialog-bg, [class*="picker-dialog"]');
+      leftOverDialogs.forEach((el) => {
+        try { el.remove(); } catch (e) {}
+      });
     }
   };
 
   const handleSelectDriveBackupFile = async (fileId: string, fileName: string) => {
-    if (!confirm(`Restoring from Google Drive file '${fileName}' will overwrite your current settings and items. Proceed? (गूगल ड्राइव फ़ाइल से रीस्टोर करने पर आपका वर्तमान डेटा ओवरराइट हो जाएगा। क्या आप जारी रखना चाहते हैं?)`)) {
+    if (!confirm(`Restoring from Google Drive file '${fileName}' will overwrite your current settings and items. Proceed? (गूगल ड्राइव फ़ाइल से रीस्टोर करने पर आपका वर्तमान डेटा ओवरрайट हो जाएगा। क्या आप जारी रखना चाहते हैं?)`)) {
       return;
     }
     
@@ -2629,15 +2786,34 @@ export default function App() {
       const fileData = await GoogleDriveService.downloadFileContent(fileId);
       
       if (fileData && fileData.settings && fileData.items) {
-        setState(fileData);
+        // Preserve current logged-in user
+        const currentUser = state.user;
+        const restoredState: AppState = {
+          ...fileData,
+          user: currentUser, // Retain logged-in user session
+        };
+
+        // Sync downloaded backup to the cloud if logged in
+        if (currentUser && currentUser.uid !== 'guest_user') {
+          await syncImportedDataToCloud(currentUser.uid, {
+            settings: fileData.settings,
+            items: fileData.items,
+            notes: fileData.notes || [],
+            bills: fileData.bills || [],
+            udharCustomers: fileData.udharCustomers || [],
+            udharTransactions: fileData.udharTransactions || [],
+          });
+        }
+
+        setState(restoredState);
         setShowDriveRestoreModal(false);
         addToast('System Restored successfully from Google Drive! / गूगल ड्राइव से बैकअप सफलतापूर्वक रीस्टोर हुआ!', 'success');
       } else {
-        alert('The selected file does not appear to be a valid backup file. (चुनी गई फ़ाइल मान्य बैकअप फ़ाइल नहीं है।)');
+        addToast('The selected file does not appear to be a valid backup file. (चुनी गई फ़ाइल मान्य बैकअप फ़ाइल नहीं है।)', 'error');
       }
     } catch (error: any) {
       console.error(error);
-      alert(`Failed to restore from Google Drive: ${error?.message || error}`);
+      addToast(`Failed to restore from Google Drive: ${error?.message || error}`, 'error');
     } finally {
       setDriveBackupsLoading(false);
     }
@@ -6569,7 +6745,7 @@ export default function App() {
                   </div>
                 </div>
                 <button
-                  onClick={() => setShowDriveRestoreModal(false)}
+                  onClick={closeDriveRestoreModal}
                   className="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-xl transition-colors cursor-pointer"
                 >
                   <ArrowLeft size={18} />
@@ -6611,6 +6787,50 @@ export default function App() {
 
               {/* Content */}
               <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar">
+                {window.self !== window.top && (
+                  <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-start gap-3.5 text-left mb-2">
+                    <AlertCircle size={18} className="text-amber-400 shrink-0 mt-0.5" />
+                    <div className="space-y-1.5">
+                      <h5 className="text-[10px] font-black uppercase text-amber-300 tracking-wider">
+                        Google Picker Sandbox Security Notice
+                      </h5>
+                      <p className="text-[9.5px] text-gray-300 leading-relaxed font-semibold">
+                        Since the app is currently running inside the AI Studio preview window (iframe), Google's security policy will block the <strong>Native File Picker</strong> popup.
+                      </p>
+                      <p className="text-[9.5px] text-amber-400/95 leading-normal font-bold">
+                        💡 For full Google Picker functionality, click the <strong>"Open in a new tab"</strong> button at the top-right of your preview screen, OR restore your backups instantly using our <strong>In-App Backup List</strong> shown below!
+                      </p>
+                      <p className="text-[8.5px] text-gray-400 font-medium">
+                        (गूगल सुरक्षा कारणों से प्रिव्यू विंडो में नेटिव फाइल पिकर ब्लॉक कर देता है। कृपया नए टैब में एप खोलें या नीचे दी गई इन-एप लिस्ट से सीधे रिस्टोर करें।)
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* 🔍 Manual Native Google Picker Trigger */}
+                <div className="p-4 bg-emerald-500/5 border border-emerald-500/15 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 text-left mb-2">
+                  <div className="space-y-1.5 min-w-0">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-emerald-300 flex items-center gap-2">
+                      <FolderOpen size={14} className="text-emerald-400 shrink-0" />
+                      Browse with Native Google Picker
+                    </h4>
+                    <p className="text-[9.5px] text-gray-300 leading-relaxed font-semibold">
+                      Want to search other directories or choose specific backup files manually? Open the official Google Picker.
+                    </p>
+                    <p className="text-[8.5px] text-gray-400 font-medium leading-none">
+                      (गूगल ड्राइव डायरेक्टरी ब्राउज़र खोलकर कोई भी विशिष्ट फ़ाइल सीधे चुनने के लिए यहाँ क्लिक करें।)
+                    </p>
+                  </div>
+                  <Button
+                    onClick={handleOpenNativePicker}
+                    disabled={driveBackupsLoading}
+                    className="shrink-0 px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-black font-black text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95 flex items-center gap-2 cursor-pointer"
+                  >
+                    <ExternalLink size={12} className="shrink-0" />
+                    Open Selector
+                  </Button>
+                </div>
+
                 {driveAuthPending ? (
                   <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
                     <div className="p-4 rounded-full bg-amber-500/10 text-amber-400 animate-pulse">
