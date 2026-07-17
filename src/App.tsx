@@ -4961,6 +4961,7 @@ export default function App() {
           settings={state.settings} 
           onComplete={handleOnboardingComplete}
           userEmail={state.user.email}
+          onBack={handleLogout}
         />
       </div>
     );

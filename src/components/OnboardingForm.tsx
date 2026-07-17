@@ -7,6 +7,7 @@ import {
   Sun, 
   Moon, 
   ArrowRight, 
+  ArrowLeft,
   Receipt, 
   ShieldCheck,
   CheckCircle,
@@ -26,9 +27,10 @@ interface OnboardingFormProps {
     storeClosingTime: string;
   }) => Promise<void>;
   userEmail: string | null;
+  onBack?: () => void;
 }
 
-export function OnboardingForm({ settings, onComplete, userEmail }: OnboardingFormProps) {
+export function OnboardingForm({ settings, onComplete, userEmail, onBack }: OnboardingFormProps) {
   const [storeName, setStoreName] = useState(settings.storeName || '');
   const [storeOwnerName, setStoreOwnerName] = useState(settings.storeOwnerName || '');
   const [storePhone, setStorePhone] = useState(settings.storePhone || '');
@@ -259,11 +261,21 @@ export function OnboardingForm({ settings, onComplete, userEmail }: OnboardingFo
               </div>
 
               {/* Submit Action */}
-              <div className="pt-4">
+              <div className="pt-4 flex flex-col sm:flex-row gap-3">
+                {onBack && (
+                  <button
+                    type="button"
+                    onClick={onBack}
+                    className="flex-1 h-12 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs uppercase tracking-widest rounded-2xl cursor-pointer active:scale-95 transition-all flex items-center justify-center gap-2 border border-slate-200"
+                  >
+                    <ArrowLeft size={14} />
+                    <span>Back to Login / वापस जाएं</span>
+                  </button>
+                )}
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full h-12 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-widest rounded-2xl cursor-pointer shadow-md active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  className="flex-1 h-12 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-widest rounded-2xl cursor-pointer shadow-md active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {isSubmitting ? (
                     <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
