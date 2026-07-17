@@ -2826,360 +2826,390 @@ export default function App() {
       console.log(`[Logic Bridge] shouldClearLocalPriorToMerge: ${shouldClearLocalPriorToMerge}`);
 
       const userDocRef = doc(db, 'users', uid);
-      const userDoc = await getDoc(userDocRef);
-      const userDocExists = userDoc.exists();
-      const recoveredSettings = userDocExists ? userDoc.data() : {};
-      console.log(`[Logic Bridge] Server user document exists: ${userDocExists}`, recoveredSettings);
-
-      const itemsRef = collection(db, 'users', uid, 'items');
-      const notesRef = collection(db, 'users', uid, 'notes');
-      const billsRef = collection(db, 'users', uid, 'bills');
-      const customersRef = collection(db, 'users', uid, 'udharCustomers');
-      const txsRef = collection(db, 'users', uid, 'udharTransactions');
-
-      // Fetch limit(1) of each to detect server presence efficiently
-      const [itemsSnap, notesSnap, billsSnap, customersSnap, txsSnap] = await Promise.all([
-        getDocs(query(itemsRef, limit(1))),
-        getDocs(query(notesRef, limit(1))),
-        getDocs(query(billsRef, limit(1))),
-        getDocs(query(customersRef, limit(1))),
-        getDocs(query(txsRef, limit(1)))
-      ]);
-
-      const hasServerData = userDocExists || 
-                            !itemsSnap.empty || 
-                            !notesSnap.empty || 
-                            !billsSnap.empty || 
-                            !customersSnap.empty || 
-                            !txsSnap.empty;
-
-      console.log(`[Logic Bridge] Has server data: ${hasServerData} (userDocExists: ${userDocExists}, itemsSnap.empty: ${itemsSnap.empty}, notesSnap.empty: ${notesSnap.empty}, billsSnap.empty: ${billsSnap.empty}, customersSnap.empty: ${customersSnap.empty}, txsSnap.empty: ${txsSnap.empty})`);
-
+      
+      let userDocExists = false;
+      let recoveredSettings: any = {};
+      const itemsList: Item[] = [];
+      const notesList: Note[] = [];
+      const billsList: Bill[] = [];
+      const customersList: UdharCustomer[] = [];
+      const txsList: UdharTransaction[] = [];
+      
       const currentSt = shouldClearLocalPriorToMerge ? { items: [], notes: [], bills: [], udharCustomers: [], udharTransactions: [], settings: INITIAL_SETTINGS } : latestStateRef.current;
       const isAutoSync = currentSt?.settings?.autoCloudSync !== false; // Default to true unless explicitly false
 
-      if (hasServerData) {
-        console.log("[Logic Bridge] Existing server data detected for UID:", uid);
-        
-        // Fetch all items from server
-        const itemsList: Item[] = [];
-        const fullItemsSnap = await getDocs(itemsRef);
-        console.log(`[Logic Bridge] Fetched ${fullItemsSnap.size} items from server.`);
-        fullItemsSnap.forEach(docSnap => {
-          const data = docSnap.data();
-          itemsList.push({
-            ...data,
-            id: docSnap.id,
-            translations: {
-              en: data.name || '',
-              hi: '',
-              mr: '',
-              'hi-en': '',
-              ...(data.translations || {})
-            }
-          } as Item);
-        });
+      try {
+        const userDoc = await getDoc(userDocRef);
+        userDocExists = userDoc.exists();
+        recoveredSettings = userDocExists ? userDoc.data() : {};
+        console.log(`[Logic Bridge] Server user document exists: ${userDocExists}`, recoveredSettings);
 
-        // Fetch all notes
-        const notesList: Note[] = [];
-        const fullNotesSnap = await getDocs(notesRef);
-        console.log(`[Logic Bridge] Fetched ${fullNotesSnap.size} notes from server.`);
-        fullNotesSnap.forEach(docSnap => {
-          notesList.push({ ...docSnap.data() as Note, id: docSnap.id });
-        });
+        const itemsRef = collection(db, 'users', uid, 'items');
+        const notesRef = collection(db, 'users', uid, 'notes');
+        const billsRef = collection(db, 'users', uid, 'bills');
+        const customersRef = collection(db, 'users', uid, 'udharCustomers');
+        const txsRef = collection(db, 'users', uid, 'udharTransactions');
 
-        // Fetch all bills
-        const billsList: Bill[] = [];
-        const fullBillsSnap = await getDocs(billsRef);
-        console.log(`[Logic Bridge] Fetched ${fullBillsSnap.size} bills from server.`);
-        fullBillsSnap.forEach(docSnap => {
-          const data = docSnap.data();
-          billsList.push({
-            id: docSnap.id,
-            billNumber: data.billNumber || `INV-${Date.now()}`,
-            customerName: data.customerName || '',
-            customerPhone: data.customerPhone || '',
-            items: Array.isArray(data.items) ? data.items.map((item: any) => ({
-              itemId: item.itemId || item.id || '',
-              name: item.name || '',
-              quantity: item.quantity || 0,
-              cost: item.cost || item.buyingPrice || 0,
-              price: item.price || item.retailPrice || 0,
-              unit: item.unit || 'pcs'
-            })) : [],
-            discount: typeof data.discount === 'number' ? data.discount : 0,
-            tax: typeof data.tax === 'number' ? data.tax : 0,
-            subtotal: typeof data.subtotal === 'number' ? data.subtotal : 0,
-            total: typeof data.total === 'number' ? data.total : 0,
-            paymentMethod: data.paymentMethod || 'Cash',
-            timestamp: data.timestamp || new Date().toISOString(),
-            deviceId: data.deviceId || '',
-            deviceName: data.deviceName || ''
+        // Fetch limit(1) of each to detect server presence efficiently
+        const [itemsSnap, notesSnap, billsSnap, customersSnap, txsSnap] = await Promise.all([
+          getDocs(query(itemsRef, limit(1))),
+          getDocs(query(notesRef, limit(1))),
+          getDocs(query(billsRef, limit(1))),
+          getDocs(query(customersRef, limit(1))),
+          getDocs(query(txsRef, limit(1)))
+        ]);
+
+        const hasServerData = userDocExists || 
+                              !itemsSnap.empty || 
+                              !notesSnap.empty || 
+                              !billsSnap.empty || 
+                              !customersSnap.empty || 
+                              !txsSnap.empty;
+
+        console.log(`[Logic Bridge] Has server data: ${hasServerData} (userDocExists: ${userDocExists}, itemsSnap.empty: ${itemsSnap.empty}, notesSnap.empty: ${notesSnap.empty}, billsSnap.empty: ${billsSnap.empty}, customersSnap.empty: ${customersSnap.empty}, txsSnap.empty: ${txsSnap.empty})`);
+
+        if (hasServerData) {
+          console.log("[Logic Bridge] Existing server data detected for UID:", uid);
+          
+          // Fetch all items from server
+          const fullItemsSnap = await getDocs(itemsRef);
+          console.log(`[Logic Bridge] Fetched ${fullItemsSnap.size} items from server.`);
+          fullItemsSnap.forEach(docSnap => {
+            const data = docSnap.data();
+            itemsList.push({
+              ...data,
+              id: docSnap.id,
+              translations: {
+                en: data.name || '',
+                hi: '',
+                mr: '',
+                'hi-en': '',
+                ...(data.translations || {})
+              }
+            } as Item);
           });
-        });
 
-        // Fetch all udharCustomers
-        const customersList: UdharCustomer[] = [];
-        const fullCustomersSnap = await getDocs(customersRef);
-        console.log(`[Logic Bridge] Fetched ${fullCustomersSnap.size} udharCustomers from server.`);
-        fullCustomersSnap.forEach(docSnap => {
-          customersList.push({ ...docSnap.data() as UdharCustomer, id: docSnap.id });
-        });
+          // Fetch all notes
+          const fullNotesSnap = await getDocs(notesRef);
+          console.log(`[Logic Bridge] Fetched ${fullNotesSnap.size} notes from server.`);
+          fullNotesSnap.forEach(docSnap => {
+            notesList.push({ ...docSnap.data() as Note, id: docSnap.id });
+          });
 
-        // Fetch all udharTransactions
-        const txsList: UdharTransaction[] = [];
-        const fullTxsSnap = await getDocs(txsRef);
-        console.log(`[Logic Bridge] Fetched ${fullTxsSnap.size} udharTransactions from server.`);
-        fullTxsSnap.forEach(docSnap => {
-          txsList.push({ ...docSnap.data() as UdharTransaction, id: docSnap.id });
-        });
+          // Fetch all bills
+          const fullBillsSnap = await getDocs(billsRef);
+          console.log(`[Logic Bridge] Fetched ${fullBillsSnap.size} bills from server.`);
+          fullBillsSnap.forEach(docSnap => {
+            const data = docSnap.data();
+            billsList.push({
+              id: docSnap.id,
+              billNumber: data.billNumber || `INV-${Date.now()}`,
+              customerName: data.customerName || '',
+              customerPhone: data.customerPhone || '',
+              items: Array.isArray(data.items) ? data.items.map((item: any) => ({
+                itemId: item.itemId || item.id || '',
+                name: item.name || '',
+                quantity: item.quantity || 0,
+                cost: item.cost || item.buyingPrice || 0,
+                price: item.price || item.retailPrice || 0,
+                unit: item.unit || 'pcs'
+              })) : [],
+              discount: typeof data.discount === 'number' ? data.discount : 0,
+              tax: typeof data.tax === 'number' ? data.tax : 0,
+              subtotal: typeof data.subtotal === 'number' ? data.subtotal : 0,
+              total: typeof data.total === 'number' ? data.total : 0,
+              paymentMethod: data.paymentMethod || 'Cash',
+              timestamp: data.timestamp || new Date().toISOString(),
+              deviceId: data.deviceId || '',
+              deviceName: data.deviceName || ''
+            });
+          });
 
-        // --- ROBUST INTEL MERGING (Prevents Wiping Newly Created Offline Local Data) ---
-        const localState = shouldClearLocalPriorToMerge ? { items: [], notes: [], bills: [], udharCustomers: [], udharTransactions: [], settings: INITIAL_SETTINGS } : latestStateRef.current;
+          // Fetch all udharCustomers
+          const fullCustomersSnap = await getDocs(customersRef);
+          console.log(`[Logic Bridge] Fetched ${fullCustomersSnap.size} udharCustomers from server.`);
+          fullCustomersSnap.forEach(docSnap => {
+            customersList.push({ ...docSnap.data() as UdharCustomer, id: docSnap.id });
+          });
 
-        // --- FALLBACK DISCREPANCY DETECTOR ---
-        console.group(`[Data Persistency Auditing] Comparing Local Storage with Firestore for UID: ${uid}`);
-        
-        const localItems = localState.items || [];
-        const localNotes = localState.notes || [];
-        const localBills = localState.bills || [];
-        const localCusts = localState.udharCustomers || [];
-        const localTxs = localState.udharTransactions || [];
-        const localSettings = localState.settings || {};
+          // Fetch all udharTransactions
+          const fullTxsSnap = await getDocs(txsRef);
+          console.log(`[Logic Bridge] Fetched ${fullTxsSnap.size} udharTransactions from server.`);
+          fullTxsSnap.forEach(docSnap => {
+            txsList.push({ ...docSnap.data() as UdharTransaction, id: docSnap.id });
+          });
 
-        console.log(`Summary Counts:
+          // --- ROBUST INTEL MERGING (Prevents Wiping Newly Created Offline Local Data) ---
+          const localState = shouldClearLocalPriorToMerge ? { items: [], notes: [], bills: [], udharCustomers: [], udharTransactions: [], settings: INITIAL_SETTINGS } : latestStateRef.current;
+
+          // --- FALLBACK DISCREPANCY DETECTOR ---
+          console.group(`[Data Persistency Auditing] Comparing Local Storage with Firestore for UID: ${uid}`);
+          
+          const localItems = localState.items || [];
+          const localNotes = localState.notes || [];
+          const localBills = localState.bills || [];
+          const localCusts = localState.udharCustomers || [];
+          const localTxs = localState.udharTransactions || [];
+          const localSettings = localState.settings || {};
+
+          console.log(`Summary Counts:
 - Items: Local = ${localItems.length}, Server = ${itemsList.length}
 - Notes: Local = ${localNotes.length}, Server = ${notesList.length}
 - Bills: Local = ${localBills.length}, Server = ${billsList.length}
 - Udhar Customers: Local = ${localCusts.length}, Server = ${customersList.length}
 - Udhar Transactions: Local = ${localTxs.length}, Server = ${txsList.length}`);
 
-        const itemDiscrepancies = {
-          missingOnServer: localItems.filter(li => !itemsList.some(si => si.id === li.id)),
-          missingLocally: itemsList.filter(si => !localItems.some(li => li.id === si.id)),
-          modifiedDiff: localItems.filter(li => {
-            const si = itemsList.find(s => s.id === li.id);
-            return si && new Date(li.lastUpdated).getTime() !== new Date(si.lastUpdated).getTime();
-          })
-        };
-
-        if (itemDiscrepancies.missingOnServer.length > 0) {
-          console.warn(`⚠️ [Discrepancy] ${itemDiscrepancies.missingOnServer.length} items exist locally but are missing on Firestore:`, itemDiscrepancies.missingOnServer.map(i => i.id));
-        }
-        if (itemDiscrepancies.missingLocally.length > 0) {
-          console.warn(`⚠️ [Discrepancy] ${itemDiscrepancies.missingLocally.length} items exist on Firestore but are missing locally:`, itemDiscrepancies.missingLocally.map(i => i.id));
-        }
-        if (itemDiscrepancies.modifiedDiff.length > 0) {
-          console.log(`ℹ️ [Discrepancy] ${itemDiscrepancies.modifiedDiff.length} items have different modification timestamps:`, itemDiscrepancies.modifiedDiff.map(i => i.id));
-        }
-
-        const noteDiscrepancies = {
-          missingOnServer: localNotes.filter(ln => !notesList.some(sn => sn.id === ln.id)),
-          missingLocally: notesList.filter(sn => !localNotes.some(ln => ln.id === sn.id))
-        };
-        if (noteDiscrepancies.missingOnServer.length > 0) {
-          console.warn(`⚠️ [Discrepancy] ${noteDiscrepancies.missingOnServer.length} notes exist locally but are missing on Firestore:`, noteDiscrepancies.missingOnServer.map(n => n.id));
-        }
-        if (noteDiscrepancies.missingLocally.length > 0) {
-          console.warn(`⚠️ [Discrepancy] ${noteDiscrepancies.missingLocally.length} notes exist on Firestore but are missing locally:`, noteDiscrepancies.missingLocally.map(n => n.id));
-        }
-
-        const billDiscrepancies = {
-          missingOnServer: localBills.filter(lb => !billsList.some(sb => sb.id === lb.id)),
-          missingLocally: billsList.filter(sb => !localBills.some(lb => lb.id === sb.id))
-        };
-        if (billDiscrepancies.missingOnServer.length > 0) {
-          console.warn(`⚠️ [Discrepancy] ${billDiscrepancies.missingOnServer.length} bills exist locally but are missing on Firestore:`, billDiscrepancies.missingOnServer.map(b => b.id));
-        }
-        if (billDiscrepancies.missingLocally.length > 0) {
-          console.warn(`⚠️ [Discrepancy] ${billDiscrepancies.missingLocally.length} bills exist on Firestore but are missing locally:`, billDiscrepancies.missingLocally.map(b => b.id));
-        }
-
-        const custDiscrepancies = {
-          missingOnServer: localCusts.filter(lc => !customersList.some(sc => sc.id === lc.id)),
-          missingLocally: customersList.filter(sc => !localCusts.some(lc => lc.id === sc.id))
-        };
-        if (custDiscrepancies.missingOnServer.length > 0) {
-          console.warn(`⚠️ [Discrepancy] ${custDiscrepancies.missingOnServer.length} customers exist locally but are missing on Firestore:`, custDiscrepancies.missingOnServer.map(c => c.id));
-        }
-        if (custDiscrepancies.missingLocally.length > 0) {
-          console.warn(`⚠️ [Discrepancy] ${custDiscrepancies.missingLocally.length} customers exist on Firestore but are missing locally:`, custDiscrepancies.missingLocally.map(c => c.id));
-        }
-
-        const txDiscrepancies = {
-          missingOnServer: localTxs.filter(lt => !txsList.some(st => st.id === lt.id)),
-          missingLocally: txsList.filter(st => !localTxs.some(lt => lt.id === st.id))
-        };
-        if (txDiscrepancies.missingOnServer.length > 0) {
-          console.warn(`⚠️ [Discrepancy] ${txDiscrepancies.missingOnServer.length} transactions exist locally but are missing on Firestore:`, txDiscrepancies.missingOnServer.map(t => t.id));
-        }
-        if (txDiscrepancies.missingLocally.length > 0) {
-          console.warn(`⚠️ [Discrepancy] ${txDiscrepancies.missingLocally.length} transactions exist on Firestore but are missing locally:`, txDiscrepancies.missingLocally.map(t => t.id));
-        }
-
-        const settingKeys = Array.from(new Set([...Object.keys(localSettings), ...Object.keys(recoveredSettings)]));
-        const diffSettings: string[] = [];
-        settingKeys.forEach(key => {
-          if (key === 'deviceId' || key === 'deviceName') return; // Ignore local-only device metadata
-          const localVal = JSON.stringify((localSettings as any)[key]);
-          const serverVal = JSON.stringify((recoveredSettings as any)[key]);
-          if (localVal !== serverVal) {
-            diffSettings.push(`${key}: (Local: ${localVal} vs Server: ${serverVal})`);
-          }
-        });
-        if (diffSettings.length > 0) {
-          console.log(`ℹ️ [Discrepancy] Settings mismatch found:`, diffSettings);
-        }
-
-        console.groupEnd();
-
-        // 1. Items Merge: Keep newer lastUpdated or local if not on server
-        const itemMap = new Map<string, Item>();
-        (localState.items || []).forEach(item => itemMap.set(item.id, item));
-        itemsList.forEach(item => {
-          const existing = itemMap.get(item.id);
-          if (!existing || new Date(item.lastUpdated).getTime() > new Date(existing.lastUpdated).getTime()) {
-            itemMap.set(item.id, item);
-          }
-        });
-        const mergedItems = Array.from(itemMap.values());
-
-        // 2. Notes Merge: Keep newer createdAt or local if not on server
-        const noteMap = new Map<string, Note>();
-        (localState.notes || []).forEach(n => noteMap.set(n.id, n));
-        notesList.forEach(n => {
-          const existing = noteMap.get(n.id);
-          if (!existing || new Date(n.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
-            noteMap.set(n.id, n);
-          }
-        });
-        const mergedNotes = Array.from(noteMap.values());
-
-        // 3. Bills Merge: Keep newer timestamp or local if not on server
-        const billMap = new Map<string, Bill>();
-        (localState.bills || []).forEach(b => billMap.set(b.id, b));
-        billsList.forEach(b => {
-          const existing = billMap.get(b.id);
-          if (!existing || new Date(b.timestamp).getTime() > new Date(existing.timestamp).getTime()) {
-            billMap.set(b.id, b);
-          }
-        });
-        const mergedBills = Array.from(billMap.values());
-
-        // 4. Customers Merge
-        const customerMap = new Map<string, UdharCustomer>();
-        (localState.udharCustomers || []).forEach(c => customerMap.set(c.id, c));
-        customersList.forEach(c => {
-          customerMap.set(c.id, c);
-        });
-        const mergedCustomers = Array.from(customerMap.values());
-
-        // 5. Transactions Merge
-        const txMap = new Map<string, UdharTransaction>();
-        (localState.udharTransactions || []).forEach(t => txMap.set(t.id, t));
-        txsList.forEach(t => {
-          txMap.set(t.id, t);
-        });
-        const mergedTxs = Array.from(txMap.values());
-
-        const mergedSettings = { ...localState.settings, ...recoveredSettings, autoCloudSync: true };
-
-        setState(prev => {
-          const newState = {
-            ...prev,
-            user: { uid, email },
-            items: deduplicateById(mergedItems),
-            notes: deduplicateById(mergedNotes),
-            bills: deduplicateById(mergedBills),
-            udharCustomers: deduplicateById(mergedCustomers),
-            udharTransactions: deduplicateById(mergedTxs),
-            settings: mergedSettings
+          const itemDiscrepancies = {
+            missingOnServer: localItems.filter(li => !itemsList.some(si => si.id === li.id)),
+            missingLocally: itemsList.filter(si => !localItems.some(li => li.id === si.id)),
+            modifiedDiff: localItems.filter(li => {
+              const si = itemsList.find(s => s.id === li.id);
+              return si && new Date(li.lastUpdated).getTime() !== new Date(si.lastUpdated).getTime();
+            })
           };
-          
-          localStorage.setItem('price_manager_settings', JSON.stringify(newState.settings));
-          localStorage.setItem('price_manager_state', JSON.stringify(newState));
-          return newState;
-        });
-        
-        console.log("[Logic Bridge] Seamless server data recovery & intelligent merge completed.");
 
-        // Back-save newly merged local items, bills, notes etc. which are missing on server to cloud
-        if (isAutoSync) {
-          console.log("[Logic Bridge] Automatically back-saving unsynced local records to cloud...");
-          for (const item of mergedItems) {
-            const existsOnServer = itemsList.some(s => s.id === item.id);
-            if (!existsOnServer) {
-              try {
-                await setDoc(doc(db, 'users', uid, 'items', item.id), sanitizeForFirestore(item));
-              } catch (e) {
-                console.error("Back-saving item to cloud failed:", e);
+          if (itemDiscrepancies.missingOnServer.length > 0) {
+            console.warn(`⚠️ [Discrepancy] ${itemDiscrepancies.missingOnServer.length} items exist locally but are missing on Firestore:`, itemDiscrepancies.missingOnServer.map(i => i.id));
+          }
+          if (itemDiscrepancies.missingLocally.length > 0) {
+            console.warn(`⚠️ [Discrepancy] ${itemDiscrepancies.missingLocally.length} items exist on Firestore but are missing locally:`, itemDiscrepancies.missingLocally.map(i => i.id));
+          }
+          if (itemDiscrepancies.modifiedDiff.length > 0) {
+            console.log(`ℹ️ [Discrepancy] ${itemDiscrepancies.modifiedDiff.length} items have different modification timestamps:`, itemDiscrepancies.modifiedDiff.map(i => i.id));
+          }
+
+          const noteDiscrepancies = {
+            missingOnServer: localNotes.filter(ln => !notesList.some(sn => sn.id === ln.id)),
+            missingLocally: notesList.filter(sn => !localNotes.some(ln => ln.id === sn.id))
+          };
+          if (noteDiscrepancies.missingOnServer.length > 0) {
+            console.warn(`⚠️ [Discrepancy] ${noteDiscrepancies.missingOnServer.length} notes exist locally but are missing on Firestore:`, noteDiscrepancies.missingOnServer.map(n => n.id));
+          }
+          if (noteDiscrepancies.missingLocally.length > 0) {
+            console.warn(`⚠️ [Discrepancy] ${noteDiscrepancies.missingLocally.length} notes exist on Firestore but are missing locally:`, noteDiscrepancies.missingLocally.map(n => n.id));
+          }
+
+          const billDiscrepancies = {
+            missingOnServer: localBills.filter(lb => !billsList.some(sb => sb.id === lb.id)),
+            missingLocally: billsList.filter(sb => !localBills.some(lb => lb.id === sb.id))
+          };
+          if (billDiscrepancies.missingOnServer.length > 0) {
+            console.warn(`⚠️ [Discrepancy] ${billDiscrepancies.missingOnServer.length} bills exist locally but are missing on Firestore:`, billDiscrepancies.missingOnServer.map(b => b.id));
+          }
+          if (billDiscrepancies.missingLocally.length > 0) {
+            console.warn(`⚠️ [Discrepancy] ${billDiscrepancies.missingLocally.length} bills exist on Firestore but are missing locally:`, billDiscrepancies.missingLocally.map(b => b.id));
+          }
+
+          const custDiscrepancies = {
+            missingOnServer: localCusts.filter(lc => !customersList.some(sc => sc.id === lc.id)),
+            missingLocally: customersList.filter(sc => !localCusts.some(lc => lc.id === sc.id))
+          };
+          if (custDiscrepancies.missingOnServer.length > 0) {
+            console.warn(`⚠️ [Discrepancy] ${custDiscrepancies.missingOnServer.length} customers exist locally but are missing on Firestore:`, custDiscrepancies.missingOnServer.map(c => c.id));
+          }
+          if (custDiscrepancies.missingLocally.length > 0) {
+            console.warn(`⚠️ [Discrepancy] ${custDiscrepancies.missingLocally.length} customers exist on Firestore but are missing locally:`, custDiscrepancies.missingLocally.map(c => c.id));
+          }
+
+          const txDiscrepancies = {
+            missingOnServer: localTxs.filter(lt => !txsList.some(st => st.id === lt.id)),
+            missingLocally: txsList.filter(st => !localTxs.some(lt => lt.id === st.id))
+          };
+          if (txDiscrepancies.missingOnServer.length > 0) {
+            console.warn(`⚠️ [Discrepancy] ${txDiscrepancies.missingOnServer.length} transactions exist locally but are missing on Firestore:`, txDiscrepancies.missingOnServer.map(t => t.id));
+          }
+          if (txDiscrepancies.missingLocally.length > 0) {
+            console.warn(`⚠️ [Discrepancy] ${txDiscrepancies.missingLocally.length} transactions exist on Firestore but are missing locally:`, txDiscrepancies.missingLocally.map(t => t.id));
+          }
+
+          const settingKeys = Array.from(new Set([...Object.keys(localSettings), ...Object.keys(recoveredSettings)]));
+          const diffSettings: string[] = [];
+          settingKeys.forEach(key => {
+            if (key === 'deviceId' || key === 'deviceName') return; // Ignore local-only device metadata
+            const localVal = JSON.stringify((localSettings as any)[key]);
+            const serverVal = JSON.stringify((recoveredSettings as any)[key]);
+            if (localVal !== serverVal) {
+              diffSettings.push(`${key}: (Local: ${localVal} vs Server: ${serverVal})`);
+            }
+          });
+          if (diffSettings.length > 0) {
+            console.log(`ℹ️ [Discrepancy] Settings mismatch found:`, diffSettings);
+          }
+
+          console.groupEnd();
+
+          // 1. Items Merge: Keep newer lastUpdated or local if not on server
+          const itemMap = new Map<string, Item>();
+          (localState.items || []).forEach(item => itemMap.set(item.id, item));
+          itemsList.forEach(item => {
+            const existing = itemMap.get(item.id);
+            if (!existing || new Date(item.lastUpdated).getTime() > new Date(existing.lastUpdated).getTime()) {
+              itemMap.set(item.id, item);
+            }
+          });
+          const mergedItems = Array.from(itemMap.values());
+
+          // 2. Notes Merge: Keep newer createdAt or local if not on server
+          const noteMap = new Map<string, Note>();
+          (localState.notes || []).forEach(n => noteMap.set(n.id, n));
+          notesList.forEach(n => {
+            const existing = noteMap.get(n.id);
+            if (!existing || new Date(n.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
+              noteMap.set(n.id, n);
+            }
+          });
+          const mergedNotes = Array.from(noteMap.values());
+
+          // 3. Bills Merge: Keep newer timestamp or local if not on server
+          const billMap = new Map<string, Bill>();
+          (localState.bills || []).forEach(b => billMap.set(b.id, b));
+          billsList.forEach(b => {
+            const existing = billMap.get(b.id);
+            if (!existing || new Date(b.timestamp).getTime() > new Date(existing.timestamp).getTime()) {
+              billMap.set(b.id, b);
+            }
+          });
+          const mergedBills = Array.from(billMap.values());
+
+          // 4. Customers Merge
+          const customerMap = new Map<string, UdharCustomer>();
+          (localState.udharCustomers || []).forEach(c => customerMap.set(c.id, c));
+          customersList.forEach(c => {
+            customerMap.set(c.id, c);
+          });
+          const mergedCustomers = Array.from(customerMap.values());
+
+          // 5. Transactions Merge
+          const txMap = new Map<string, UdharTransaction>();
+          (localState.udharTransactions || []).forEach(t => txMap.set(t.id, t));
+          txsList.forEach(t => {
+            txMap.set(t.id, t);
+          });
+          const mergedTxs = Array.from(txMap.values());
+
+          const mergedSettings = { ...localState.settings, ...recoveredSettings, autoCloudSync: true };
+
+          setState(prev => {
+            const newState = {
+              ...prev,
+              user: { uid, email },
+              items: deduplicateById(mergedItems),
+              notes: deduplicateById(mergedNotes),
+              bills: deduplicateById(mergedBills),
+              udharCustomers: deduplicateById(mergedCustomers),
+              udharTransactions: deduplicateById(mergedTxs),
+              settings: mergedSettings
+            };
+            
+            localStorage.setItem('price_manager_settings', JSON.stringify(newState.settings));
+            localStorage.setItem('price_manager_state', JSON.stringify(newState));
+            return newState;
+          });
+          
+          console.log("[Logic Bridge] Seamless server data recovery & intelligent merge completed.");
+
+          // Back-save newly merged local items, bills, notes etc. which are missing on server to cloud
+          if (isAutoSync) {
+            console.log("[Logic Bridge] Automatically back-saving unsynced local records to cloud...");
+            for (const item of mergedItems) {
+              const existsOnServer = itemsList.some(s => s.id === item.id);
+              if (!existsOnServer) {
+                try {
+                  await setDoc(doc(db, 'users', uid, 'items', item.id), sanitizeForFirestore(item));
+                } catch (e) {
+                  console.error("Back-saving item to cloud failed:", e);
+                }
+              }
+            }
+            for (const note of mergedNotes) {
+              const existsOnServer = notesList.some(s => s.id === note.id);
+              if (!existsOnServer) {
+                try {
+                  await setDoc(doc(db, 'users', uid, 'notes', note.id), sanitizeForFirestore(note));
+                } catch (e) {}
+              }
+            }
+            for (const bill of mergedBills) {
+              const existsOnServer = billsList.some(s => s.id === bill.id);
+              if (!existsOnServer) {
+                try {
+                  await setDoc(doc(db, 'users', uid, 'bills', bill.id), sanitizeForFirestore(bill));
+                } catch (e) {}
+              }
+            }
+            for (const cust of mergedCustomers) {
+              const existsOnServer = customersList.some(s => s.id === cust.id);
+              if (!existsOnServer) {
+                try {
+                  await setDoc(doc(db, 'users', uid, 'udharCustomers', cust.id), sanitizeForFirestore(cust));
+                } catch (e) {}
+              }
+            }
+            for (const tx of mergedTxs) {
+              const existsOnServer = txsList.some(s => s.id === tx.id);
+              if (!existsOnServer) {
+                try {
+                  await setDoc(doc(db, 'users', uid, 'udharTransactions', tx.id), sanitizeForFirestore(tx));
+                } catch (e) {}
               }
             }
           }
-          for (const note of mergedNotes) {
-            const existsOnServer = notesList.some(s => s.id === note.id);
-            if (!existsOnServer) {
-              try {
+        } else {
+          console.log("[Logic Bridge] No server data found for UID:", uid);
+          
+          // Brand new server database detected. Upload all current local records instantly to initialize the cloud database
+          if (isAutoSync) {
+            console.log("[Logic Bridge] Seeding brand new cloud database from current local data...");
+            try {
+              await setDoc(doc(db, 'users', uid), sanitizeForFirestore(currentSt.settings || {}), { merge: true });
+              for (const item of (currentSt.items || [])) {
+                await setDoc(doc(db, 'users', uid, 'items', item.id), sanitizeForFirestore(item));
+              }
+              for (const note of ((currentSt as any).notes || [])) {
                 await setDoc(doc(db, 'users', uid, 'notes', note.id), sanitizeForFirestore(note));
-              } catch (e) {}
-            }
-          }
-          for (const bill of mergedBills) {
-            const existsOnServer = billsList.some(s => s.id === bill.id);
-            if (!existsOnServer) {
-              try {
+              }
+              for (const bill of (currentSt.bills || [])) {
                 await setDoc(doc(db, 'users', uid, 'bills', bill.id), sanitizeForFirestore(bill));
-              } catch (e) {}
-            }
-          }
-          for (const cust of mergedCustomers) {
-            const existsOnServer = customersList.some(s => s.id === cust.id);
-            if (!existsOnServer) {
-              try {
+              }
+              for (const cust of (currentSt.udharCustomers || [])) {
                 await setDoc(doc(db, 'users', uid, 'udharCustomers', cust.id), sanitizeForFirestore(cust));
-              } catch (e) {}
-            }
-          }
-          for (const tx of mergedTxs) {
-            const existsOnServer = txsList.some(s => s.id === tx.id);
-            if (!existsOnServer) {
-              try {
+              }
+              for (const tx of (currentSt.udharTransactions || [])) {
                 await setDoc(doc(db, 'users', uid, 'udharTransactions', tx.id), sanitizeForFirestore(tx));
-              } catch (e) {}
+              }
+              console.log("[Logic Bridge] Seeding completed successfully.");
+            } catch (uploadErr) {
+              console.error("[Logic Bridge] Error seeding database:", uploadErr);
             }
           }
         }
-      } else {
-        console.log("[Logic Bridge] No server data found for UID:", uid);
+      } catch (fetchErr: any) {
+        console.warn("[Logic Bridge] Offline mode active or Firestore unavailable during recovery. Defaulting safely to local state. Error details:", fetchErr.message || fetchErr);
         
-        // Brand new server database detected. Upload all current local records instantly to initialize the cloud database
-        if (isAutoSync) {
-          console.log("[Logic Bridge] Seeding brand new cloud database from current local data...");
-          try {
-            await setDoc(doc(db, 'users', uid), sanitizeForFirestore(currentSt.settings || {}), { merge: true });
-            for (const item of (currentSt.items || [])) {
-              await setDoc(doc(db, 'users', uid, 'items', item.id), sanitizeForFirestore(item));
-            }
-            for (const note of ((currentSt as any).notes || [])) {
-              await setDoc(doc(db, 'users', uid, 'notes', note.id), sanitizeForFirestore(note));
-            }
-            for (const bill of (currentSt.bills || [])) {
-              await setDoc(doc(db, 'users', uid, 'bills', bill.id), sanitizeForFirestore(bill));
-            }
-            for (const cust of (currentSt.udharCustomers || [])) {
-              await setDoc(doc(db, 'users', uid, 'udharCustomers', cust.id), sanitizeForFirestore(cust));
-            }
-            for (const tx of (currentSt.udharTransactions || [])) {
-              await setDoc(doc(db, 'users', uid, 'udharTransactions', tx.id), sanitizeForFirestore(tx));
-            }
-            console.log("[Logic Bridge] Seeding completed successfully.");
-          } catch (uploadErr) {
-            console.error("[Logic Bridge] Error seeding database:", uploadErr);
-          }
-        }
+        // Load the local state without wiping anything and assign it to the app's state gracefully
+        const localState = shouldClearLocalPriorToMerge ? { items: [], notes: [], bills: [], udharCustomers: [], udharTransactions: [], settings: INITIAL_SETTINGS } : latestStateRef.current;
+        
+        setState(prev => {
+          const fallbackState = {
+            ...prev,
+            user: { uid, email },
+            items: deduplicateById(localState.items || []),
+            notes: deduplicateById(localState.notes || []),
+            bills: deduplicateById(localState.bills || []),
+            udharCustomers: deduplicateById(localState.udharCustomers || []),
+            udharTransactions: deduplicateById(localState.udharTransactions || []),
+            settings: { ...INITIAL_SETTINGS, ...localState.settings }
+          };
+          
+          localStorage.setItem('price_manager_settings', JSON.stringify(fallbackState.settings));
+          localStorage.setItem('price_manager_state', JSON.stringify(fallbackState));
+          return fallbackState;
+        });
+        
+        console.log("[Logic Bridge] Offline recovery fallback completed. Local storage cached data is fully restored and active.");
       }
     } catch (err) {
-      console.error("[Logic Bridge] Error checking/recovering data:", err);
+      console.error("[Logic Bridge] Unexpected error in checkAndRecoverData wrapper:", err);
     }
   };
 
