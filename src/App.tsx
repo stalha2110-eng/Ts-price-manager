@@ -1367,6 +1367,7 @@ export default function App() {
   const [showVoiceAssistant, setShowVoiceAssistant] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isAuthResolving, setIsAuthResolving] = useState(true);
+  const [isDataRecovering, setIsDataRecovering] = useState(false);
   const [hoveredAction, setHoveredAction] = useState<string | null>(null);
 
   // Advanced tactile Drag-to-Mic state engine
@@ -2821,6 +2822,7 @@ export default function App() {
 
   const checkAndRecoverData = async (uid: string, email: string, shouldClearLocalPriorToMerge: boolean = false) => {
     if (!uid || uid === 'guest_user') return;
+    setIsDataRecovering(true);
     try {
       console.log(`[Logic Bridge] Initializing checkAndRecoverData for UID: ${uid} (${email})`);
       console.log(`[Logic Bridge] shouldClearLocalPriorToMerge: ${shouldClearLocalPriorToMerge}`);
@@ -3210,6 +3212,8 @@ export default function App() {
       }
     } catch (err) {
       console.error("[Logic Bridge] Unexpected error in checkAndRecoverData wrapper:", err);
+    } finally {
+      setIsDataRecovering(false);
     }
   };
 
@@ -4936,7 +4940,7 @@ export default function App() {
     );
   }
 
-  if (isAuthResolving) {
+  if (isAuthResolving || isDataRecovering) {
     return (
       <AppSkeletonLoader theme={state.settings.theme} />
     );
