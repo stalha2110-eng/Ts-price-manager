@@ -24,12 +24,17 @@ export const getMessagingInstance = async () => {
 // Pre-initialize Firestore with robust settings suited for sandboxed iframes (long polling fallback)
 const initializeDb = () => {
   const databaseId = safeConfig?.firestoreDatabaseId || undefined;
+  const inIframe = typeof window !== 'undefined' && window.self !== window.top;
 
   try {
-    return initializeFirestore(app, {
-      experimentalForceLongPolling: true,
-      useFetchStreams: false,
-    } as any, databaseId);
+    if (inIframe) {
+      return initializeFirestore(app, {
+        experimentalForceLongPolling: true,
+        useFetchStreams: false,
+      } as any, databaseId);
+    } else {
+      return getFirestore(app, databaseId);
+    }
   } catch (e) {
     console.warn('[Firebase Init] initializeFirestore failed, falling back to getFirestore:', e);
     try {

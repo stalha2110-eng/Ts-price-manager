@@ -3378,10 +3378,6 @@ export default function App() {
       return;
     }
 
-    if (!auth.currentUser || auth.currentUser.uid !== state.user.uid) {
-      return;
-    }
-
     const userDocRef = doc(db, 'users', state.user.uid);
 
     const compareAndLogSnapshotDiscrepancy = (collectionName: string, serverItems: any[]) => {
@@ -3471,24 +3467,7 @@ export default function App() {
 
       compareAndLogSnapshotDiscrepancy('items', itemsList);
       
-      setState(prev => {
-        const localItems = prev.items || [];
-        const unsyncedItems = localItems.filter(li => !itemsList.some(ci => ci.id === li.id));
-        if (unsyncedItems.length > 0) {
-          unsyncedItems.forEach(async (item) => {
-            try {
-              await setDoc(doc(db, 'users', state.user!.uid, 'items', item.id), sanitizeForFirestore(item));
-            } catch (e) {
-              console.error("Self-healing background stock item upload failed:", e);
-            }
-          });
-          const merged = [...itemsList, ...unsyncedItems].sort((a, b) => 
-            new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime()
-          );
-          return { ...prev, items: deduplicateById(merged) };
-        }
-        return { ...prev, items: deduplicateById(itemsList) };
-      });
+      setState(prev => ({ ...prev, items: deduplicateById(itemsList) }));
     }, (error) => {
       if (auth.currentUser) {
         console.error("Items sync error:", error);
@@ -3506,24 +3485,7 @@ export default function App() {
 
       compareAndLogSnapshotDiscrepancy('notes', notesList);
       
-      setState(prev => {
-        const localNotes = prev.notes || [];
-        const unsyncedNotes = localNotes.filter(ln => !notesList.some(cn => cn.id === ln.id));
-        if (unsyncedNotes.length > 0) {
-          unsyncedNotes.forEach(async (note) => {
-            try {
-              await setDoc(doc(db, 'users', state.user!.uid, 'notes', note.id), sanitizeForFirestore(note));
-            } catch (e) {
-              console.error("Self-healing background note upload failed:", e);
-            }
-          });
-          const merged = [...notesList, ...unsyncedNotes].sort((a, b) => 
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          );
-          return { ...prev, notes: deduplicateById(merged) };
-        }
-        return { ...prev, notes: deduplicateById(notesList) };
-      });
+      setState(prev => ({ ...prev, notes: deduplicateById(notesList) }));
     }, (error) => {
       if (auth.currentUser) {
         console.error("Notes sync error:", error);
@@ -3565,22 +3527,6 @@ export default function App() {
       compareAndLogSnapshotDiscrepancy('bills', billsList);
       
       setState(prev => {
-        const localBills = prev.bills || [];
-        const unsyncedBills = localBills.filter(lb => !billsList.some(cb => cb.id === lb.id));
-        if (unsyncedBills.length > 0) {
-          unsyncedBills.forEach(async (b) => {
-            try {
-              await setDoc(doc(db, 'users', state.user!.uid, 'bills', b.id), sanitizeForFirestore(b));
-            } catch (e) {
-              console.error("Self-healing background billing upload failed:", e);
-            }
-          });
-          const merged = [...billsList, ...unsyncedBills].sort((a, b) => 
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-          );
-          setAnalyticsRenderKey(k => k + 1);
-          return { ...prev, bills: deduplicateById(merged) };
-        }
         setAnalyticsRenderKey(k => k + 1);
         return { ...prev, bills: deduplicateById(billsList) };
       });
@@ -3601,22 +3547,7 @@ export default function App() {
 
       compareAndLogSnapshotDiscrepancy('udharCustomers', customersList);
 
-      setState(prev => {
-        const localCusts = prev.udharCustomers || [];
-        const unsyncedCusts = localCusts.filter(lc => !customersList.some(cc => cc.id === lc.id));
-        if (unsyncedCusts.length > 0) {
-          unsyncedCusts.forEach(async (cust) => {
-            try {
-              await setDoc(doc(db, 'users', state.user!.uid, 'udharCustomers', cust.id), sanitizeForFirestore(cust));
-            } catch (e) {
-              console.error("Self-healing background customer upload failed:", e);
-            }
-          });
-          const merged = [...customersList, ...unsyncedCusts];
-          return { ...prev, udharCustomers: deduplicateById(merged) };
-        }
-        return { ...prev, udharCustomers: deduplicateById(customersList) };
-      });
+      setState(prev => ({ ...prev, udharCustomers: deduplicateById(customersList) }));
     }, (error) => {
       if (auth.currentUser) {
         console.error("Udhar Customers sync error:", error);
@@ -3633,22 +3564,7 @@ export default function App() {
 
       compareAndLogSnapshotDiscrepancy('udharTransactions', transactionsList);
 
-      setState(prev => {
-        const localTxs = prev.udharTransactions || [];
-        const unsyncedTxs = localTxs.filter(lt => !transactionsList.some(ct => ct.id === lt.id));
-        if (unsyncedTxs.length > 0) {
-          unsyncedTxs.forEach(async (tx) => {
-            try {
-              await setDoc(doc(db, 'users', state.user!.uid, 'udharTransactions', tx.id), sanitizeForFirestore(tx));
-            } catch (e) {
-              console.error("Self-healing background transaction upload failed:", e);
-            }
-          });
-          const merged = [...transactionsList, ...unsyncedTxs];
-          return { ...prev, udharTransactions: deduplicateById(merged) };
-        }
-        return { ...prev, udharTransactions: deduplicateById(transactionsList) };
-      });
+      setState(prev => ({ ...prev, udharTransactions: deduplicateById(transactionsList) }));
     }, (error) => {
       if (auth.currentUser) {
         console.error("Udhar Transactions sync error:", error);
