@@ -1,60 +1,84 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, initializeFirestore, doc, setDoc, onSnapshot, collection, query, orderBy, limit, addDoc, updateDoc, deleteDoc, Timestamp, getDocFromServer, enableIndexedDbPersistence } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, onSnapshot, collection, query, orderBy, limit, addDoc, updateDoc, deleteDoc, Timestamp, getDocFromServer, enableIndexedDbPersistence } from 'firebase/firestore';
+import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 import firebaseConfig from '../firebase-applet-config.json';
 
-// Safely extract config properties supporting potential bundler default wrapper variations
-const getFirebaseConfig = () => {
-  if (!firebaseConfig) return {} as any;
-  if (typeof firebaseConfig === 'object' && 'default' in firebaseConfig) {
-    return (firebaseConfig as any).default;
-  }
-  return firebaseConfig;
-};
-
-const safeConfig = getFirebaseConfig();
-const app = initializeApp(safeConfig);
+const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
-// Safe messaging helper (permanently disabled for robust iframe operations)
-export const getMessagingInstance = async () => {
-  return null;
-};
-
-// Pre-initialize Firestore with robust settings suited for sandboxed iframes (long polling fallback)
-const initializeDb = () => {
-  const databaseId = safeConfig?.firestoreDatabaseId || undefined;
-  const inIframe = typeof window !== 'undefined' && window.self !== window.top;
-
+// Initialize messaging lazily and check for support
+export const getFCMToken = async (vapidKey: string): Promise<string | null> => {
   try {
-    if (inIframe) {
-      return initializeFirestore(app, {
-        experimentalForceLongPolling: true,
-        useFetchStreams: false,
-      } as any, databaseId);
-    } else {
-      return getFirestore(app, databaseId);
+    const supported = await isSupported();
+    if (!supported) {
+      console.warn("FCM is not supported in this browser environment.");
+      return null;
     }
-  } catch (e) {
-    console.warn('[Firebase Init] initializeFirestore failed, falling back to getFirestore:', e);
-    try {
-      return getFirestore(app, databaseId);
-    } catch (e2) {
-      console.error('[Firebase Init] getFirestore with databaseId failed, trying fallback default:', e2);
-      try {
-        return getFirestore(app);
-      } catch (e3) {
-        console.error('[Firebase Init] Critical Failure - Default getFirestore(app) failed:', e3);
-        throw e3;
+    const messaging = getMessaging(app);
+    
+    // Request permission first
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      throw new Error("Notification permission denied");
+    }
+    
+    // Explicitly register the unified Service Worker to handle PWA caching and FCM cleanly
+    let registration: ServiceWorkerRegistration | undefined;
+    if ('serviceWorker' in navigator) {
+      registration = await navigator.serviceWorker.register('/sw.js');
+      console.log("FCM Service Worker (/sw.js) registered successfully:", registration);
+      
+      // Wait for the service worker to become fully active to prevent subscription failures
+      if (!registration.active) {
+        console.log("Service worker is not active yet. Waiting for activation...");
+        await new Promise<void>((resolve) => {
+          const sw = registration!.installing || registration!.waiting;
+          if (sw) {
+            const handler = (e: any) => {
+              if (e.target.state === 'activated') {
+                sw.removeEventListener('statechange', handler);
+                console.log("Service Worker activated successfully via event.");
+                resolve();
+              }
+            };
+            sw.addEventListener('statechange', handler);
+          } else {
+            resolve();
+          }
+          // Fallback timeout after 3 seconds
+          setTimeout(resolve, 3000);
+        });
       }
+      
+      // Double check that the Service Worker is ready
+      await navigator.serviceWorker.ready;
+    } else {
+      throw new Error("Service workers are not supported by this browser.");
     }
+    
+    // Get token using the registered service worker reference
+    const token = await getToken(messaging, { 
+      vapidKey,
+      serviceWorkerRegistration: registration
+    });
+    return token;
+  } catch (error) {
+    console.error("Error retrieving FCM token:", error);
+    throw error;
   }
 };
 
-export const db = initializeDb();
+export const onMessageReceived = async (callback: (payload: any) => void) => {
+  const supported = await isSupported();
+  if (!supported) return () => {};
+  const messaging = getMessaging(app);
+  return onMessage(messaging, callback);
+};
 
-// Enable offline persistence only when NOT inside a sandboxed iframe to prevent IndexedDB lockups in iframe environments
-if (typeof window !== 'undefined' && window.self === window.top) {
+// Enable offline persistence
+if (typeof window !== 'undefined') {
   enableIndexedDbPersistence(db).catch((err) => {
     if (err.code === 'failed-precondition') {
       console.warn('Firestore persistence failed: Multiple tabs open');
@@ -65,121 +89,29 @@ if (typeof window !== 'undefined' && window.self === window.top) {
 }
 
 export const googleProvider = new GoogleAuthProvider();
-googleProvider.addScope('https://www.googleapis.com/auth/contacts.readonly');
-googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
-
-let cachedAccessToken: string | null = null;
-
-export const getCachedAccessToken = (): string | null => {
-  return cachedAccessToken;
-};
-
-export const setCachedAccessToken = (token: string | null) => {
-  cachedAccessToken = token;
-};
 
 // Standard login
 export const loginWithGoogle = async () => {
   try {
     const result = await signInWithPopup(auth, googleProvider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (credential?.accessToken) {
-      cachedAccessToken = credential.accessToken;
-      
-      // Auto-cache Google Drive and Google Contacts tokens so users are linked instantly
-      localStorage.setItem('ts_google_contacts_token', credential.accessToken);
-      localStorage.setItem('ts_google_contacts_token_expiry', String(Date.now() + 3500 * 1000));
-      localStorage.setItem('ts_google_drive_token', credential.accessToken);
-      localStorage.setItem('ts_google_drive_token_expiry', String(Date.now() + 3500 * 1000));
-      
-      if (result.user.email) {
-        localStorage.setItem('ts_google_contacts_email', result.user.email);
-        localStorage.setItem('ts_google_drive_email', result.user.email);
-        
-        // Dispatch immediate events for UI update
-        window.dispatchEvent(new Event('ts_contacts_email_changed'));
-        window.dispatchEvent(new Event('ts_drive_email_changed'));
-      }
-    }
     return result.user;
-  } catch (error: any) {
+  } catch (error) {
     console.error("Login failed:", error);
-    const code = error?.code || "";
-    if (code === "auth/popup-closed-by-user") {
-      throw new Error("popup-closed-by-user");
-    } else if (code === "auth/popup-blocked") {
-      throw new Error("popup-blocked");
-    }
     throw error;
   }
 };
 
-// Connection checks and listeners are deferred to real user actions to prevent unauthenticated startup exceptions.
+// Sync connection test as required by instructions
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if(error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Please check your Firebase configuration.");
+    }
+  }
+}
+testConnection();
 
 export { onAuthStateChanged };
 export type { User };
-
-export enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-export interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-    tenantId?: string | null;
-    providerInfo?: {
-      providerId?: string | null;
-      email?: string | null;
-    }[];
-  }
-}
-
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData?.map(provider => ({
-        providerId: provider.providerId,
-        email: provider.email,
-          })) || []
-    },
-    operationType,
-    path
-  };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
-}
-
-export function sanitizeForFirestore<T>(obj: T): T {
-  if (obj === undefined) return null as any;
-  if (obj === null || typeof obj !== 'object') {
-    return obj;
-  }
-  if (Array.isArray(obj)) {
-    return obj.map(sanitizeForFirestore) as any;
-  }
-  const result: any = {};
-  for (const key of Object.keys(obj)) {
-    const val = (obj as any)[key];
-    if (val !== undefined) {
-      result[key] = sanitizeForFirestore(val);
-    }
-  }
-  return result;
-}
