@@ -10,18 +10,7 @@ async function startServer() {
 
   // Lazy initializer for the Gemini SDK
   let aiClient: GoogleGenAI | null = null;
-  function getAIClient(customApiKey?: string): GoogleGenAI {
-    if (customApiKey && customApiKey.trim()) {
-      console.log("Using custom client-provided Gemini API Key for request");
-      return new GoogleGenAI({
-        apiKey: customApiKey.trim(),
-        httpOptions: {
-          headers: {
-            "User-Agent": "aistudio-build",
-          },
-        },
-      });
-    }
+  function getAIClient(): GoogleGenAI {
     if (!aiClient) {
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
@@ -42,12 +31,12 @@ async function startServer() {
   // 1. Voice Parsing Endpoint
   app.post("/api/voice/parse", async (req, res) => {
     try {
-      const { transcript, categories, customApiKey } = req.body;
+      const { transcript, categories } = req.body;
       if (!transcript || !transcript.trim()) {
         return res.status(400).json({ error: "Transcript is empty or missing" });
       }
 
-      const ai = getAIClient(customApiKey);
+      const ai = getAIClient();
       const systemInstruction = `You are a professional retail and grocery inventory management AI specializing in Indian languages, English, and regional dialects (Hinglish, Marathinglish, pure Hindi, pure Marathi, colloquial phrases, and shopkeeper jargon).
 Your task is to analyze raw voice recognition transcripts (which may contain typos or run-on words because of speech-to-text limitations) and convert them into a structured database list of products.
 

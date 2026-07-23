@@ -14,7 +14,6 @@ import { cn, formatNumber } from '../lib/utils';
 import { printerService, DEFAULT_PRINT_SETTINGS } from '../services/printerService';
 import { playFeedbackEvent } from '../services/soundFeedbackService';
 import { cleanAndValidateText } from '../services/languageEngine';
-import { GoogleContactPickerModal } from './GoogleContactPickerModal';
 
 interface BillingScreenProps {
   state: AppState;
@@ -481,8 +480,6 @@ export default function BillingScreen({
     if (activeDraftSession.billingMode) return activeDraftSession.billingMode;
     return state.settings.businessMode === 'wholesale' ? 'wholesale' : 'auto';
   });
-
-  const [isGoogleContactModalOpen, setIsGoogleContactModalOpen] = useState(false);
 
   const isHydratingRef = useRef(false);
 
@@ -3665,85 +3662,62 @@ export default function BillingScreen({
 
               {/* Toggle Customer fields display indicator if parameters aren't met */}
               {!(forceCustomerOpen || manualCustomerOpen) ? (
-                <div className="flex justify-center gap-1.5 flex-wrap">
+                <div className="flex justify-center">
                   <button
                     onClick={() => setManualCustomerOpen(true)}
                     className="py-1.5 px-3 bg-[var(--foreground)]/5 hover:bg-[var(--foreground)]/10 text-[8px] font-black uppercase text-[var(--foreground)]/70 rounded-lg border border-[var(--border)] cursor-pointer select-none transition-all"
                   >
                     + Add Customer Info (ग्रहक की जानकारी)
                   </button>
-                  <button
-                    onClick={() => {
-                      setManualCustomerOpen(true);
-                      setIsGoogleContactModalOpen(true);
-                    }}
-                    className="py-1.5 px-3 bg-[var(--primary)]/5 hover:bg-[var(--primary)]/10 text-[8px] font-black uppercase text-[var(--primary)] rounded-lg border border-[var(--primary)]/20 cursor-pointer select-none transition-all flex items-center gap-1"
-                  >
-                    <User size={10} />
-                    <span>Import Contacts</span>
-                  </button>
                 </div>
               ) : (
-                <div className="space-y-2 animate-in fade-in duration-200">
-                  <div className="flex justify-between items-center px-1">
-                    <span className="text-[7px] font-black uppercase tracking-wider text-[var(--foreground)]/40">Customer Details</span>
-                    <button
-                      type="button"
-                      onClick={() => setIsGoogleContactModalOpen(true)}
-                      className="text-[7px] font-black uppercase tracking-wider text-[var(--primary)] hover:underline cursor-pointer flex items-center gap-1 bg-[var(--primary)]/5 px-2 py-1 rounded-md"
-                    >
-                      <User size={8} />
-                      Import Google Contact
-                    </button>
+                <div className="grid grid-cols-2 gap-2 animate-in fade-in duration-200">
+                  <div className="relative col-span-1">
+                    <User className="absolute left-2 top-1/2 -translate-y-1/2 opacity-30" size={12} />
+                    <input
+                      type="text"
+                      placeholder="Name / नाम *"
+                      className="w-full pl-6 pr-2 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[10px] uppercase font-bold outline-none font-sans focus:border-[var(--primary)]"
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                    />
                   </div>
-                  <div className="grid grid-cols-2 gap-2 animate-in fade-in duration-200">
-                    <div className="relative col-span-1">
-                      <User className="absolute left-2 top-1/2 -translate-y-1/2 opacity-30" size={12} />
-                      <input
-                        type="text"
-                        placeholder="Name / नाम *"
-                        className="w-full pl-6 pr-2 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[10px] uppercase font-bold outline-none font-sans focus:border-[var(--primary)]"
-                        value={customerName}
-                        onChange={(e) => setCustomerName(e.target.value)}
-                      />
-                    </div>
-                    
-                    <div className="relative col-span-1">
-                      <Phone className="absolute left-2 top-1/2 -translate-y-1/2 opacity-30" size={10} />
-                      <input
-                        type="text"
-                        placeholder="Mobile / फ़ोन *"
-                        className="w-full pl-6 pr-2 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[10px] font-mono outline-none focus:border-[var(--primary)]"
-                        value={customerPhone}
-                        onChange={(e) => setCustomerPhone(e.target.value)}
-                      />
-                    </div>
+                  
+                  <div className="relative col-span-1">
+                    <Phone className="absolute left-2 top-1/2 -translate-y-1/2 opacity-30" size={10} />
+                    <input
+                      type="text"
+                      placeholder="Mobile / फ़ोन *"
+                      className="w-full pl-6 pr-2 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[10px] font-mono outline-none focus:border-[var(--primary)]"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                    />
+                  </div>
 
-                    {/* Date selection for udhar crediting */}
-                    {paymentMethod === 'Credit' && (
-                      <div className="col-span-2 pt-1.5 border-t border-rose-500/10 space-y-1 animate-in slide-in-from-top-2 duration-300">
-                        <label className="text-[7px] font-black uppercase tracking-wider text-rose-500 block leading-none">
-                          📅 Due Date / चुकाने की तारीख *
-                        </label>
-                        <input
-                          type="date"
-                          value={udharDueDate}
-                          onChange={(e) => setUdharDueDate(e.target.value)}
-                          className="w-full text-[10px] font-mono font-black border border-rose-500/20 rounded-lg px-2.5 py-1.5 bg-[var(--card)] text-[var(--foreground)] cursor-pointer outline-none focus:border-rose-500"
-                        />
-                      </div>
+                  {/* Date selection for udhar crediting */}
+                  {paymentMethod === 'Credit' && (
+                    <div className="col-span-2 pt-1.5 border-t border-rose-500/10 space-y-1 animate-in slide-in-from-top-2 duration-300">
+                      <label className="text-[7px] font-black uppercase tracking-wider text-rose-500 block leading-none">
+                        📅 Due Date / चुकाने की तारीख *
+                      </label>
+                      <input
+                        type="date"
+                        value={udharDueDate}
+                        onChange={(e) => setUdharDueDate(e.target.value)}
+                        className="w-full text-[10px] font-mono font-black border border-rose-500/20 rounded-lg px-2.5 py-1.5 bg-[var(--card)] text-[var(--foreground)] cursor-pointer outline-none focus:border-rose-500"
+                      />
+                    </div>
+                  )}
+
+                  <div className="col-span-2 flex justify-end">
+                    {(!forceCustomerOpen) && (
+                      <button
+                        onClick={() => { setManualCustomerOpen(false); setCustomerName(''); setCustomerPhone(''); }}
+                        className="text-[7px] font-black text-rose-500 uppercase hover:underline leading-none cursor-pointer"
+                      >
+                        Hide Panel
+                      </button>
                     )}
-
-                    <div className="col-span-2 flex justify-end">
-                      {(!forceCustomerOpen) && (
-                        <button
-                          onClick={() => { setManualCustomerOpen(false); setCustomerName(''); setCustomerPhone(''); }}
-                          className="text-[7px] font-black text-rose-500 uppercase hover:underline leading-none cursor-pointer"
-                        >
-                          Hide Panel
-                        </button>
-                      )}
-                    </div>
                   </div>
                 </div>
               )}
@@ -5805,17 +5779,6 @@ export default function BillingScreen({
           </div>
         )}
       </AnimatePresence>
-
-      <GoogleContactPickerModal
-        isOpen={isGoogleContactModalOpen}
-        onClose={() => setIsGoogleContactModalOpen(false)}
-        onSelectContact={(contact) => {
-          setCustomerName(contact.name);
-          setCustomerPhone(contact.phone);
-          setIsGoogleContactModalOpen(false);
-          addToast(`Imported ${contact.name} successfully!`, 'success');
-        }}
-      />
 
       {/* Floating Sparkle Micro-animation Particles trigger */}
       <div className="fixed inset-0 pointer-events-none z-[99999] overflow-hidden">

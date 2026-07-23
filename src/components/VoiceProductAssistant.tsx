@@ -380,8 +380,7 @@ export function VoiceProductAssistant({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           transcript: cleanedText,
-          categories: categories,
-          customApiKey: appSettings?.customGeminiApiKey
+          categories: categories
         })
       });
 
@@ -637,8 +636,8 @@ export function VoiceProductAssistant({
 
     rec.onerror = (e: any) => {
       rec.__working = false;
-      console.warn("Speech Recognition Warning:", e?.error || e);
-      if (e.error !== "no-speech" && e.error !== "aborted") {
+      console.error("Speech Recognition Error", e);
+      if (e.error !== "no-speech") {
         setRecognitionError(`Recognition failed: ${e.error}`);
         setProcessStep('error');
       }

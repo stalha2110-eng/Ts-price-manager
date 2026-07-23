@@ -94,9 +94,7 @@ import {
   Volume2,
   VolumeX,
   Play,
-  Mail,
-  HardDrive,
-  CloudUpload
+  Mail
 } from 'lucide-react';
 import XLSX from 'xlsx-js-style';
 import { BUSINESS_MODES } from './services/businessModeConfig';
@@ -120,7 +118,6 @@ import AnalyticsScreen from './components/AnalyticsScreen';
 import UdharScreen from './components/UdharScreen';
 import BillHistoryDrawer from './components/BillHistoryDrawer';
 import NotificationCenter from './components/NotificationCenter';
-import { SystemPermissionsModal } from './components/SystemPermissionsModal';
 import PrinterSettingsScreen from './components/PrinterSettingsScreen';
 import { LatestAchievementWidget } from './components/MilestonesTab';
 import DynamicStoreDashboard from './components/DynamicStoreDashboard';
@@ -144,8 +141,6 @@ import {
 import { EmailAuthProvider, linkWithCredential, updatePassword } from 'firebase/auth';
 import { LoginScreen } from './components/LoginScreen';
 import { OnboardingForm } from './components/OnboardingForm';
-import { requestIndependentContactsToken } from './services/contactsService';
-import { requestIndependentDriveToken, GoogleDriveService } from './services/googleDriveService';
 import { 
   doc, 
   setDoc, 
@@ -1354,40 +1349,6 @@ export default function App() {
     isOpen: boolean;
   } | null>(null);
 
-  const [showWelcomeVoicePopup, setShowWelcomeVoicePopup] = useState(false);
-  const [showPermissionsCenter, setShowPermissionsCenter] = useState(false);
-
-  // Auto-trigger System Permissions Center on initial launch
-  useEffect(() => {
-    if (!isInitializing) {
-      const hasSeenPermissions = localStorage.getItem('ts_permissions_onboarding_shown');
-      if (!hasSeenPermissions) {
-        setShowPermissionsCenter(true);
-        localStorage.setItem('ts_permissions_onboarding_shown', 'true');
-      }
-    }
-  }, [isInitializing]);
-
-  // Auto-dismiss welcome voice popup after 9 seconds
-  useEffect(() => {
-    if (showWelcomeVoicePopup) {
-      const timer = setTimeout(() => {
-        setShowWelcomeVoicePopup(false);
-      }, 9000);
-      return () => clearTimeout(timer);
-    }
-  }, [showWelcomeVoicePopup]);
-
-  const handleMuteWelcomeVoice = () => {
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-    setShowWelcomeVoicePopup(false);
-    window.dispatchEvent(new CustomEvent('app-add-toast', { 
-      detail: { message: "Voice Announcement Muted / आवाज़ बंद कर दी गई है", type: 'info' } 
-    }));
-  };
-
   // Welcome Speech Voice Announcement Effect
   useEffect(() => {
     if (isInitializing) return;
@@ -1396,10 +1357,7 @@ export default function App() {
     const triggerSpeech = () => {
       if (spoken) return;
       spoken = true;
-      const played = playWelcomeAnnouncement(state.settings);
-      if (played) {
-        setShowWelcomeVoicePopup(true);
-      }
+      playWelcomeAnnouncement(state.settings);
       cleanup();
     };
 
@@ -6067,59 +6025,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Welcome Speech Voice Announcement Banner/Popup */}
-      <AnimatePresence>
-        {showWelcomeVoicePopup && (
-          <motion.div
-            key="welcome-voice-popup"
-            initial={{ opacity: 0, y: -50, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            transition={{ type: "spring", damping: 20, stiffness: 120 }}
-            className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] w-[calc(100%-2rem)] max-w-md bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 dark:from-zinc-900 dark:via-zinc-950 dark:to-zinc-900 border border-amber-500/30 text-white p-4 rounded-2xl shadow-2xl shadow-amber-500/5 flex items-center justify-between gap-3 backdrop-blur-xl"
-          >
-            {/* Left Ambient Glow */}
-            <div className="absolute -left-10 -top-10 w-24 h-24 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
-            <div className="absolute -right-10 -bottom-10 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
-
-            <div className="flex items-center gap-3 min-w-0">
-              {/* Pulsing Voice Icon */}
-              <div className="relative shrink-0 w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-                <span className="absolute inset-0 rounded-xl bg-amber-500/10 animate-ping opacity-75" />
-                <Volume2 size={18} className="animate-pulse" />
-              </div>
-
-              {/* Text content */}
-              <div className="text-left min-w-0">
-                <span className="block text-[8px] font-black uppercase tracking-widest text-amber-400 leading-none mb-1">
-                  🔊 Voice Announcement Active
-                </span>
-                <h5 className="font-black text-[11px] tracking-tight uppercase leading-tight text-white truncate">
-                  WELCOME TO TS PRICE MANAGER
-                </h5>
-                <p className="text-[9px] text-gray-300 font-medium leading-none mt-1">
-                  टीएस प्राइस मैनेजर में आपका स्वागत है!
-                </p>
-              </div>
-            </div>
-
-            {/* Mute Button */}
-            <button
-              onClick={handleMuteWelcomeVoice}
-              className="shrink-0 flex items-center gap-1.5 py-2 px-3.5 rounded-xl bg-rose-500/10 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/20 hover:border-rose-500/30 text-[9px] font-black uppercase tracking-wider cursor-pointer transition-all active:scale-95 shadow-md shadow-rose-950/20"
-            >
-              <VolumeX size={12} />
-              <span>Mute</span>
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <SystemPermissionsModal 
-        isOpen={showPermissionsCenter} 
-        onClose={() => setShowPermissionsCenter(false)} 
-      />
-
       {/* Menu / Settings Overlay Drawer */}
       <AnimatePresence>
         {showMenu && (
@@ -6271,18 +6176,6 @@ export default function App() {
                       onClick: () => {
                         setMenuTab('profile');
                         addToast("Navigated to Operator Profile", "success");
-                      }
-                    },
-                    {
-                      id: 'system-permissions',
-                      title: '🔐 Device & System Permissions',
-                      category: 'System',
-                      description: 'Configure and authorize Notifications, Contacts, Microphone, and Camera sequentially',
-                      keywords: ['permissions', 'camera', 'microphone', 'contacts', 'notifications', 'system settings', 'allow', 'access'],
-                      onClick: () => {
-                        setShowPermissionsCenter(true);
-                        setShowMenu(false);
-                        addToast("Opening System Permissions Center", "info");
                       }
                     },
                     {
@@ -8480,25 +8373,6 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareProductList
   onUpdate: (updates: Partial<AppSettings>) => void;
   onLogout: () => Promise<void>;
 }) {
-  const [contactsEmail, setContactsEmail] = useState<string | null>(() => localStorage.getItem('ts_google_contacts_email'));
-  const [driveEmail, setDriveEmail] = useState<string | null>(() => localStorage.getItem('ts_google_drive_email'));
-  const [isBackingUp, setIsBackingUp] = useState(false);
-
-  useEffect(() => {
-    const handleEmailChange = () => {
-      setContactsEmail(localStorage.getItem('ts_google_contacts_email'));
-    };
-    const handleDriveEmailChange = () => {
-      setDriveEmail(localStorage.getItem('ts_google_drive_email'));
-    };
-    window.addEventListener('ts_contacts_email_changed', handleEmailChange);
-    window.addEventListener('ts_drive_email_changed', handleDriveEmailChange);
-    return () => {
-      window.removeEventListener('ts_contacts_email_changed', handleEmailChange);
-      window.removeEventListener('ts_drive_email_changed', handleDriveEmailChange);
-    };
-  }, []);
-
   const handleAuth = async () => {
     if (state.user) {
       await onLogout();
@@ -8514,42 +8388,6 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareProductList
           alert(`Sign-in failed: ${error?.message || error}`);
         }
       }
-    }
-  };
-
-  const handleConnectContacts = async () => {
-    try {
-      await requestIndependentContactsToken();
-      alert('Google Contacts account connected successfully! (गूगल कांटेक्ट अकाउंट सफलतापूर्वक लिंक हो गया!)');
-    } catch (error: any) {
-      alert(`Contacts connection failed: ${error?.message || error}`);
-    }
-  };
-
-  const handleConnectDrive = async () => {
-    try {
-      await requestIndependentDriveToken();
-      alert('Google Drive connected successfully! (गूगल ड्राइव सफलतापूर्वक लिंक हो गया!)');
-    } catch (error: any) {
-      alert(`Drive connection failed: ${error?.message || error}`);
-    }
-  };
-
-  const handleTriggerBackup = async () => {
-    setIsBackingUp(true);
-    try {
-      const dataToBackup = {
-        items: state.items || [],
-        bills: state.bills || [],
-        notes: (state as any).notes || []
-      };
-      const viewLink = await GoogleDriveService.backupSystemState(dataToBackup);
-      alert(`Full system state backup created successfully in your Google Drive under 'TS Price Manager Backups/System Backups'!\n\nView file: ${viewLink}`);
-    } catch (error: any) {
-      console.error(error);
-      alert(`Backup failed: ${error?.message || error}`);
-    } finally {
-      setIsBackingUp(false);
     }
   };
 
@@ -8569,7 +8407,7 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareProductList
                </div>
                <div>
                   <h2 className="text-4xl font-black uppercase tracking-tight leading-none truncate max-w-[200px] sm:max-w-md">
-                     {state.settings.storeOwnerName || (state.user ? (state.user.email?.split('@')[0] || 'Merchant') : 'SYSTEM ADMIN')}
+                    {state.settings.storeOwnerName || (state.user ? (state.user.email?.split('@')[0] || 'Merchant') : 'SYSTEM ADMIN')}
                   </h2>
                   <div className="mt-2 flex items-center gap-2">
                      <span className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
@@ -8577,30 +8415,16 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareProductList
                        {state.settings.storeName || (state.user ? t.liveNode : t.localSandbox)}
                      </p>
                   </div>
-                  
-                  {/* Primary App login Email */}
                   {state.user && state.user.email && (
-                     <div className="mt-2.5 flex items-center gap-1.5 opacity-95 text-[10.5px] font-mono tracking-tight bg-black/25 border border-white/10 rounded-lg px-2.5 py-1.5 w-fit select-text">
-                        <span className="text-xs shrink-0">✉️</span>
+                     <div className="mt-1.5 flex items-center gap-1.5 opacity-90 text-[10.5px] font-mono tracking-tight bg-black/15 border border-white/10 rounded-lg px-2.5 py-1 w-fit select-text">
+                        <Mail size={11} className="text-indigo-200 shrink-0" />
                         <span>{state.user.email}</span>
                      </div>
                   )}
-
-                  {/* Independent Google Contacts Sync Email */}
-                  <div className="mt-1.5 flex items-center gap-1.5 opacity-95 text-[10.5px] font-mono tracking-tight bg-black/25 border border-white/10 rounded-lg px-2.5 py-1.5 w-fit select-text">
-                     <span className="text-xs shrink-0">👤</span>
-                     <span>{contactsEmail || 'Not Connected (नॉट कनेक्टेड)'}</span>
-                  </div>
-
-                  {/* Independent Google Drive Backup Email */}
-                  <div className="mt-1.5 flex items-center gap-1.5 opacity-95 text-[10.5px] font-mono tracking-tight bg-black/25 border border-white/10 rounded-lg px-2.5 py-1.5 w-fit select-text">
-                     <span className="text-xs shrink-0">💾</span>
-                     <span>{driveEmail || 'Drive Not Connected (ड्राइव नॉट कनेक्टेड)'}</span>
-                  </div>
                </div>
             </div>
             
-            <div className="flex flex-wrap gap-6 pt-4">
+            <div className="flex gap-8 pt-4">
                <div>
                   <p className="text-[9px] font-black uppercase tracking-widest opacity-50 mb-1">{t.authorization}</p>
                   <button 
@@ -8608,46 +8432,10 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareProductList
                     className="flex items-center gap-2 bg-white/10 hover:bg-white text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full transition-all text-white hover:text-[var(--primary)] shadow-lg active:scale-95"
                   >
                      {state.user ? <LogOut size={14} /> : <LogIn size={14} />}
-                     {state.user ? "LOG OUT" : t.cloudEntry}
+                     {state.user ? t.terminateSession : t.cloudEntry}
                   </button>
                </div>
-
-               <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest opacity-50 mb-1">Contacts Integration</p>
-                  <button 
-                    onClick={handleConnectContacts}
-                    className="flex items-center gap-2 bg-amber-500/20 hover:bg-amber-500 text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full border border-amber-400/30 transition-all text-white hover:text-black shadow-lg active:scale-95"
-                  >
-                     <Users size={14} />
-                     {contactsEmail ? "Change Contacts Account" : "Connect Google Contacts"}
-                  </button>
-               </div>
-
-               <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest opacity-50 mb-1">Google Drive Sync</p>
-                  <div className="flex flex-wrap gap-2">
-                     <button 
-                       onClick={handleConnectDrive}
-                       className="flex items-center gap-2 bg-blue-500/20 hover:bg-blue-500 text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full border border-blue-400/30 transition-all text-white hover:text-black shadow-lg active:scale-95"
-                     >
-                        <HardDrive size={14} />
-                        {driveEmail ? "Change Drive Account" : "Connect Google Drive"}
-                     </button>
-                     {driveEmail && (
-                        <button 
-                          onClick={handleTriggerBackup}
-                          disabled={isBackingUp}
-                          className="flex items-center gap-2 bg-emerald-500/20 hover:bg-emerald-500 disabled:opacity-50 text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full border border-emerald-400/30 transition-all text-white hover:text-black shadow-lg active:scale-95"
-                        >
-                           <CloudUpload size={14} className={isBackingUp ? "animate-pulse" : ""} />
-                           {isBackingUp ? "Saving..." : "Backup Now"}
-                        </button>
-                     )}
-                  </div>
-               </div>
-
-               <div className="h-10 w-px bg-white/20 hidden sm:block" />
-               
+               <div className="h-10 w-px bg-white/20" />
                <div>
                   <p className="text-[9px] font-black uppercase tracking-widest opacity-50 mb-1">{t.architecture}</p>
                   <p className="text-xs font-black uppercase">v3.5.0 Enterprise</p>

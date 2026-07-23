@@ -221,7 +221,6 @@ export interface AppSettings {
   enableInstantLanguageRefresh?: boolean;
   showLanguagePreview?: boolean;
   autoTranslateVoiceProducts?: boolean;
-  customGeminiApiKey?: string;
 }
 
 export interface InAppNotification {

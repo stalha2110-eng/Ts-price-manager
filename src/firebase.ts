@@ -59,35 +59,14 @@ if (typeof window !== 'undefined' && window.self === window.top) {
 }
 
 export const googleProvider = new GoogleAuthProvider();
-googleProvider.addScope('https://www.googleapis.com/auth/contacts.readonly');
-
-let cachedAccessToken: string | null = null;
-
-export const getCachedAccessToken = (): string | null => {
-  return cachedAccessToken;
-};
-
-export const setCachedAccessToken = (token: string | null) => {
-  cachedAccessToken = token;
-};
 
 // Standard login
 export const loginWithGoogle = async () => {
   try {
     const result = await signInWithPopup(auth, googleProvider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (credential?.accessToken) {
-      cachedAccessToken = credential.accessToken;
-    }
     return result.user;
-  } catch (error: any) {
+  } catch (error) {
     console.error("Login failed:", error);
-    const code = error?.code || "";
-    if (code === "auth/popup-closed-by-user") {
-      throw new Error("popup-closed-by-user");
-    } else if (code === "auth/popup-blocked") {
-      throw new Error("popup-blocked");
-    }
     throw error;
   }
 };
