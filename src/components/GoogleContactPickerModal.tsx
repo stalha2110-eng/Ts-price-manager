@@ -19,25 +19,6 @@ export const GoogleContactPickerModal: React.FC<GoogleContactPickerModalProps> =
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(!!getIndependentContactsToken());
-  const connectedEmail = localStorage.getItem('ts_google_contacts_email');
-
-  const handleSwitchAccount = async () => {
-    localStorage.removeItem('ts_google_contacts_email');
-    localStorage.removeItem('ts_google_contacts_token');
-    localStorage.removeItem('ts_google_contacts_token_expiry');
-    window.dispatchEvent(new Event('ts_contacts_email_changed'));
-    setIsAuthenticated(false);
-    setError(null);
-    // Directly request fresh login
-    setIsLoading(true);
-    try {
-      await loadContacts(true);
-    } catch (err: any) {
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const loadContacts = async (forceRefresh = false) => {
     setIsLoading(true);
@@ -141,100 +122,41 @@ export const GoogleContactPickerModal: React.FC<GoogleContactPickerModalProps> =
           {!isAuthenticated ? (
             /* Login Prompt with Premium Troubleshooting Guide */
             <div className="flex-1 flex flex-col overflow-y-auto pr-1 space-y-5 py-2 no-scrollbar">
-              {connectedEmail ? (
-                /* Premium re-authorization screen when a session expires */
-                <div className="flex flex-col items-center justify-center text-center space-y-4 shrink-0 py-3">
-                  <div className="relative animate-bounce duration-1000">
-                    <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 text-xl font-bold uppercase select-none">
-                      {connectedEmail.charAt(0)}
-                    </div>
-                    <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 border-2 border-[var(--card)] flex items-center justify-center text-white text-[10px] font-bold">
-                      ✓
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <h5 className="font-bold text-xs uppercase tracking-wider text-[var(--foreground)]">Google Account Connected</h5>
-                    <div className="font-mono text-[9px] bg-black/15 border border-[var(--border)] px-3 py-1 rounded-xl w-fit mx-auto text-[var(--foreground)]/90 select-all">
-                      {connectedEmail}
-                    </div>
-                  </div>
-
+              <div className="flex flex-col items-center justify-center text-center space-y-3 shrink-0">
+                <div className="w-12 h-12 rounded-2xl bg-[var(--primary)]/10 flex items-center justify-center text-[var(--primary)] shrink-0">
+                  <User size={20} />
+                </div>
+                <div className="space-y-1">
+                  <h5 className="font-bold text-xs uppercase tracking-wider text-[var(--foreground)]">Connect Google Account</h5>
                   <p className="text-[10px] text-[var(--foreground)]/60 max-w-[340px] leading-relaxed">
-                    Google's secure access session expires every 1 hour. Tap <strong>'Load Contacts'</strong> to refresh your connection and retrieve your list instantly.
-                    <br />
-                    <span className="text-[9px] text-amber-500/95 font-medium mt-1.5 block">
-                      (गूगल संपर्क सत्र हर 1 घंटे में समाप्त हो जाता है। संपर्क देखने के लिए नीचे लोड करें पर क्लिक करें।)
-                    </span>
+                    Sign in with Google to grant access to your contacts list. This lets you search and import phone numbers and names instantly.
                   </p>
-
-                  {error && (
-                    <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-left flex items-start gap-2 max-w-[380px] w-full">
-                      <AlertCircle size={14} className="text-rose-500 shrink-0 mt-0.5" />
-                      <div className="space-y-1">
-                        <span className="text-[9px] font-black text-rose-500 block">ERROR / त्रुटि:</span>
-                        <span className="text-[9px] font-bold text-rose-500 block leading-tight">{error}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="w-full max-w-[280px] space-y-3 pt-1">
-                    <button
-                      onClick={handleLogin}
-                      disabled={isLoading}
-                      className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-[var(--primary)] hover:opacity-90 active:scale-95 text-white rounded-2xl shadow-lg font-black text-[10px] uppercase tracking-widest cursor-pointer select-none transition-all duration-150 disabled:opacity-50"
-                    >
-                      <RefreshCw size={13} className={isLoading ? "animate-spin" : ""} />
-                      <span>{isLoading ? 'Loading Contacts...' : '🔄 Load Contacts (संपर्क लोड करें)'}</span>
-                    </button>
-
-                    <button
-                      onClick={handleSwitchAccount}
-                      disabled={isLoading}
-                      className="text-[9px] font-black uppercase tracking-wider text-[var(--foreground)]/50 hover:text-[var(--foreground)] transition-colors underline cursor-pointer block mx-auto"
-                    >
-                      Switch Google Account (दूसरा खाता चुनें)
-                    </button>
-                  </div>
                 </div>
-              ) : (
-                /* First-time login prompt */
-                <div className="flex flex-col items-center justify-center text-center space-y-3 shrink-0">
-                  <div className="w-12 h-12 rounded-2xl bg-[var(--primary)]/10 flex items-center justify-center text-[var(--primary)] shrink-0">
-                    <User size={20} />
-                  </div>
-                  <div className="space-y-1">
-                    <h5 className="font-bold text-xs uppercase tracking-wider text-[var(--foreground)]">Connect Google Account</h5>
-                    <p className="text-[10px] text-[var(--foreground)]/60 max-w-[340px] leading-relaxed">
-                      Sign in with Google to grant access to your contacts list. This lets you search and import phone numbers and names instantly.
-                    </p>
-                  </div>
 
-                  {error && (
-                    <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-left flex items-start gap-2 max-w-[380px] w-full">
-                      <AlertCircle size={14} className="text-rose-500 shrink-0 mt-0.5" />
-                      <div className="space-y-1">
-                        <span className="text-[9px] font-black text-rose-500 block">ERROR / त्रुटि:</span>
-                        <span className="text-[9px] font-bold text-rose-500 block leading-tight">{error}</span>
-                      </div>
+                {error && (
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-left flex items-start gap-2 max-w-[380px] w-full">
+                    <AlertCircle size={14} className="text-rose-500 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <span className="text-[9px] font-black text-rose-500 block">ERROR / त्रुटि:</span>
+                      <span className="text-[9px] font-bold text-rose-500 block leading-tight">{error}</span>
                     </div>
-                  )}
+                  </div>
+                )}
 
-                  <button
-                    onClick={handleLogin}
-                    disabled={isLoading}
-                    className="w-full max-w-[280px] flex items-center justify-center gap-2.5 py-2.5 px-4 bg-white hover:bg-gray-50 active:bg-gray-100 text-gray-900 border border-gray-200 rounded-2xl shadow-md font-black text-[10px] uppercase tracking-wider cursor-pointer select-none transition-all duration-200 disabled:opacity-50"
-                  >
-                    <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-4 h-4 shrink-0">
-                      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-                      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                    </svg>
-                    <span>{isLoading ? 'Connecting...' : 'Sign in with Google'}</span>
-                  </button>
-                </div>
-              )}
+                <button
+                  onClick={handleLogin}
+                  disabled={isLoading}
+                  className="w-full max-w-[280px] flex items-center justify-center gap-2.5 py-2.5 px-4 bg-white hover:bg-gray-50 active:bg-gray-100 text-gray-900 border border-gray-200 rounded-2xl shadow-md font-black text-[10px] uppercase tracking-wider cursor-pointer select-none transition-all duration-200 disabled:opacity-50"
+                >
+                  <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-4 h-4 shrink-0">
+                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                  </svg>
+                  <span>{isLoading ? 'Connecting...' : 'Sign in with Google'}</span>
+                </button>
+              </div>
 
               {/* Comprehensive visual warning bypass instructions */}
               <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 text-left space-y-3.5">

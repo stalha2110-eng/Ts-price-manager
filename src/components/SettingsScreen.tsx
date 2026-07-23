@@ -42,8 +42,7 @@ export default function SettingsScreen({
   onExportExcel, onExportPDF, onImport, onBackup, onRestore, onClearCache,
   isSyncing, isExporting,
   activeSubTab: externalActiveSubTab,
-  onChangeSubTab,
-  onRestoreFromDrive
+  onChangeSubTab
 }: { 
   state: AppState; t: any; onUpdate: (u: any) => void; onShowHelp: () => void; onResetPIN: () => void;
   onExportExcel: () => void;
@@ -56,7 +55,6 @@ export default function SettingsScreen({
   isExporting: boolean;
   activeSubTab?: 'interface' | 'security' | 'sound' | 'data';
   onChangeSubTab?: (tab: 'interface' | 'security' | 'sound' | 'data') => void;
-  onRestoreFromDrive?: () => void;
 }) {
   const [localActiveSubTab, setLocalActiveSubTab] = useState<'interface' | 'security' | 'sound' | 'data'>('interface');
   const activeSubTab = externalActiveSubTab || localActiveSubTab;
@@ -1211,15 +1209,6 @@ export default function SettingsScreen({
                           <Upload size={18} /> Restore Backup
                           <input type="file" className="hidden" accept=".json" onChange={onRestore} />
                         </label>
-                        {onRestoreFromDrive && (
-                           <Button 
-                             onClick={onRestoreFromDrive} 
-                             variant="outline" 
-                             className="justify-start gap-3 rounded-xl py-6 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10"
-                           >
-                             <Cloud size={18} /> <span className="text-[10px] font-black uppercase">Restore from Drive (Picker)</span>
-                           </Button>
-                        )}
                      </div>
                   </div>
 

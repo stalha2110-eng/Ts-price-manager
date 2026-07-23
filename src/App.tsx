@@ -2525,33 +2525,6 @@ export default function App() {
     };
     reader.readAsText(file);
   };
-
-  const handleRestoreFromDrive = async () => {
-    try {
-      // 1. Trigger Google Picker to select a JSON file
-      const selectedFile = await GoogleDriveService.openFilePicker('application/json');
-      if (!selectedFile) {
-        // User cancelled or no file selected
-        return;
-      }
-
-      // 2. Fetch/download file content
-      const fileData = await GoogleDriveService.downloadFileContent(selectedFile.id);
-
-      // 3. Confirm overwrite and apply state
-      if (fileData && fileData.settings && fileData.items) {
-        if (confirm(`Restoring from Google Drive file '${selectedFile.name}' will overwrite your current settings and items. Proceed?`)) {
-          setState(fileData);
-          alert('System Restored successfully from Google Drive!');
-        }
-      } else {
-        alert('The selected file does not appear to be a valid backup file. (चुनी गई फ़ाइल मान्य बैकअप फ़ाइल नहीं है।)');
-      }
-    } catch (error: any) {
-      console.error(error);
-      alert(`Failed to restore from Google Drive: ${error?.message || error}`);
-    }
-  };
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
@@ -6634,7 +6607,6 @@ export default function App() {
                     onImport={importData}
                     onBackup={handleBackup}
                     onRestore={handleRestore}
-                    onRestoreFromDrive={handleRestoreFromDrive}
                     onClearCache={() => {
                       if (confirm('Wipe everything?')) {
                         localStorage.clear();
@@ -8245,7 +8217,6 @@ function SettingsScreen(props: {
   isExporting: boolean;
   activeSubTab?: 'interface' | 'security' | 'sound' | 'data';
   onChangeSubTab?: (tab: 'interface' | 'security' | 'sound' | 'data') => void;
-  onRestoreFromDrive?: () => void;
 }) {
   return <SettingsScreenExt {...props} />;
 }
