@@ -25,11 +25,7 @@ interface FloatingPosition {
   y: number;
 }
 
-interface SmartCalculatorProps {
-  isInline?: boolean;
-}
-
-export default function SmartCalculator({ isInline = false }: SmartCalculatorProps = {}) {
+export default function SmartCalculator() {
   // Global visibility state (launcher is available app-wide)
   const [isOpen, setIsOpen] = useState(() => {
     const saved = localStorage.getItem('tsm_calc_is_open');
@@ -631,27 +627,31 @@ export default function SmartCalculator({ isInline = false }: SmartCalculatorPro
     return matchesSearch && matchesFav;
   });
 
-  const renderCalculatorContent = () => {
-    return (
-      <div 
-        className={cn(
-          isInline 
-            ? "relative w-full max-w-lg mx-auto rounded-[2rem] bg-white border-[3px] border-zinc-200 shadow-[0_15px_45px_rgba(0,0,0,0.06)] p-4 flex flex-col justify-between cursor-default select-none text-left font-sans text-zinc-800 text-xs"
-            : cn(
-                "fixed z-[190] rounded-[2rem] bg-white border-[3px] border-zinc-200 shadow-[0_25px_60px_rgba(0,0,0,0.12)] p-4 flex flex-col justify-between cursor-default select-none text-left font-sans text-zinc-800 text-xs",
-                isRapidMode ? "w-[340px]" : "w-[360px]"
-              ),
-          "border-t-amber-500/70 border-r-amber-500/30 border-b-zinc-200 border-l-zinc-200"
-        )}
-        style={isInline ? undefined : { 
-          left: `${panelPos.x}px`, 
-          top: `${panelPos.y}px`,
-          touchAction: 'none'
-        }}
-        ref={isInline ? undefined : panelRef}
-      >
-        {/* PANEL HEADER */}
-        <div className={cn("drag-handle flex items-center justify-between border-b border-zinc-150 pb-2 mb-3 select-none", !isInline && "cursor-move")}>
+  return (
+    <>
+      {/* 2. MODERN FLOATING CALCULATOR SCREEN PANEL OVERLAY */}
+      <AnimatePresence>
+        {isOpen && !isMinimized && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.96, y: 15 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 15 }}
+            transition={{ type: "spring", stiffness: 450, damping: 26 }}
+            ref={panelRef}
+            onMouseDown={handlePanelDragStart}
+            style={{ 
+              left: `${panelPos.x}px`, 
+              top: `${panelPos.y}px`,
+              touchAction: 'none'
+            }}
+            className={cn(
+              "fixed z-[190] rounded-[2rem] bg-white border-[3px] border-zinc-200 shadow-[0_25px_60px_rgba(0,0,0,0.12)] p-4 flex flex-col justify-between cursor-default select-none text-left font-sans text-zinc-800 text-xs",
+              isRapidMode ? "w-[340px]" : "w-[360px]",
+              "border-t-amber-500/70 border-r-amber-500/30 border-b-zinc-200 border-l-zinc-200"
+            )}
+          >
+            {/* PANEL DRAGGABLE HEADER */}
+            <div className="drag-handle cursor-move flex items-center justify-between border-b border-zinc-150 pb-2 mb-3 select-none">
               <div className="flex items-center gap-2">
                 <span className="p-1 rounded-xl bg-amber-500/10 text-amber-600 animate-pulse">
                   <Calculator size={14} className="stroke-[2.5]" />
@@ -699,30 +699,26 @@ export default function SmartCalculator({ isInline = false }: SmartCalculatorPro
                 >
                   ⚡ Counter Mode {isRapidMode ? 'On' : 'Off'}
                 </button>
-                {!isInline && (
-                  <>
-                    <button 
-                      onClick={() => {
-                        handleButtonPressFeedback();
-                        setIsMinimized(true);
-                      }}
-                      className="h-6 w-6 rounded-full bg-zinc-100 flex items-center justify-center hover:bg-zinc-200 text-zinc-500 cursor-pointer"
-                      title="Minimize back to floating circular shortcut"
-                    >
-                      <Minimize2 size={11} />
-                    </button>
-                    <button 
-                      onClick={() => {
-                        handleButtonPressFeedback();
-                        setIsOpen(false);
-                      }}
-                      className="h-6 w-6 rounded-full bg-zinc-100 flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 text-zinc-500 cursor-pointer transition"
-                      title="Close completely"
-                    >
-                      <X size={11} />
-                    </button>
-                  </>
-                )}
+                <button 
+                  onClick={() => {
+                    handleButtonPressFeedback();
+                    setIsMinimized(true);
+                  }}
+                  className="h-6 w-6 rounded-full bg-zinc-100 flex items-center justify-center hover:bg-zinc-200 text-zinc-500 cursor-pointer"
+                  title="Minimize back to floating circular shortcut"
+                >
+                  <Minimize2 size={11} />
+                </button>
+                <button 
+                  onClick={() => {
+                    handleButtonPressFeedback();
+                    setIsOpen(false);
+                  }}
+                  className="h-6 w-6 rounded-full bg-zinc-100 flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 text-zinc-500 cursor-pointer transition"
+                  title="Close completely"
+                >
+                  <X size={11} />
+                </button>
               </div>
             </div>
 
@@ -1643,27 +1639,6 @@ export default function SmartCalculator({ isInline = false }: SmartCalculatorPro
               <span>Active POS Shift Toolkit</span>
               <span className="font-mono text-zinc-400">POS LEDGER</span>
             </div>
-          </div>
-    );
-  };
-
-  if (isInline) {
-    return renderCalculatorContent();
-  }
-
-  return (
-    <>
-      {/* 2. MODERN FLOATING CALCULATOR SCREEN PANEL OVERLAY */}
-      <AnimatePresence>
-        {isOpen && !isMinimized && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 15 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 15 }}
-            transition={{ type: "spring", stiffness: 450, damping: 26 }}
-            style={{ position: 'fixed', zIndex: 190 }}
-          >
-            {renderCalculatorContent()}
           </motion.div>
         )}
       </AnimatePresence>

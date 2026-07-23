@@ -1,7 +1,4 @@
 import { getIndependentContactsToken } from './contactsService';
-import { auth } from '../firebase';
-import { GoogleAuthProvider, signInWithPopup, linkWithPopup, reauthenticateWithPopup } from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
 
 export function getIndependentDriveToken(): string | null {
   const token = localStorage.getItem('ts_google_drive_token');
@@ -14,93 +11,89 @@ export function getIndependentDriveToken(): string | null {
   return null;
 }
 
-let gsiLoadPromise: Promise<void> | null = null;
-
-export function loadGsiScript(): Promise<void> {
-  if (gsiLoadPromise) return gsiLoadPromise;
-
-  gsiLoadPromise = new Promise((resolve, reject) => {
-    const g = window as any;
-    if (g.google && g.google.accounts && g.google.accounts.oauth2) {
-      resolve();
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.defer = true;
-    script.onload = () => {
-      if (g.google && g.google.accounts && g.google.accounts.oauth2) {
-        resolve();
-      } else {
-        reject(new Error("Google Identity Services (GSI) failed to load."));
-      }
-    };
-    script.onerror = () => {
-      reject(new Error("Failed to load Google Identity Services script."));
-    };
-    document.head.appendChild(script);
-  });
-
-  return gsiLoadPromise;
-}
-
 export function requestIndependentDriveToken(): Promise<{ accessToken: string; email?: string }> {
-  return new Promise(async (resolve, reject) => {
-    try {
-      await loadGsiScript();
-      const g = window as any;
-      if (!g.google || !g.google.accounts || !g.google.accounts.oauth2) {
-        throw new Error("Google Identity Services library is not loaded.");
+  return new Promise((resolve, reject) => {
+    const gsiScriptUrl = 'https://accounts.google.com/gsi/client';
+
+    const triggerTokenRequest = () => {
+      const g = (window as any).google;
+      if (!g || !g.accounts || !g.accounts.oauth2) {
+        reject(new Error("Google Identity Services client library not loaded. Please try again."));
+        return;
       }
 
-      const client = g.google.accounts.oauth2.initTokenClient({
-        client_id: firebaseConfig.oAuthClientId,
-        scope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
-        callback: async (response: any) => {
-          if (response.error) {
-            reject(new Error(response.error_description || response.error));
-            return;
-          }
-          const accessToken = response.access_token;
-          if (!accessToken) {
-            reject(new Error("Failed to retrieve access token from Google sign-in."));
-            return;
-          }
+      // Exact client ID from firebase-applet-config.json
+      const clientId = "389975625261-qsq3t8a74bvjuv6ju3udr4us99okibvk.apps.googleusercontent.com";
 
-          let email: string | undefined;
-          try {
-            const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-              headers: { Authorization: `Bearer ${accessToken}` }
-            });
-            if (userRes.ok) {
-              const userData = await userRes.json();
-              email = userData.email;
+      try {
+        const client = g.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
+          callback: async (response: any) => {
+            if (response.error) {
+              console.error("GIS Drive token callback error:", response.error);
+              reject(new Error(`OAuth failed: ${response.error_description || response.error}`));
+              return;
             }
-          } catch (e) {
-            console.warn("[Drive GSI] Failed to retrieve email:", e);
+
+            if (response.access_token) {
+              const accessToken = response.access_token;
+
+              // Fetch user email for this token so we know which Google account was used for drive
+              let email: string | undefined;
+              try {
+                const userinfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                  headers: {
+                    Authorization: `Bearer ${accessToken}`
+                  }
+                });
+                if (userinfoRes.ok) {
+                  const userInfo = await userinfoRes.json();
+                  email = userInfo.email;
+                  if (email) {
+                    localStorage.setItem('ts_google_drive_email', email);
+                    // Also dispatch an event so that components can refresh immediately
+                    window.dispatchEvent(new Event('ts_drive_email_changed'));
+                  }
+                }
+              } catch (err) {
+                console.warn("Failed to fetch Google userinfo email:", err);
+              }
+
+              // Cache the independent token
+              localStorage.setItem('ts_google_drive_token', accessToken);
+              localStorage.setItem('ts_google_drive_token_expiry', String(Date.now() + 3500 * 1000)); // 1 hour expiry
+
+              resolve({ accessToken, email });
+            } else {
+              reject(new Error("No access token was returned. (कोई एक्सेस टोकन प्राप्त नहीं हुआ।)"));
+            }
+          },
+          error_callback: (err: any) => {
+            console.error("GIS Drive Error callback:", err);
+            reject(new Error(err?.message || "Google OAuth initialization error."));
           }
+        });
 
-          if (email) {
-            localStorage.setItem('ts_google_drive_email', email);
-            window.dispatchEvent(new Event('ts_drive_email_changed'));
-          }
+        client.requestAccessToken();
+      } catch (err: any) {
+        console.error("Error starting Google OAuth flow for Drive:", err);
+        reject(err);
+      }
+    };
 
-          localStorage.setItem('ts_google_drive_token', accessToken);
-          localStorage.setItem('ts_google_drive_token_expiry', String(Date.now() + 3500 * 1000)); // 1 hour
-
-          resolve({ accessToken, email });
-        },
-        error_callback: (err: any) => {
-          reject(new Error(err?.message || "Google flow failed or popup blocked."));
-        }
-      });
-
-      client.requestAccessToken({ prompt: 'consent' });
-    } catch (err: any) {
-      console.error("[Drive GSI] auth initialization failed:", err);
-      reject(new Error(err?.message || "Google Authentication initialization failed."));
+    if (!(window as any).google || !(window as any).google.accounts) {
+      const script = document.createElement('script');
+      script.src = gsiScriptUrl;
+      script.async = true;
+      script.defer = true;
+      script.onload = () => {
+        setTimeout(triggerTokenRequest, 100);
+      };
+      script.onerror = () => reject(new Error("Failed to load Google Sign-In script."));
+      document.head.appendChild(script);
+    } else {
+      triggerTokenRequest();
     }
   });
 }
@@ -316,47 +309,6 @@ export class GoogleDriveService {
   }
 
   /**
-   * Fetch a list of JSON backup files from Google Drive using REST API
-   */
-  static async listBackupFiles(mimeType?: string): Promise<Array<{ id: string; name: string; mimeType: string; createdTime?: string; size?: string }>> {
-    const token = await this.getValidToken();
-    let q = "trashed = false";
-    if (mimeType) {
-      q += ` and mimeType = '${mimeType}'`;
-    } else {
-      q += " and mimeType = 'application/json'";
-    }
-    // Optimize search for TS Price Manager backup files specifically (speeds up Drive response significantly)
-    q += " and (name contains 'TS_Price_Manager_Full_Backup' or name contains 'TS_PRICE_MANAGER_Backup')";
-    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,createdTime,size)&orderBy=createdTime desc&pageSize=100`;
-
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        localStorage.removeItem('ts_google_drive_token');
-        const refreshedToken = await this.getValidToken();
-        const retryRes = await fetch(url, {
-          headers: { Authorization: `Bearer ${refreshedToken}` }
-        });
-        if (retryRes.ok) {
-          const data = await retryRes.json();
-          return data.files || [];
-        }
-      }
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error?.message || `Failed to fetch files from Google Drive: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.files || [];
-  }
-
-  /**
    * Use Google Picker to pick a file from Google Drive
    */
   static async openFilePicker(allowedMimeTypes?: string): Promise<{ id: string; name: string; mimeType: string } | null> {
@@ -370,7 +322,11 @@ export class GoogleDriveService {
         return;
       }
 
-      const pickerOrigin = window.location.origin;
+      const pickerOrigin =
+        window.location.ancestorOrigins &&
+        window.location.ancestorOrigins.length > 0
+          ? window.location.ancestorOrigins[window.location.ancestorOrigins.length - 1]
+          : window.location.origin;
 
       try {
         const view = new g.google.picker.DocsView(g.google.picker.ViewId.DOCS);
@@ -378,13 +334,9 @@ export class GoogleDriveService {
           view.setMimeTypes(allowedMimeTypes);
         }
 
-        const projectNumber = (firebaseConfig as any).messagingSenderId || (firebaseConfig as any).projectId;
-
         const picker = new g.google.picker.PickerBuilder()
           .addView(view)
           .setOAuthToken(token)
-          .setDeveloperKey(firebaseConfig.apiKey)
-          .setAppId(projectNumber)
           .setOrigin(pickerOrigin)
           .setCallback((data: any) => {
             if (data.action === g.google.picker.Action.PICKED) {
@@ -431,15 +383,11 @@ export class GoogleDriveService {
   }
 }
 
-let pickerLoadPromise: Promise<void> | null = null;
-
 /**
  * Loads the Google Picker API (GAPI + Picker client library)
  */
 export function loadPickerApi(): Promise<void> {
-  if (pickerLoadPromise) return pickerLoadPromise;
-
-  pickerLoadPromise = new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     const g = window as any;
     if (g.gapi && g.google && g.google.picker) {
       resolve();
@@ -474,6 +422,4 @@ export function loadPickerApi(): Promise<void> {
     };
     document.head.appendChild(script);
   });
-
-  return pickerLoadPromise;
 }

@@ -210,19 +210,6 @@ export const GoogleContactPickerModal: React.FC<GoogleContactPickerModalProps> =
                     </p>
                   </div>
 
-                  {window.self !== window.top && (
-                    <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-left flex items-start gap-2.5 max-w-[380px] w-full text-[9.5px] text-amber-300 font-semibold leading-normal">
-                      <AlertCircle size={15} className="text-amber-400 shrink-0 mt-0.5" />
-                      <div>
-                        <strong className="text-amber-300 uppercase block tracking-wider text-[8.5px] mb-0.5">Iframe Sandbox Notice / आईफ्रेम चेतावनी</strong>
-                        Since this app is in the AI Studio preview window (iframe), Google popups can be blocked or fail. If you face issues, click the <strong>"Open in a new tab"</strong> button at the top-right of your screen to authorize seamlessly!
-                        <span className="text-[8.5px] text-gray-400 font-medium block mt-1 leading-normal">
-                          (प्रिव्यू विंडो में गूगल सुरक्षा के कारण पॉपअप ब्लॉक हो सकता है। कृपया पूर्ण सुविधा के लिए एप को नए टैब में खोलें।)
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
                   {error && (
                     <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-left flex items-start gap-2 max-w-[380px] w-full">
                       <AlertCircle size={14} className="text-rose-500 shrink-0 mt-0.5" />

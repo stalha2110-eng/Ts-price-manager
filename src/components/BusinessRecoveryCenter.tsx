@@ -3,12 +3,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, Trash2, RotateCcw, ShieldCheck, History, Settings, CheckCircle2, 
   AlertTriangle, RefreshCw, Layers, Users, TrendingUp, Info, Clock, Calendar,
-  Shield, Edit3, ArrowUpRight, Check, X, Sliders, ChevronDown, ShieldAlert
+  Shield, Edit3, ArrowUpRight, Check, X, Sliders, ChevronDown
 } from 'lucide-react';
 import { RecoveryService, RecoveryRecord, AuditLog, PriceStockRecord } from '../services/recoveryService';
 import { AppState, Item, Category, UdharCustomer, UdharTransaction, Bill } from '../types';
-import { auth, db, sanitizeForFirestore } from '../firebase';
-import { doc, setDoc } from 'firebase/firestore';
 
 interface BusinessRecoveryCenterProps {
   state: AppState;
@@ -29,14 +27,6 @@ export default function BusinessRecoveryCenter({
   const [retentionDays, setRetentionDays] = useState<number>(state.settings.scheduledBackupEnabled ? 30 : 15);
   const [loading, setLoading] = useState(false);
   const [alertMsg, setAlertMsg] = useState<{ type: 'success' | 'err'; text: string } | null>(null);
-
-  // Recovery diagnostics state
-  const [diagnosticResult, setDiagnosticResult] = useState<{
-    status: 'ok' | 'mismatch' | 'checking';
-    firestoreUid: string | null;
-    cachedUid: string | null;
-    migrating: boolean;
-  }>({ status: 'checking', firestoreUid: null, cachedUid: null, migrating: false });
 
   // Recovery databases loaded from service
   const [recoveryRecords, setRecoveryRecords] = useState<RecoveryRecord[]>([]);
@@ -67,110 +57,6 @@ export default function BusinessRecoveryCenter({
       console.error("Failed to load recovery records", e);
     } finally {
       setLoading(false);
-    }
-  };
-
-  // --- ACCOUNT UID DIAGNOSTIC & SILENT MIGRATION ---
-  useEffect(() => {
-    runDiagnostic();
-  }, [state.user]);
-
-  const runDiagnostic = async () => {
-    const authUid = auth.currentUser?.uid || state.user?.uid || null;
-    
-    let cachedUid: string | null = null;
-    try {
-      const pmState = localStorage.getItem('price_manager_state');
-      if (pmState) {
-        const parsed = JSON.parse(pmState);
-        cachedUid = parsed.user?.uid || null;
-      }
-    } catch {}
-
-    if (!cachedUid) {
-      try {
-        const cachedUserStr = localStorage.getItem('ts_cached_auth_user');
-        if (cachedUserStr) {
-          cachedUid = JSON.parse(cachedUserStr).uid || null;
-        }
-      } catch {}
-    }
-
-    const hasMismatch = authUid && cachedUid && authUid !== cachedUid && cachedUid !== 'guest_user';
-
-    setDiagnosticResult({
-      status: hasMismatch ? 'mismatch' : 'ok',
-      firestoreUid: authUid,
-      cachedUid: cachedUid,
-      migrating: false
-    });
-
-    if (hasMismatch) {
-      console.warn(`[Diagnostic] UID mismatch detected! Firestore: ${authUid}, Cached: ${cachedUid}. Triggering silent migration...`);
-      await triggerSilentMigration(authUid!, cachedUid!);
-    }
-  };
-
-  const triggerSilentMigration = async (correctUid: string, orphanedUid: string) => {
-    setDiagnosticResult(prev => ({ ...prev, migrating: true }));
-    try {
-      console.log(`[Migration] Migrating data from ${orphanedUid} to ${correctUid}`);
-
-      const itemsToMigrate = state.items || [];
-      const billsToMigrate = state.bills || [];
-      const notesToMigrate = state.notes || [];
-      const customersToMigrate = state.udharCustomers || [];
-      const transactionsToMigrate = state.udharTransactions || [];
-      const settingsToMigrate = state.settings || {};
-
-      // Migrate to Firestore under corrected UID
-      await setDoc(doc(db, 'users', correctUid), sanitizeForFirestore(settingsToMigrate), { merge: true });
-
-      for (const item of itemsToMigrate) {
-        await setDoc(doc(db, 'users', correctUid, 'items', item.id), sanitizeForFirestore(item));
-      }
-
-      for (const note of notesToMigrate) {
-        await setDoc(doc(db, 'users', correctUid, 'notes', note.id), sanitizeForFirestore(note));
-      }
-
-      for (const bill of billsToMigrate) {
-        await setDoc(doc(db, 'users', correctUid, 'bills', bill.id), sanitizeForFirestore(bill));
-      }
-
-      for (const cust of customersToMigrate) {
-        await setDoc(doc(db, 'users', correctUid, 'udharCustomers', cust.id), sanitizeForFirestore(cust));
-      }
-
-      for (const tx of transactionsToMigrate) {
-        await setDoc(doc(db, 'users', correctUid, 'udharTransactions', tx.id), sanitizeForFirestore(tx));
-      }
-
-      // Update local storage caches with correct user info
-      localStorage.setItem('ts_cached_auth_user', JSON.stringify({ uid: correctUid, email: auth.currentUser?.email || state.user?.email || '' }));
-      
-      const updatedState = {
-        ...state,
-        user: { uid: correctUid, email: auth.currentUser?.email || state.user?.email || '' }
-      };
-      localStorage.setItem('price_manager_state', JSON.stringify(updatedState));
-
-      onUpdateState({
-        user: { uid: correctUid, email: auth.currentUser?.email || state.user?.email || '' }
-      }, "Data Migration Completed Successfully");
-
-      setDiagnosticResult({
-        status: 'ok',
-        firestoreUid: correctUid,
-        cachedUid: correctUid,
-        migrating: false
-      });
-
-      handleShowAlert("Account data migration completed successfully!", "success");
-    } catch (err) {
-      console.error("[Migration] Silent data migration failed:", err);
-      handleShowAlert("Data migration failed. Please retry.", "err");
-      setDiagnosticResult(prev => ({ ...prev, migrating: false }));
     }
   };
 
@@ -806,60 +692,6 @@ export default function BusinessRecoveryCenter({
                   </button>
                 ))}
               </div>
-            </div>
-
-            {/* 🛡️ ACCOUNT UID SYNC DIAGNOSTICS CARD */}
-            <div className="bg-slate-900/40 border border-slate-800 rounded-3xl p-6 md:col-span-1 space-y-4 flex flex-col justify-between">
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-rose-400">
-                  <ShieldAlert size={16} />
-                  <h3 className="text-xs font-black uppercase tracking-wider text-white">UID Sync Diagnostics</h3>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-normal">
-                  Verifies active Firestore session UID against local device cache to prevent login conflicts and data fragmentation.
-                </p>
-                
-                <div className="p-3 bg-slate-950/40 border border-slate-800 rounded-xl space-y-2">
-                  <div className="flex justify-between items-center text-[10px]">
-                    <span className="text-slate-500 uppercase font-mono">Firestore Auth</span>
-                    <span className="font-mono text-slate-200 select-all truncate max-w-[130px]" title={diagnosticResult.firestoreUid || ''}>
-                      {diagnosticResult.firestoreUid || 'None'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-[10px]">
-                    <span className="text-slate-500 uppercase font-mono">Local Cache</span>
-                    <span className="font-mono text-slate-200 select-all truncate max-w-[130px]" title={diagnosticResult.cachedUid || ''}>
-                      {diagnosticResult.cachedUid || 'None'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-[10px] pt-1.5 border-t border-slate-800/60">
-                    <span className="text-slate-500 uppercase font-mono">Status</span>
-                    {diagnosticResult.status === 'ok' ? (
-                      <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded font-black text-[9px] uppercase">LINKED & SECURE</span>
-                    ) : (
-                      <span className="px-1.5 py-0.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded font-black text-[9px] uppercase font-mono">MISMATCH</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {diagnosticResult.status === 'mismatch' && (
-                <button
-                  onClick={() => triggerSilentMigration(diagnosticResult.firestoreUid!, diagnosticResult.cachedUid!)}
-                  disabled={diagnosticResult.migrating}
-                  className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 disabled:bg-rose-800 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-lg"
-                >
-                  {diagnosticResult.migrating ? (
-                    <>
-                      <RefreshCw className="animate-spin" size={12} /> Migrating...
-                    </>
-                  ) : (
-                    <>
-                      <Layers size={12} /> Migrate Orphaned Data
-                    </>
-                  )}
-                </button>
-              )}
             </div>
 
             {/* TIMELINE PREVIEW CARD */}

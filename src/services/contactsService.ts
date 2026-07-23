@@ -1,5 +1,4 @@
-import { loadGsiScript } from './googleDriveService';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { getCachedAccessToken } from '../firebase';
 
 export interface GoogleContact {
   id: string;
@@ -21,60 +20,88 @@ export function getIndependentContactsToken(): string | null {
 }
 
 export function requestIndependentContactsToken(): Promise<{ accessToken: string; email?: string }> {
-  return new Promise(async (resolve, reject) => {
-    try {
-      await loadGsiScript();
-      const g = window as any;
-      if (!g.google || !g.google.accounts || !g.google.accounts.oauth2) {
-        throw new Error("Google Identity Services library is not loaded.");
+  return new Promise((resolve, reject) => {
+    const gsiScriptUrl = 'https://accounts.google.com/gsi/client';
+
+    const triggerTokenRequest = () => {
+      const g = (window as any).google;
+      if (!g || !g.accounts || !g.accounts.oauth2) {
+        reject(new Error("Google Identity Services client library not loaded. Please try again."));
+        return;
       }
 
-      const client = g.google.accounts.oauth2.initTokenClient({
-        client_id: firebaseConfig.oAuthClientId,
-        scope: 'https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/userinfo.email',
-        callback: async (response: any) => {
-          if (response.error) {
-            reject(new Error(response.error_description || response.error));
-            return;
-          }
-          const accessToken = response.access_token;
-          if (!accessToken) {
-            reject(new Error("Failed to retrieve access token from Google sign-in."));
-            return;
-          }
+      // Exact client ID from firebase-applet-config.json
+      const clientId = "389975625261-qsq3t8a74bvjuv6ju3udr4us99okibvk.apps.googleusercontent.com";
 
-          let email: string | undefined;
-          try {
-            const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-              headers: { Authorization: `Bearer ${accessToken}` }
-            });
-            if (userRes.ok) {
-              const userData = await userRes.json();
-              email = userData.email;
+      try {
+        const client = g.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: 'https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/userinfo.email',
+          callback: async (response: any) => {
+            if (response.error) {
+              console.error("GIS token callback error:", response.error);
+              reject(new Error(`OAuth failed: ${response.error_description || response.error}`));
+              return;
             }
-          } catch (e) {
-            console.warn("[Contacts GSI] Failed to retrieve email:", e);
+
+            if (response.access_token) {
+              const accessToken = response.access_token;
+
+              // Fetch user email for this token so we know which Google account was used for contacts
+              let email: string | undefined;
+              try {
+                const userinfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                  headers: {
+                    Authorization: `Bearer ${accessToken}`
+                  }
+                });
+                if (userinfoRes.ok) {
+                  const userInfo = await userinfoRes.json();
+                  email = userInfo.email;
+                  if (email) {
+                    localStorage.setItem('ts_google_contacts_email', email);
+                    // Also dispatch an event so that components can refresh immediately
+                    window.dispatchEvent(new Event('ts_contacts_email_changed'));
+                  }
+                }
+              } catch (err) {
+                console.warn("Failed to fetch Google userinfo email:", err);
+              }
+
+              // Cache the independent token
+              localStorage.setItem('ts_google_contacts_token', accessToken);
+              localStorage.setItem('ts_google_contacts_token_expiry', String(Date.now() + 3500 * 1000)); // 1 hour expiry
+
+              resolve({ accessToken, email });
+            } else {
+              reject(new Error("No access token was returned. (कोई एक्सेस टोकन प्राप्त नहीं हुआ।)"));
+            }
+          },
+          error_callback: (err: any) => {
+            console.error("GIS Error callback:", err);
+            reject(new Error(err?.message || "Google OAuth initialization error."));
           }
+        });
 
-          if (email) {
-            localStorage.setItem('ts_google_contacts_email', email);
-            window.dispatchEvent(new Event('ts_contacts_email_changed'));
-          }
+        client.requestAccessToken();
+      } catch (err: any) {
+        console.error("Error starting Google OAuth flow:", err);
+        reject(err);
+      }
+    };
 
-          localStorage.setItem('ts_google_contacts_token', accessToken);
-          localStorage.setItem('ts_google_contacts_token_expiry', String(Date.now() + 3500 * 1000)); // 1 hour
-
-          resolve({ accessToken, email });
-        },
-        error_callback: (err: any) => {
-          reject(new Error(err?.message || "Google flow failed or popup blocked."));
-        }
-      });
-
-      client.requestAccessToken({ prompt: 'consent' });
-    } catch (err: any) {
-      console.error("[Contacts GSI] auth initialization failed:", err);
-      reject(new Error(err?.message || "Google Authentication initialization failed."));
+    if (!(window as any).google || !(window as any).google.accounts) {
+      const script = document.createElement('script');
+      script.src = gsiScriptUrl;
+      script.async = true;
+      script.defer = true;
+      script.onload = () => {
+        setTimeout(triggerTokenRequest, 100);
+      };
+      script.onerror = () => reject(new Error("Failed to load Google Sign-In script."));
+      document.head.appendChild(script);
+    } else {
+      triggerTokenRequest();
     }
   });
 }

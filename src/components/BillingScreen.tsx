@@ -4,8 +4,7 @@ import {
   ReceiptText, ShoppingCart, Percent, Edit2, Save, X, 
   PackagePlus, Trash, Sparkles, Printer, Share2, Mic, MicOff,
   Clock, Download, Calendar, RefreshCw, FileText, Coins,
-  Cloud, CloudOff, Layers, Pin, Copy, PauseCircle, Eye,
-  History, Calculator
+  Cloud, CloudOff, Layers, Pin, Copy, PauseCircle, Eye
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppState, Item, Bill, TransactionItem, Note, DraftBill } from '../types';
@@ -16,8 +15,6 @@ import { printerService, DEFAULT_PRINT_SETTINGS } from '../services/printerServi
 import { playFeedbackEvent } from '../services/soundFeedbackService';
 import { cleanAndValidateText } from '../services/languageEngine';
 import { GoogleContactPickerModal } from './GoogleContactPickerModal';
-import BillHistoryDrawer from './BillHistoryDrawer';
-import SmartCalculator from './SmartCalculator';
 
 interface BillingScreenProps {
   state: AppState;
@@ -287,8 +284,6 @@ export default function BillingScreen({
   };
 
   const precision = state.settings.pricePrecision || 0;
-
-  const [activeSegmentTab, setActiveSegmentTab] = useState<'billing' | 'history' | 'calculator'>('billing');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [additionAnims, setAdditionAnims] = useState<{ id: string; name: string; price: number; x: number; y: number }[]>([]);
@@ -2086,61 +2081,8 @@ export default function BillingScreen({
   return (
     <div className="space-y-4 pb-24 max-w-7xl mx-auto text-[var(--foreground)] relative">
       
-      {/* Premium Segmented Navigation Tabs */}
-      <div className="bg-[var(--card)]/85 backdrop-blur-md border border-[var(--border)] p-1.5 rounded-2xl shadow-md flex items-center justify-between gap-1 max-w-md mx-auto sm:max-w-xl mb-2">
-        <button
-          onClick={() => {
-            playFeedbackEvent('product_added', state.settings);
-            setActiveSegmentTab('billing');
-          }}
-          className={cn(
-            "flex-1 py-3 px-4 rounded-xl text-xs font-extrabold uppercase tracking-widest flex items-center justify-center gap-2 transition-all duration-300 cursor-pointer",
-            activeSegmentTab === 'billing'
-              ? "bg-[var(--primary)] text-white shadow-lg shadow-[var(--primary)]/20 scale-[1.02]"
-              : "text-[var(--foreground)]/60 hover:text-[var(--foreground)]/90 hover:bg-[var(--foreground)]/5"
-          )}
-        >
-          <ReceiptText size={14} className={activeSegmentTab === 'billing' ? "animate-bounce" : ""} />
-          <span>Billing</span>
-        </button>
-
-        <button
-          onClick={() => {
-            playFeedbackEvent('product_added', state.settings);
-            setActiveSegmentTab('history');
-          }}
-          className={cn(
-            "flex-1 py-3 px-4 rounded-xl text-xs font-extrabold uppercase tracking-widest flex items-center justify-center gap-2 transition-all duration-300 cursor-pointer",
-            activeSegmentTab === 'history'
-              ? "bg-[var(--primary)] text-white shadow-lg shadow-[var(--primary)]/20 scale-[1.02]"
-              : "text-[var(--foreground)]/60 hover:text-[var(--foreground)]/90 hover:bg-[var(--foreground)]/5"
-          )}
-        >
-          <History size={14} className={activeSegmentTab === 'history' ? "animate-pulse" : ""} />
-          <span>Bill History</span>
-        </button>
-
-        <button
-          onClick={() => {
-            playFeedbackEvent('product_added', state.settings);
-            setActiveSegmentTab('calculator');
-          }}
-          className={cn(
-            "flex-1 py-3 px-4 rounded-xl text-xs font-extrabold uppercase tracking-widest flex items-center justify-center gap-2 transition-all duration-300 cursor-pointer",
-            activeSegmentTab === 'calculator'
-              ? "bg-[var(--primary)] text-white shadow-lg shadow-[var(--primary)]/20 scale-[1.02]"
-              : "text-[var(--foreground)]/60 hover:text-[var(--foreground)]/90 hover:bg-[var(--foreground)]/5"
-          )}
-        >
-          <Calculator size={14} className={activeSegmentTab === 'calculator' ? "rotate-12" : ""} />
-          <span>Calculator</span>
-        </button>
-      </div>
-
-      {activeSegmentTab === 'billing' && (
-        <>
-          {/* 📁 MULTI-WINDOW POS DRAFT BILLING TABS & SMART REGISTER DECK */}
-          <div className="bg-[var(--card)]/80 backdrop-blur-md rounded-2xl border border-[var(--border)] p-4.5 space-y-3.5 shadow-lg relative overflow-hidden group">
+      {/* 📁 MULTI-WINDOW POS DRAFT BILLING TABS & SMART REGISTER DECK */}
+      <div className="bg-[var(--card)]/80 backdrop-blur-md rounded-2xl border border-[var(--border)] p-4.5 space-y-3.5 shadow-lg relative overflow-hidden group">
         <div className="absolute top-0 right-0 h-32 w-32 bg-[var(--primary)]/5 rounded-full blur-2xl pointer-events-none" />
         
         <div className="flex items-center justify-between flex-wrap gap-3">
@@ -5758,26 +5700,6 @@ export default function BillingScreen({
           </div>
         )}
       </AnimatePresence>
-      </>
-      )}
-
-      {activeSegmentTab === 'history' && (
-        <div className="space-y-4 animate-fade-in">
-          <BillHistoryDrawer 
-            isInline={true}
-            state={state} 
-            onUpdateState={onUpdateState} 
-          />
-        </div>
-      )}
-
-      {activeSegmentTab === 'calculator' && (
-        <div className="space-y-4 animate-fade-in p-2">
-          <SmartCalculator 
-            isInline={true}
-          />
-        </div>
-      )}
 
       {/* Dynamic Pop-up Rate Edit Modal (Requirement 3) */}
       <AnimatePresence>

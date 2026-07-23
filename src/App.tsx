@@ -43,8 +43,6 @@ import {
   Cloud,
   CheckCircle2,
   AlertCircle,
-  ExternalLink,
-  FolderOpen,
   Package,
   Weight,
   Hash,
@@ -126,7 +124,6 @@ import { SystemPermissionsModal } from './components/SystemPermissionsModal';
 import PrinterSettingsScreen from './components/PrinterSettingsScreen';
 import { LatestAchievementWidget } from './components/MilestonesTab';
 import DynamicStoreDashboard from './components/DynamicStoreDashboard';
-import { AppSkeletonLoader } from './components/AppSkeletonLoader';
 import { AnimatedBillingIcon } from './components/AnimatedBillingIcon';
 import { AnimatedHomeIcon } from './components/AnimatedHomeIcon';
 import { AnimatedAnalyticsIcon } from './components/AnimatedAnalyticsIcon';
@@ -148,12 +145,10 @@ import { EmailAuthProvider, linkWithCredential, updatePassword } from 'firebase/
 import { LoginScreen } from './components/LoginScreen';
 import { OnboardingForm } from './components/OnboardingForm';
 import { requestIndependentContactsToken } from './services/contactsService';
-import { requestIndependentDriveToken, GoogleDriveService, getIndependentDriveToken } from './services/googleDriveService';
+import { requestIndependentDriveToken, GoogleDriveService } from './services/googleDriveService';
 import { 
   doc, 
   setDoc, 
-  getDoc,
-  getDocs,
   onSnapshot, 
   collection, 
   query, 
@@ -179,9 +174,7 @@ import {
   DeviceRegistration,
   HistoryEntry,
   BusinessGoal,
-  BusinessShift,
-  UdharCustomer,
-  UdharTransaction
+  BusinessShift
 } from './types';
 import { 
   NotificationService, 
@@ -494,24 +487,12 @@ const getInitialState = (): AppState => {
     }
   }
 
-  let cachedUser = null;
-  const cachedUserStr = localStorage.getItem('ts_cached_auth_user');
-  if (cachedUserStr) {
-    try {
-      cachedUser = JSON.parse(cachedUserStr);
-    } catch (e) {
-      console.warn("Failed to parse cached auth user", e);
-    }
-  } else if (localStorage.getItem('ts_guest_logged_in') === 'true') {
-    cachedUser = { uid: 'guest_user', email: 'Guest Merchant' };
-  }
-
   return {
     items: deduplicateById(items),
     notes: deduplicateById(notes),
     categories: DEFAULT_CATEGORIES,
     settings,
-    user: cachedUser,
+    user: null,
     bills: deduplicateById(bills),
     udharCustomers: deduplicateById(udharCustomers),
     udharTransactions: deduplicateById(udharTransactions),
@@ -920,11 +901,6 @@ const OpenUdharIcon = ({ isHovered, className }: { isHovered: boolean; className
 // --- App Component ---
 export default function App() {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
-  const latestStateRef = useRef(state);
-  useEffect(() => {
-    latestStateRef.current = state;
-  }, [state]);
-
   const [activeTab, setActiveTab] = useState<'home' | 'billing' | 'analytics' | 'udhar' | 'notes' | 'shift' | 'goals' | 'history'>('home');
   const [showPlusActionMenu, setShowPlusActionMenu] = useState(false);
   const [showSmartBulkEntry, setShowSmartBulkEntry] = useState(false);
@@ -1365,9 +1341,7 @@ export default function App() {
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [showManageCategories, setShowManageCategories] = useState(false);
   const [showVoiceAssistant, setShowVoiceAssistant] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(false);
-  const [isAuthResolving, setIsAuthResolving] = useState(true);
-  const [isDataRecovering, setIsDataRecovering] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [hoveredAction, setHoveredAction] = useState<string | null>(null);
 
   // Advanced tactile Drag-to-Mic state engine
@@ -1511,12 +1485,6 @@ export default function App() {
     format: 'excel' | 'pdf' | null;
   }>({ isOpen: false, format: null });
   const [selectedUdharCustomerId, setSelectedUdharCustomerId] = useState<string | null>(null);
-
-  // --- Google Drive Custom Picker States ---
-  const [showDriveRestoreModal, setShowDriveRestoreModal] = useState(false);
-  const [driveBackupsList, setDriveBackupsList] = useState<Array<{ id: string; name: string; mimeType: string; createdTime?: string; size?: string }>>([]);
-  const [driveBackupsLoading, setDriveBackupsLoading] = useState(false);
-  const [driveAuthPending, setDriveAuthPending] = useState(false);
 
   // --- Dynamic Shift & Revenue Goals States ---
   const [showGoalPanel, setShowGoalPanel] = useState(false);
@@ -2506,107 +2474,22 @@ export default function App() {
     }
   };
 
-  const syncImportedDataToCloud = async (
-    uid: string, 
-    data: {
-      items?: Item[];
-      notes?: Note[];
-      bills?: Bill[];
-      udharCustomers?: UdharCustomer[];
-      udharTransactions?: UdharTransaction[];
-      settings?: AppSettings;
-    }
-  ) => {
-    addToast("Saving imported data to your secure cloud account... (आयात किया गया डेटा क्लाउड पर सुरक्षित किया जा रहा है...)", "info");
-    
-    try {
-      const promises: Promise<void>[] = [];
-
-      if (data.settings) {
-        promises.push(
-          setDoc(doc(db, 'users', uid), sanitizeForFirestore(data.settings), { merge: true })
-            .catch(err => console.error("Error syncing settings on import:", err))
-        );
-      }
-
-      if (data.items && data.items.length > 0) {
-        data.items.forEach(item => {
-          promises.push(
-            setDoc(doc(db, 'users', uid, 'items', item.id), sanitizeForFirestore(item), { merge: true })
-              .catch(err => console.error("Error syncing item on import:", err))
-          );
-        });
-      }
-
-      if (data.notes && data.notes.length > 0) {
-        data.notes.forEach(note => {
-          promises.push(
-            setDoc(doc(db, 'users', uid, 'notes', note.id), sanitizeForFirestore(note), { merge: true })
-              .catch(err => console.error("Error syncing note on import:", err))
-          );
-        });
-      }
-
-      if (data.bills && data.bills.length > 0) {
-        data.bills.forEach(bill => {
-          promises.push(
-            setDoc(doc(db, 'users', uid, 'bills', bill.id), sanitizeForFirestore(bill), { merge: true })
-              .catch(err => console.error("Error syncing bill on import:", err))
-          );
-        });
-      }
-
-      if (data.udharCustomers && data.udharCustomers.length > 0) {
-        data.udharCustomers.forEach(cust => {
-          promises.push(
-            setDoc(doc(db, 'users', uid, 'udharCustomers', cust.id), sanitizeForFirestore(cust), { merge: true })
-              .catch(err => console.error("Error syncing customer on import:", err))
-          );
-        });
-      }
-
-      if (data.udharTransactions && data.udharTransactions.length > 0) {
-        data.udharTransactions.forEach(tx => {
-          promises.push(
-            setDoc(doc(db, 'users', uid, 'udharTransactions', tx.id), sanitizeForFirestore(tx), { merge: true })
-              .catch(err => console.error("Error syncing transaction on import:", err))
-          );
-        });
-      }
-
-      await Promise.all(promises);
-      addToast("Cloud backup complete! Your data is fully secured in your account. (क्लाउड बैकअप पूर्ण! आपका डेटा आपके खाते में पूरी तरह सुरक्षित है।)", "success");
-    } catch (err) {
-      console.error("Cloud synchronization on import failed:", err);
-      addToast("Local import succeeded, but cloud synchronization failed. We will retry syncing in the background. (स्थानीय आयात सफल रहा, लेकिन क्लाउड सिंक्रनाइज़ेशन विफल रहा।)", "warning");
-    }
-  };
-
   const importData = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
         if (json.items && Array.isArray(json.items)) {
-          if (confirm('Importing will merge with current data. Proceed? (डेटा आयात करने से वर्तमान डेटा मर्ज हो जाएगा। क्या आप जारी रखना चाहते हैं?)')) {
-            const mergedItems = deduplicateById([...state.items, ...json.items]);
-            
-            // If logged in, sync the newly imported items to cloud
-            if (state.user && state.user.uid !== 'guest_user') {
-              await syncImportedDataToCloud(state.user.uid, { items: json.items });
-            }
-
-            setState(prev => ({ ...prev, items: mergedItems }));
-            addToast('Import successful! / डेटा सफलतापूर्वक आयात किया गया!', 'success');
+          if (confirm('Importing will merge with current data. Proceed?')) {
+            setState(prev => ({ ...prev, items: deduplicateById([...prev.items, ...json.items]) }));
+            alert('Import successful!');
           }
-        } else {
-          addToast('Invalid file format. Please upload a valid JSON backup. (अमान्य फ़ाइल स्वरूप। कृपया मान्य बैकअप अपलोड करें।)', 'error');
         }
       } catch (err) {
-        addToast('Invalid file format. Please upload a valid JSON backup.', 'error');
+        alert('Invalid file format. Please upload a valid JSON backup.');
       }
     };
     reader.readAsText(file);
@@ -2627,675 +2510,58 @@ export default function App() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
         if (json.settings && json.items) {
-          if (confirm('Restoring will overwrite current settings and items. Proceed? (डेटा रीस्टोर करने से आपका वर्तमान डेटा ओवरराइट हो जाएगा। क्या आप जारी रखना चाहते हैं?)')) {
-            
-            // Preserve the logged-in user in state
-            const currentUser = state.user;
-            const restoredState: AppState = {
-              ...json,
-              user: currentUser, // Retain logged-in user session
-            };
-
-            // If user is currently logged in, sync all restored backup data to the cloud
-            if (currentUser && currentUser.uid !== 'guest_user') {
-              await syncImportedDataToCloud(currentUser.uid, {
-                settings: json.settings,
-                items: json.items,
-                notes: json.notes || [],
-                bills: json.bills || [],
-                udharCustomers: json.udharCustomers || [],
-                udharTransactions: json.udharTransactions || [],
-              });
-            }
-
-            setState(restoredState);
-            addToast('System Restored successfully! / बैकअप सफलतापूर्वक रीस्टोर किया गया!', 'success');
+          if (confirm('Restoring will overwrite current settings and items. Proceed?')) {
+            setState(json);
+            alert('System Restored!');
           }
-        } else {
-          addToast('Invalid backup file. (अमान्य बैकअप फ़ाइल।)', 'error');
         }
       } catch (err) {
-        addToast('Invalid backup file.', 'error');
+        alert('Invalid backup file.');
       }
     };
     reader.readAsText(file);
   };
 
-  const closeDriveRestoreModal = () => {
-    setShowDriveRestoreModal(false);
-    // Explicitly clean up any stuck Google Picker iframe/div overlays created by Google's native API
-    const dialogs = document.querySelectorAll('.picker-dialog, .picker-dialog-bg, [class*="picker-dialog"]');
-    dialogs.forEach((el) => {
-      try { el.remove(); } catch (e) {}
-    });
-  };
-
   const handleRestoreFromDrive = async () => {
-    // 1. Show modal instantly for prime responsiveness
-    setShowDriveRestoreModal(true);
-    setDriveBackupsLoading(true);
-    setDriveBackupsList([]);
-
-    // 2. Dynamic Pre-authentication Check to prevent silent hanging or frozen loads
-    const hasToken = getIndependentDriveToken();
-    if (!hasToken) {
-      setDriveAuthPending(true);
-      addToast("Connecting to Google Drive... Please authorize in the secure popup window. (गूगल ड्राइव से जुड़ रहे हैं... कृपया पॉपअप विंडो में अनुमति दें।)", "info");
-      try {
-        await requestIndependentDriveToken();
-        addToast("Google Drive Connected successfully! (गूगल ड्राइव सफलतापूर्वक कनेक्ट हो गया!)", "success");
-        setDriveAuthPending(false);
-      } catch (authErr: any) {
-        console.error("[Drive Restore] Auth flow failed:", authErr);
-        addToast(`Google authentication failed: ${authErr?.message || authErr}`, "error");
-        setDriveAuthPending(false);
-        setDriveBackupsLoading(false);
+    try {
+      // 1. Trigger Google Picker to select a JSON file
+      const selectedFile = await GoogleDriveService.openFilePicker('application/json');
+      if (!selectedFile) {
+        // User cancelled or no file selected
         return;
       }
-    }
 
-    // 3. Load custom in-app backups list (extremely reliable, never blocked by iframe sandboxing)
-    try {
-      const files = await GoogleDriveService.listBackupFiles('application/json');
-      setDriveBackupsList(files);
-      if (files.length > 0) {
-        addToast("Available backups fetched successfully! (बैकअप सूची सफलतापूर्वक प्राप्त हुई!)", "success");
-      }
-    } catch (error: any) {
-      console.error("[Drive Restore] Custom backups list fetch failed:", error);
-      addToast(`Failed to retrieve backups list: ${error?.message || error}`, "error");
-    } finally {
-      setDriveBackupsLoading(false);
-    }
-  };
+      // 2. Fetch/download file content
+      const fileData = await GoogleDriveService.downloadFileContent(selectedFile.id);
 
-  const handleOpenNativePicker = async () => {
-    addToast("Opening Google Drive file selector... (गूगल ड्राइव फाइल पिकर खुल रहा है...)", "info");
-    // Clean up any existing leftover picker elements first
-    const dialogs = document.querySelectorAll('.picker-dialog, .picker-dialog-bg, [class*="picker-dialog"]');
-    dialogs.forEach((el) => {
-      try { el.remove(); } catch (e) {}
-    });
-
-    try {
-      // Set a safety timeout - if picker is stuck/frozen, don't keep our app UI state frozen
-      const pickerPromise = GoogleDriveService.openFilePicker('application/json');
-      const timeoutPromise = new Promise<null>((_, reject) => 
-        setTimeout(() => reject(new Error("Picker timeout")), 12000)
-      );
-
-      const pickedFile = await Promise.race([pickerPromise, timeoutPromise]);
-      if (pickedFile) {
-        addToast(`Downloading chosen backup: ${pickedFile.name}... (बैकअप डाउनलोड हो रहा है...)`, "info");
-        const fileData = await GoogleDriveService.downloadFileContent(pickedFile.id);
-        
-        if (fileData && fileData.settings && fileData.items) {
-          // Preserve current logged-in user
-          const currentUser = state.user;
-          const restoredState: AppState = {
-            ...fileData,
-            user: currentUser, // Retain logged-in user session
-          };
-
-          // Sync downloaded backup to the cloud if logged in
-          if (currentUser && currentUser.uid !== 'guest_user') {
-            await syncImportedDataToCloud(currentUser.uid, {
-              settings: fileData.settings,
-              items: fileData.items,
-              notes: fileData.notes || [],
-              bills: fileData.bills || [],
-              udharCustomers: fileData.udharCustomers || [],
-              udharTransactions: fileData.udharTransactions || [],
-            });
-          }
-
-          setState(restoredState);
-          closeDriveRestoreModal();
-          addToast('System Restored successfully from Google Drive! / गूगल ड्राइव से बैकअप सफलतापूर्वक रीस्टोर हुआ!', 'success');
-        } else {
-          addToast('The selected file does not appear to be a valid backup file. (चुनी गई फ़ाइल मान्य बैकअप फ़ाइल नहीं है।)', 'error');
-        }
-      } else {
-        addToast("Dismissed Google Picker. (गूगल पिकर बंद किया गया।)", "info");
-      }
-    } catch (pickerErr: any) {
-      console.warn("[Drive Restore] Native Google Picker failed or was blocked by iframe container:", pickerErr);
-      if (pickerErr?.message === "Picker timeout") {
-        addToast("Native picker is taking too long to load. Please use the In-App Backup list below! (गूगल पिकर रिस्पांस नहीं कर रहा है। कृपया नीचे दी गई इन-एप लिस्ट से सीधे रीस्टोर करें!)", "warning");
-      } else {
-        addToast("Native picker blocked or unsupported. Use the In-App Backup list! (नेटिव पिकर ब्लॉक है। नीचे दी गई लिस्ट का उपयोग करें!)", "info");
-      }
-      // Clean up the DOM to remove stuck thin white background
-      const leftOverDialogs = document.querySelectorAll('.picker-dialog, .picker-dialog-bg, [class*="picker-dialog"]');
-      leftOverDialogs.forEach((el) => {
-        try { el.remove(); } catch (e) {}
-      });
-    }
-  };
-
-  const handleSelectDriveBackupFile = async (fileId: string, fileName: string) => {
-    if (!confirm(`Restoring from Google Drive file '${fileName}' will overwrite your current settings and items. Proceed? (गूगल ड्राइव फ़ाइल से रीस्टोर करने पर आपका वर्तमान डेटा ओवरрайट हो जाएगा। क्या आप जारी रखना चाहते हैं?)`)) {
-      return;
-    }
-    
-    setDriveBackupsLoading(true);
-    try {
-      const fileData = await GoogleDriveService.downloadFileContent(fileId);
-      
+      // 3. Confirm overwrite and apply state
       if (fileData && fileData.settings && fileData.items) {
-        // Preserve current logged-in user
-        const currentUser = state.user;
-        const restoredState: AppState = {
-          ...fileData,
-          user: currentUser, // Retain logged-in user session
-        };
-
-        // Sync downloaded backup to the cloud if logged in
-        if (currentUser && currentUser.uid !== 'guest_user') {
-          await syncImportedDataToCloud(currentUser.uid, {
-            settings: fileData.settings,
-            items: fileData.items,
-            notes: fileData.notes || [],
-            bills: fileData.bills || [],
-            udharCustomers: fileData.udharCustomers || [],
-            udharTransactions: fileData.udharTransactions || [],
-          });
+        if (confirm(`Restoring from Google Drive file '${selectedFile.name}' will overwrite your current settings and items. Proceed?`)) {
+          setState(fileData);
+          alert('System Restored successfully from Google Drive!');
         }
-
-        setState(restoredState);
-        setShowDriveRestoreModal(false);
-        addToast('System Restored successfully from Google Drive! / गूगल ड्राइव से बैकअप सफलतापूर्वक रीस्टोर हुआ!', 'success');
       } else {
-        addToast('The selected file does not appear to be a valid backup file. (चुनी गई फ़ाइल मान्य बैकअप फ़ाइल नहीं है।)', 'error');
+        alert('The selected file does not appear to be a valid backup file. (चुनी गई फ़ाइल मान्य बैकअप फ़ाइल नहीं है।)');
       }
     } catch (error: any) {
       console.error(error);
-      addToast(`Failed to restore from Google Drive: ${error?.message || error}`, 'error');
-    } finally {
-      setDriveBackupsLoading(false);
+      alert(`Failed to restore from Google Drive: ${error?.message || error}`);
     }
   };
-
-  const checkAndRecoverData = async (uid: string, email: string, shouldClearLocalPriorToMerge: boolean = false) => {
-    if (!uid || uid === 'guest_user') return;
-    setIsDataRecovering(true);
-    try {
-      console.log(`[Logic Bridge] Initializing checkAndRecoverData for UID: ${uid} (${email})`);
-      console.log(`[Logic Bridge] shouldClearLocalPriorToMerge: ${shouldClearLocalPriorToMerge}`);
-
-      const userDocRef = doc(db, 'users', uid);
-      
-      let userDocExists = false;
-      let recoveredSettings: any = {};
-      const itemsList: Item[] = [];
-      const notesList: Note[] = [];
-      const billsList: Bill[] = [];
-      const customersList: UdharCustomer[] = [];
-      const txsList: UdharTransaction[] = [];
-      
-      const currentSt = shouldClearLocalPriorToMerge ? { items: [], notes: [], bills: [], udharCustomers: [], udharTransactions: [], settings: INITIAL_SETTINGS } : latestStateRef.current;
-      const isAutoSync = currentSt?.settings?.autoCloudSync !== false; // Default to true unless explicitly false
-
-      try {
-        const userDoc = await getDoc(userDocRef);
-        userDocExists = userDoc.exists();
-        recoveredSettings = userDocExists ? userDoc.data() : {};
-        console.log(`[Logic Bridge] Server user document exists: ${userDocExists}`, recoveredSettings);
-
-        const itemsRef = collection(db, 'users', uid, 'items');
-        const notesRef = collection(db, 'users', uid, 'notes');
-        const billsRef = collection(db, 'users', uid, 'bills');
-        const customersRef = collection(db, 'users', uid, 'udharCustomers');
-        const txsRef = collection(db, 'users', uid, 'udharTransactions');
-
-        // Fetch limit(1) of each to detect server presence efficiently
-        const [itemsSnap, notesSnap, billsSnap, customersSnap, txsSnap] = await Promise.all([
-          getDocs(query(itemsRef, limit(1))),
-          getDocs(query(notesRef, limit(1))),
-          getDocs(query(billsRef, limit(1))),
-          getDocs(query(customersRef, limit(1))),
-          getDocs(query(txsRef, limit(1)))
-        ]);
-
-        const hasServerData = userDocExists || 
-                              !itemsSnap.empty || 
-                              !notesSnap.empty || 
-                              !billsSnap.empty || 
-                              !customersSnap.empty || 
-                              !txsSnap.empty;
-
-        console.log(`[Logic Bridge] Has server data: ${hasServerData} (userDocExists: ${userDocExists}, itemsSnap.empty: ${itemsSnap.empty}, notesSnap.empty: ${notesSnap.empty}, billsSnap.empty: ${billsSnap.empty}, customersSnap.empty: ${customersSnap.empty}, txsSnap.empty: ${txsSnap.empty})`);
-
-        if (hasServerData) {
-          console.log("[Logic Bridge] Existing server data detected for UID:", uid);
-          
-          // Fetch all items from server
-          const fullItemsSnap = await getDocs(itemsRef);
-          console.log(`[Logic Bridge] Fetched ${fullItemsSnap.size} items from server.`);
-          fullItemsSnap.forEach(docSnap => {
-            const data = docSnap.data();
-            itemsList.push({
-              ...data,
-              id: docSnap.id,
-              translations: {
-                en: data.name || '',
-                hi: '',
-                mr: '',
-                'hi-en': '',
-                ...(data.translations || {})
-              }
-            } as Item);
-          });
-
-          // Fetch all notes
-          const fullNotesSnap = await getDocs(notesRef);
-          console.log(`[Logic Bridge] Fetched ${fullNotesSnap.size} notes from server.`);
-          fullNotesSnap.forEach(docSnap => {
-            notesList.push({ ...docSnap.data() as Note, id: docSnap.id });
-          });
-
-          // Fetch all bills
-          const fullBillsSnap = await getDocs(billsRef);
-          console.log(`[Logic Bridge] Fetched ${fullBillsSnap.size} bills from server.`);
-          fullBillsSnap.forEach(docSnap => {
-            const data = docSnap.data();
-            billsList.push({
-              id: docSnap.id,
-              billNumber: data.billNumber || `INV-${Date.now()}`,
-              customerName: data.customerName || '',
-              customerPhone: data.customerPhone || '',
-              items: Array.isArray(data.items) ? data.items.map((item: any) => ({
-                itemId: item.itemId || item.id || '',
-                name: item.name || '',
-                quantity: item.quantity || 0,
-                cost: item.cost || item.buyingPrice || 0,
-                price: item.price || item.retailPrice || 0,
-                unit: item.unit || 'pcs'
-              })) : [],
-              discount: typeof data.discount === 'number' ? data.discount : 0,
-              tax: typeof data.tax === 'number' ? data.tax : 0,
-              subtotal: typeof data.subtotal === 'number' ? data.subtotal : 0,
-              total: typeof data.total === 'number' ? data.total : 0,
-              paymentMethod: data.paymentMethod || 'Cash',
-              timestamp: data.timestamp || new Date().toISOString(),
-              deviceId: data.deviceId || '',
-              deviceName: data.deviceName || ''
-            });
-          });
-
-          // Fetch all udharCustomers
-          const fullCustomersSnap = await getDocs(customersRef);
-          console.log(`[Logic Bridge] Fetched ${fullCustomersSnap.size} udharCustomers from server.`);
-          fullCustomersSnap.forEach(docSnap => {
-            customersList.push({ ...docSnap.data() as UdharCustomer, id: docSnap.id });
-          });
-
-          // Fetch all udharTransactions
-          const fullTxsSnap = await getDocs(txsRef);
-          console.log(`[Logic Bridge] Fetched ${fullTxsSnap.size} udharTransactions from server.`);
-          fullTxsSnap.forEach(docSnap => {
-            txsList.push({ ...docSnap.data() as UdharTransaction, id: docSnap.id });
-          });
-
-          // --- ROBUST INTEL MERGING (Prevents Wiping Newly Created Offline Local Data) ---
-          const localState = shouldClearLocalPriorToMerge ? { items: [], notes: [], bills: [], udharCustomers: [], udharTransactions: [], settings: INITIAL_SETTINGS } : latestStateRef.current;
-
-          // --- FALLBACK DISCREPANCY DETECTOR ---
-          console.group(`[Data Persistency Auditing] Comparing Local Storage with Firestore for UID: ${uid}`);
-          
-          const localItems = localState.items || [];
-          const localNotes = localState.notes || [];
-          const localBills = localState.bills || [];
-          const localCusts = localState.udharCustomers || [];
-          const localTxs = localState.udharTransactions || [];
-          const localSettings = localState.settings || {};
-
-          console.log(`Summary Counts:
-- Items: Local = ${localItems.length}, Server = ${itemsList.length}
-- Notes: Local = ${localNotes.length}, Server = ${notesList.length}
-- Bills: Local = ${localBills.length}, Server = ${billsList.length}
-- Udhar Customers: Local = ${localCusts.length}, Server = ${customersList.length}
-- Udhar Transactions: Local = ${localTxs.length}, Server = ${txsList.length}`);
-
-          const itemDiscrepancies = {
-            missingOnServer: localItems.filter(li => !itemsList.some(si => si.id === li.id)),
-            missingLocally: itemsList.filter(si => !localItems.some(li => li.id === si.id)),
-            modifiedDiff: localItems.filter(li => {
-              const si = itemsList.find(s => s.id === li.id);
-              return si && new Date(li.lastUpdated).getTime() !== new Date(si.lastUpdated).getTime();
-            })
-          };
-
-          if (itemDiscrepancies.missingOnServer.length > 0) {
-            console.warn(`⚠️ [Discrepancy] ${itemDiscrepancies.missingOnServer.length} items exist locally but are missing on Firestore:`, itemDiscrepancies.missingOnServer.map(i => i.id));
-          }
-          if (itemDiscrepancies.missingLocally.length > 0) {
-            console.warn(`⚠️ [Discrepancy] ${itemDiscrepancies.missingLocally.length} items exist on Firestore but are missing locally:`, itemDiscrepancies.missingLocally.map(i => i.id));
-          }
-          if (itemDiscrepancies.modifiedDiff.length > 0) {
-            console.log(`ℹ️ [Discrepancy] ${itemDiscrepancies.modifiedDiff.length} items have different modification timestamps:`, itemDiscrepancies.modifiedDiff.map(i => i.id));
-          }
-
-          const noteDiscrepancies = {
-            missingOnServer: localNotes.filter(ln => !notesList.some(sn => sn.id === ln.id)),
-            missingLocally: notesList.filter(sn => !localNotes.some(ln => ln.id === sn.id))
-          };
-          if (noteDiscrepancies.missingOnServer.length > 0) {
-            console.warn(`⚠️ [Discrepancy] ${noteDiscrepancies.missingOnServer.length} notes exist locally but are missing on Firestore:`, noteDiscrepancies.missingOnServer.map(n => n.id));
-          }
-          if (noteDiscrepancies.missingLocally.length > 0) {
-            console.warn(`⚠️ [Discrepancy] ${noteDiscrepancies.missingLocally.length} notes exist on Firestore but are missing locally:`, noteDiscrepancies.missingLocally.map(n => n.id));
-          }
-
-          const billDiscrepancies = {
-            missingOnServer: localBills.filter(lb => !billsList.some(sb => sb.id === lb.id)),
-            missingLocally: billsList.filter(sb => !localBills.some(lb => lb.id === sb.id))
-          };
-          if (billDiscrepancies.missingOnServer.length > 0) {
-            console.warn(`⚠️ [Discrepancy] ${billDiscrepancies.missingOnServer.length} bills exist locally but are missing on Firestore:`, billDiscrepancies.missingOnServer.map(b => b.id));
-          }
-          if (billDiscrepancies.missingLocally.length > 0) {
-            console.warn(`⚠️ [Discrepancy] ${billDiscrepancies.missingLocally.length} bills exist on Firestore but are missing locally:`, billDiscrepancies.missingLocally.map(b => b.id));
-          }
-
-          const custDiscrepancies = {
-            missingOnServer: localCusts.filter(lc => !customersList.some(sc => sc.id === lc.id)),
-            missingLocally: customersList.filter(sc => !localCusts.some(lc => lc.id === sc.id))
-          };
-          if (custDiscrepancies.missingOnServer.length > 0) {
-            console.warn(`⚠️ [Discrepancy] ${custDiscrepancies.missingOnServer.length} customers exist locally but are missing on Firestore:`, custDiscrepancies.missingOnServer.map(c => c.id));
-          }
-          if (custDiscrepancies.missingLocally.length > 0) {
-            console.warn(`⚠️ [Discrepancy] ${custDiscrepancies.missingLocally.length} customers exist on Firestore but are missing locally:`, custDiscrepancies.missingLocally.map(c => c.id));
-          }
-
-          const txDiscrepancies = {
-            missingOnServer: localTxs.filter(lt => !txsList.some(st => st.id === lt.id)),
-            missingLocally: txsList.filter(st => !localTxs.some(lt => lt.id === st.id))
-          };
-          if (txDiscrepancies.missingOnServer.length > 0) {
-            console.warn(`⚠️ [Discrepancy] ${txDiscrepancies.missingOnServer.length} transactions exist locally but are missing on Firestore:`, txDiscrepancies.missingOnServer.map(t => t.id));
-          }
-          if (txDiscrepancies.missingLocally.length > 0) {
-            console.warn(`⚠️ [Discrepancy] ${txDiscrepancies.missingLocally.length} transactions exist on Firestore but are missing locally:`, txDiscrepancies.missingLocally.map(t => t.id));
-          }
-
-          const settingKeys = Array.from(new Set([...Object.keys(localSettings), ...Object.keys(recoveredSettings)]));
-          const diffSettings: string[] = [];
-          settingKeys.forEach(key => {
-            if (key === 'deviceId' || key === 'deviceName') return; // Ignore local-only device metadata
-            const localVal = JSON.stringify((localSettings as any)[key]);
-            const serverVal = JSON.stringify((recoveredSettings as any)[key]);
-            if (localVal !== serverVal) {
-              diffSettings.push(`${key}: (Local: ${localVal} vs Server: ${serverVal})`);
-            }
-          });
-          if (diffSettings.length > 0) {
-            console.log(`ℹ️ [Discrepancy] Settings mismatch found:`, diffSettings);
-          }
-
-          console.groupEnd();
-
-          // 1. Items Merge: Keep newer lastUpdated or local if not on server
-          const itemMap = new Map<string, Item>();
-          (localState.items || []).forEach(item => itemMap.set(item.id, item));
-          itemsList.forEach(item => {
-            const existing = itemMap.get(item.id);
-            if (!existing || new Date(item.lastUpdated).getTime() > new Date(existing.lastUpdated).getTime()) {
-              itemMap.set(item.id, item);
-            }
-          });
-          const mergedItems = Array.from(itemMap.values());
-
-          // 2. Notes Merge: Keep newer createdAt or local if not on server
-          const noteMap = new Map<string, Note>();
-          (localState.notes || []).forEach(n => noteMap.set(n.id, n));
-          notesList.forEach(n => {
-            const existing = noteMap.get(n.id);
-            if (!existing || new Date(n.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
-              noteMap.set(n.id, n);
-            }
-          });
-          const mergedNotes = Array.from(noteMap.values());
-
-          // 3. Bills Merge: Keep newer timestamp or local if not on server
-          const billMap = new Map<string, Bill>();
-          (localState.bills || []).forEach(b => billMap.set(b.id, b));
-          billsList.forEach(b => {
-            const existing = billMap.get(b.id);
-            if (!existing || new Date(b.timestamp).getTime() > new Date(existing.timestamp).getTime()) {
-              billMap.set(b.id, b);
-            }
-          });
-          const mergedBills = Array.from(billMap.values());
-
-          // 4. Customers Merge
-          const customerMap = new Map<string, UdharCustomer>();
-          (localState.udharCustomers || []).forEach(c => customerMap.set(c.id, c));
-          customersList.forEach(c => {
-            customerMap.set(c.id, c);
-          });
-          const mergedCustomers = Array.from(customerMap.values());
-
-          // 5. Transactions Merge
-          const txMap = new Map<string, UdharTransaction>();
-          (localState.udharTransactions || []).forEach(t => txMap.set(t.id, t));
-          txsList.forEach(t => {
-            txMap.set(t.id, t);
-          });
-          const mergedTxs = Array.from(txMap.values());
-
-          const mergedSettings = { ...localState.settings, ...recoveredSettings, autoCloudSync: true };
-
-          setState(prev => {
-            const newState = {
-              ...prev,
-              user: { uid, email },
-              items: deduplicateById(mergedItems),
-              notes: deduplicateById(mergedNotes),
-              bills: deduplicateById(mergedBills),
-              udharCustomers: deduplicateById(mergedCustomers),
-              udharTransactions: deduplicateById(mergedTxs),
-              settings: mergedSettings
-            };
-            
-            localStorage.setItem('price_manager_settings', JSON.stringify(newState.settings));
-            localStorage.setItem('price_manager_state', JSON.stringify(newState));
-            return newState;
-          });
-          
-          console.log("[Logic Bridge] Seamless server data recovery & intelligent merge completed.");
-
-          // Back-save newly merged local items, bills, notes etc. which are missing on server to cloud
-          if (isAutoSync) {
-            console.log("[Logic Bridge] Automatically back-saving unsynced local records to cloud...");
-            for (const item of mergedItems) {
-              const existsOnServer = itemsList.some(s => s.id === item.id);
-              if (!existsOnServer) {
-                try {
-                  await setDoc(doc(db, 'users', uid, 'items', item.id), sanitizeForFirestore(item));
-                } catch (e) {
-                  console.error("Back-saving item to cloud failed:", e);
-                }
-              }
-            }
-            for (const note of mergedNotes) {
-              const existsOnServer = notesList.some(s => s.id === note.id);
-              if (!existsOnServer) {
-                try {
-                  await setDoc(doc(db, 'users', uid, 'notes', note.id), sanitizeForFirestore(note));
-                } catch (e) {}
-              }
-            }
-            for (const bill of mergedBills) {
-              const existsOnServer = billsList.some(s => s.id === bill.id);
-              if (!existsOnServer) {
-                try {
-                  await setDoc(doc(db, 'users', uid, 'bills', bill.id), sanitizeForFirestore(bill));
-                } catch (e) {}
-              }
-            }
-            for (const cust of mergedCustomers) {
-              const existsOnServer = customersList.some(s => s.id === cust.id);
-              if (!existsOnServer) {
-                try {
-                  await setDoc(doc(db, 'users', uid, 'udharCustomers', cust.id), sanitizeForFirestore(cust));
-                } catch (e) {}
-              }
-            }
-            for (const tx of mergedTxs) {
-              const existsOnServer = txsList.some(s => s.id === tx.id);
-              if (!existsOnServer) {
-                try {
-                  await setDoc(doc(db, 'users', uid, 'udharTransactions', tx.id), sanitizeForFirestore(tx));
-                } catch (e) {}
-              }
-            }
-          }
-        } else {
-          console.log("[Logic Bridge] No server data found for UID:", uid);
-          
-          // Brand new server database detected. Upload all current local records instantly to initialize the cloud database
-          if (isAutoSync) {
-            console.log("[Logic Bridge] Seeding brand new cloud database from current local data...");
-            try {
-              await setDoc(doc(db, 'users', uid), sanitizeForFirestore(currentSt.settings || {}), { merge: true });
-              for (const item of (currentSt.items || [])) {
-                await setDoc(doc(db, 'users', uid, 'items', item.id), sanitizeForFirestore(item));
-              }
-              for (const note of ((currentSt as any).notes || [])) {
-                await setDoc(doc(db, 'users', uid, 'notes', note.id), sanitizeForFirestore(note));
-              }
-              for (const bill of (currentSt.bills || [])) {
-                await setDoc(doc(db, 'users', uid, 'bills', bill.id), sanitizeForFirestore(bill));
-              }
-              for (const cust of (currentSt.udharCustomers || [])) {
-                await setDoc(doc(db, 'users', uid, 'udharCustomers', cust.id), sanitizeForFirestore(cust));
-              }
-              for (const tx of (currentSt.udharTransactions || [])) {
-                await setDoc(doc(db, 'users', uid, 'udharTransactions', tx.id), sanitizeForFirestore(tx));
-              }
-              console.log("[Logic Bridge] Seeding completed successfully.");
-            } catch (uploadErr) {
-              console.error("[Logic Bridge] Error seeding database:", uploadErr);
-            }
-          }
-        }
-      } catch (fetchErr: any) {
-        console.warn("[Logic Bridge] Offline mode active or Firestore unavailable during recovery. Defaulting safely to local state. Error details:", fetchErr.message || fetchErr);
-        
-        // Load the local state without wiping anything and assign it to the app's state gracefully
-        const localState = shouldClearLocalPriorToMerge ? { items: [], notes: [], bills: [], udharCustomers: [], udharTransactions: [], settings: INITIAL_SETTINGS } : latestStateRef.current;
-        
-        setState(prev => {
-          const fallbackState = {
-            ...prev,
-            user: { uid, email },
-            items: deduplicateById(localState.items || []),
-            notes: deduplicateById(localState.notes || []),
-            bills: deduplicateById(localState.bills || []),
-            udharCustomers: deduplicateById(localState.udharCustomers || []),
-            udharTransactions: deduplicateById(localState.udharTransactions || []),
-            settings: { ...INITIAL_SETTINGS, ...localState.settings }
-          };
-          
-          localStorage.setItem('price_manager_settings', JSON.stringify(fallbackState.settings));
-          localStorage.setItem('price_manager_state', JSON.stringify(fallbackState));
-          return fallbackState;
-        });
-        
-        console.log("[Logic Bridge] Offline recovery fallback completed. Local storage cached data is fully restored and active.");
-      }
-    } catch (err) {
-      console.error("[Logic Bridge] Unexpected error in checkAndRecoverData wrapper:", err);
-    } finally {
-      setIsDataRecovering(false);
-    }
-  };
-
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        const cachedUserStr = localStorage.getItem('ts_cached_auth_user');
-        let prevUid = null;
-        if (cachedUserStr) {
-          try {
-            prevUid = JSON.parse(cachedUserStr).uid;
-          } catch {}
+        if (user.email && user.uid !== 'guest_user') {
+          localStorage.setItem('ts_last_logged_in_email', user.email);
         }
-
-        const wasGuest = localStorage.getItem('ts_guest_logged_in') === 'true' || prevUid === 'guest_user';
-        const uidChanged = prevUid && prevUid !== user.uid && prevUid !== 'guest_user';
-
-        if (user.uid && user.uid !== 'guest_user') {
-          if (wasGuest) {
-            console.log("[Migration] Moving Guest data to Firestore for UID:", user.uid);
-            try {
-              const currentSt = latestStateRef.current;
-              const settingsToMigrate = currentSt.settings || {};
-              await setDoc(doc(db, 'users', user.uid), sanitizeForFirestore(settingsToMigrate), { merge: true });
-
-              for (const item of (currentSt.items || [])) {
-                await setDoc(doc(db, 'users', user.uid, 'items', item.id), sanitizeForFirestore(item));
-              }
-              for (const note of ((currentSt as any).notes || [])) {
-                await setDoc(doc(db, 'users', user.uid, 'notes', note.id), sanitizeForFirestore(note));
-              }
-              for (const bill of (currentSt.bills || [])) {
-                await setDoc(doc(db, 'users', user.uid, 'bills', bill.id), sanitizeForFirestore(bill));
-              }
-              for (const cust of (currentSt.udharCustomers || [])) {
-                await setDoc(doc(db, 'users', user.uid, 'udharCustomers', cust.id), sanitizeForFirestore(cust));
-              }
-              for (const tx of (currentSt.udharTransactions || [])) {
-                await setDoc(doc(db, 'users', user.uid, 'udharTransactions', tx.id), sanitizeForFirestore(tx));
-              }
-              console.log("[Migration] Guest data migration to Firestore completed successfully.");
-            } catch (migrateErr) {
-              console.error("[Migration] Error migrating guest data to Firestore:", migrateErr);
-            }
-          }
-
-          localStorage.removeItem('ts_guest_logged_in');
-          localStorage.setItem('ts_cached_auth_user', JSON.stringify({ uid: user.uid, email: user.email || 'Registered Merchant' }));
-          if (user.email) {
-            localStorage.setItem('ts_last_logged_in_email', user.email);
-          }
-        }
-
-        if (uidChanged) {
-          setState(prev => {
-            const updatedSettings = { ...prev.settings, autoCloudSync: true };
-            localStorage.setItem('price_manager_settings', JSON.stringify(updatedSettings));
-            return { 
-              ...prev, 
-              user: { uid: user.uid, email: user.email },
-              settings: updatedSettings,
-              items: [],
-              notes: [],
-              bills: [],
-              udharCustomers: [],
-              udharTransactions: []
-            };
-          });
-        } else {
-          setState(prev => {
-            const updatedSettings = { ...prev.settings, autoCloudSync: true };
-            localStorage.setItem('price_manager_settings', JSON.stringify(updatedSettings));
-            return { 
-              ...prev, 
-              user: { uid: user.uid, email: user.email },
-              settings: updatedSettings
-            };
-          });
-        }
-
-        // Trigger data recovery asynchronously
-        await checkAndRecoverData(user.uid, user.email || '', uidChanged && !wasGuest);
+        setState(prev => ({ 
+          ...prev, 
+          user: { uid: user.uid, email: user.email } 
+        }));
       } else {
         const isGuest = localStorage.getItem('ts_guest_logged_in') === 'true';
         if (isGuest) {
@@ -3304,11 +2570,9 @@ export default function App() {
             user: { uid: 'guest_user', email: 'Guest Merchant' } 
           }));
         } else {
-          localStorage.removeItem('ts_cached_auth_user');
           setState(prev => ({ ...prev, user: null }));
         }
       }
-      setIsAuthResolving(false);
     });
     return () => unsubscribe();
   }, []);
@@ -3378,67 +2642,17 @@ export default function App() {
       return;
     }
 
-    const userDocRef = doc(db, 'users', state.user.uid);
+    if (!auth.currentUser || auth.currentUser.uid !== state.user.uid) {
+      return;
+    }
 
-    const compareAndLogSnapshotDiscrepancy = (collectionName: string, serverItems: any[]) => {
-      try {
-        const savedStateStr = localStorage.getItem('price_manager_state');
-        if (!savedStateStr) return;
-        const parsed = JSON.parse(savedStateStr);
-        if (!parsed) return;
-        const localList = parsed[collectionName] || [];
-        
-        const missingOnServer = localList.filter((li: any) => !serverItems.some((si: any) => si.id === li.id));
-        const missingLocally = serverItems.filter((si: any) => !localList.some((li: any) => li.id === si.id));
-        
-        if (missingOnServer.length > 0 || missingLocally.length > 0) {
-          console.group(`⚠️ [Snapshot Fallback Audit] Discrepancy detected for "${collectionName}"`);
-          console.log(`Server Count: ${serverItems.length} | Local Storage Count: ${localList.length}`);
-          if (missingOnServer.length > 0) {
-            console.warn(`Missing on server (${missingOnServer.length} items):`, missingOnServer.map((x: any) => x.id || x.billNumber || x.name));
-          }
-          if (missingLocally.length > 0) {
-            console.warn(`Missing locally (${missingLocally.length} items):`, missingLocally.map((x: any) => x.id || x.billNumber || x.name));
-          }
-          console.groupEnd();
-        } else {
-          console.log(`✅ [Snapshot Fallback Audit] "${collectionName}" is in perfect sync with Local Storage. Count: ${serverItems.length}`);
-        }
-      } catch (e) {
-        console.error(`Failed to execute snapshot fallback discrepancy check for ${collectionName}:`, e);
-      }
-    };
+    const userDocRef = doc(db, 'users', state.user.uid);
     
     // Sync Settings
     const unsubSettings = onSnapshot(userDocRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         setState(prev => ({ ...prev, settings: { ...prev.settings, ...data } }));
-
-        // Compare settings discrepancy
-        try {
-          const savedSettingsStr = localStorage.getItem('price_manager_settings');
-          if (savedSettingsStr) {
-            const localSettings = JSON.parse(savedSettingsStr);
-            const serverSettings = snap.data() || {};
-            const diffs: string[] = [];
-            Object.keys({ ...localSettings, ...serverSettings }).forEach(key => {
-              if (key === 'deviceId' || key === 'deviceName') return;
-              const localVal = JSON.stringify(localSettings[key]);
-              const serverVal = JSON.stringify(serverSettings[key]);
-              if (localVal !== serverVal) {
-                diffs.push(`${key}: (Local: ${localVal} vs Server: ${serverVal})`);
-              }
-            });
-            if (diffs.length > 0) {
-              console.warn(`⚠️ [Snapshot Fallback Audit] Settings discrepancy found:`, diffs);
-            } else {
-              console.log(`✅ [Snapshot Fallback Audit] Settings are in perfect sync with Local Storage.`);
-            }
-          }
-        } catch (e) {
-          console.error("Settings discrepancy check error:", e);
-        }
       }
     }, (error) => {
       if (auth.currentUser) {
@@ -3464,10 +2678,25 @@ export default function App() {
           }
         } as Item);
       });
-
-      compareAndLogSnapshotDiscrepancy('items', itemsList);
       
-      setState(prev => ({ ...prev, items: deduplicateById(itemsList) }));
+      setState(prev => {
+        const localItems = prev.items || [];
+        const unsyncedItems = localItems.filter(li => !itemsList.some(ci => ci.id === li.id));
+        if (unsyncedItems.length > 0) {
+          unsyncedItems.forEach(async (item) => {
+            try {
+              await setDoc(doc(db, 'users', state.user!.uid, 'items', item.id), sanitizeForFirestore(item));
+            } catch (e) {
+              console.error("Self-healing background stock item upload failed:", e);
+            }
+          });
+          const merged = [...itemsList, ...unsyncedItems].sort((a, b) => 
+            new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime()
+          );
+          return { ...prev, items: deduplicateById(merged) };
+        }
+        return { ...prev, items: deduplicateById(itemsList) };
+      });
     }, (error) => {
       if (auth.currentUser) {
         console.error("Items sync error:", error);
@@ -3482,10 +2711,25 @@ export default function App() {
     const unsubNotes = onSnapshot(query(notesRef, orderBy('createdAt', 'desc')), (snap) => {
       const notesList: Note[] = [];
       snap.forEach(doc => notesList.push({ ...doc.data() as Note, id: doc.id }));
-
-      compareAndLogSnapshotDiscrepancy('notes', notesList);
       
-      setState(prev => ({ ...prev, notes: deduplicateById(notesList) }));
+      setState(prev => {
+        const localNotes = prev.notes || [];
+        const unsyncedNotes = localNotes.filter(ln => !notesList.some(cn => cn.id === ln.id));
+        if (unsyncedNotes.length > 0) {
+          unsyncedNotes.forEach(async (note) => {
+            try {
+              await setDoc(doc(db, 'users', state.user!.uid, 'notes', note.id), sanitizeForFirestore(note));
+            } catch (e) {
+              console.error("Self-healing background note upload failed:", e);
+            }
+          });
+          const merged = [...notesList, ...unsyncedNotes].sort((a, b) => 
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+          return { ...prev, notes: deduplicateById(merged) };
+        }
+        return { ...prev, notes: deduplicateById(notesList) };
+      });
     }, (error) => {
       if (auth.currentUser) {
         console.error("Notes sync error:", error);
@@ -3523,10 +2767,24 @@ export default function App() {
           });
         }
       });
-
-      compareAndLogSnapshotDiscrepancy('bills', billsList);
       
       setState(prev => {
+        const localBills = prev.bills || [];
+        const unsyncedBills = localBills.filter(lb => !billsList.some(cb => cb.id === lb.id));
+        if (unsyncedBills.length > 0) {
+          unsyncedBills.forEach(async (b) => {
+            try {
+              await setDoc(doc(db, 'users', state.user!.uid, 'bills', b.id), sanitizeForFirestore(b));
+            } catch (e) {
+              console.error("Self-healing background billing upload failed:", e);
+            }
+          });
+          const merged = [...billsList, ...unsyncedBills].sort((a, b) => 
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+          );
+          setAnalyticsRenderKey(k => k + 1);
+          return { ...prev, bills: deduplicateById(merged) };
+        }
         setAnalyticsRenderKey(k => k + 1);
         return { ...prev, bills: deduplicateById(billsList) };
       });
@@ -3537,47 +2795,11 @@ export default function App() {
       }
     });
 
-    // Sync Udhar Customers (with automatic offline self-healing and data-recovery merge)
-    const customersRef = collection(db, 'users', state.user.uid, 'udharCustomers');
-    const unsubCustomers = onSnapshot(customersRef, (snap) => {
-      const customersList: UdharCustomer[] = [];
-      snap.forEach(docSnap => {
-        customersList.push({ ...docSnap.data() as UdharCustomer, id: docSnap.id });
-      });
-
-      compareAndLogSnapshotDiscrepancy('udharCustomers', customersList);
-
-      setState(prev => ({ ...prev, udharCustomers: deduplicateById(customersList) }));
-    }, (error) => {
-      if (auth.currentUser) {
-        console.error("Udhar Customers sync error:", error);
-      }
-    });
-
-    // Sync Udhar Transactions (with automatic offline self-healing and data-recovery merge)
-    const transactionsRef = collection(db, 'users', state.user.uid, 'udharTransactions');
-    const unsubTransactions = onSnapshot(transactionsRef, (snap) => {
-      const transactionsList: UdharTransaction[] = [];
-      snap.forEach(docSnap => {
-        transactionsList.push({ ...docSnap.data() as UdharTransaction, id: docSnap.id });
-      });
-
-      compareAndLogSnapshotDiscrepancy('udharTransactions', transactionsList);
-
-      setState(prev => ({ ...prev, udharTransactions: deduplicateById(transactionsList) }));
-    }, (error) => {
-      if (auth.currentUser) {
-        console.error("Udhar Transactions sync error:", error);
-      }
-    });
-
     return () => {
       unsubSettings();
       unsubItems();
       unsubNotes();
       unsubBills();
-      unsubCustomers();
-      unsubTransactions();
     };
   }, [state.user, state.settings.autoCloudSync]);
 
@@ -3852,7 +3074,6 @@ export default function App() {
   // --- Handlers ---
   const handleLogout = useCallback(async () => {
     localStorage.removeItem('ts_guest_logged_in');
-    localStorage.removeItem('ts_cached_auth_user');
     await auth.signOut();
     setState(prev => ({ ...prev, user: null }));
     addToast("Session terminated / लॉगआउट सफल!", "success");
@@ -3862,16 +3083,12 @@ export default function App() {
     try {
       const user = await loginWithGoogle();
       if (user) {
-        localStorage.removeItem('ts_guest_logged_in');
         if (user.email) {
           localStorage.setItem('ts_last_logged_in_email', user.email);
-          localStorage.setItem('ts_cached_auth_user', JSON.stringify({ uid: user.uid, email: user.email }));
-        } else {
-          localStorage.setItem('ts_cached_auth_user', JSON.stringify({ uid: user.uid, email: 'Google Merchant' }));
         }
         setState(prev => ({ 
           ...prev, 
-          user: { uid: user.uid, email: user.email || 'Google Merchant' } 
+          user: { uid: user.uid, email: user.email } 
         }));
         addToast("Logged in with Google / गूगल लॉगिन सफल!", "success");
       }
@@ -4715,69 +3932,11 @@ export default function App() {
             }
           }
         }
-
-        // (D) Sync udharCustomers if updated
-        if (updates.udharCustomers) {
-          const oldCusts = state.udharCustomers || [];
-          const newCusts = updates.udharCustomers;
-
-          const changedCusts = newCusts.filter(nc => {
-            const oc = oldCusts.find(c => c.id === nc.id);
-            return !oc || JSON.stringify(oc) !== JSON.stringify(nc);
-          });
-
-          const deletedCusts = oldCusts.filter(oc => !newCusts.some(nc => nc.id === oc.id));
-
-          for (const c of changedCusts) {
-            try {
-              await setDoc(doc(db, 'users', uId, 'udharCustomers', c.id), sanitizeForFirestore(c));
-            } catch (e) {
-              console.error("Error syncing customer:", e);
-            }
-          }
-
-          for (const c of deletedCusts) {
-            try {
-              await deleteDoc(doc(db, 'users', uId, 'udharCustomers', c.id));
-            } catch (e) {
-              console.error("Error deleting customer:", e);
-            }
-          }
-        }
-
-        // (E) Sync udharTransactions if updated
-        if (updates.udharTransactions) {
-          const oldTxs = state.udharTransactions || [];
-          const newTxs = updates.udharTransactions;
-
-          const changedTxs = newTxs.filter(nt => {
-            const ot = oldTxs.find(t => t.id === nt.id);
-            return !ot || JSON.stringify(ot) !== JSON.stringify(nt);
-          });
-
-          const deletedTxs = oldTxs.filter(ot => !newTxs.some(nt => nt.id === ot.id));
-
-          for (const t of changedTxs) {
-            try {
-              await setDoc(doc(db, 'users', uId, 'udharTransactions', t.id), sanitizeForFirestore(t));
-            } catch (e) {
-              console.error("Error syncing transaction:", e);
-            }
-          }
-
-          for (const t of deletedTxs) {
-            try {
-              await deleteDoc(doc(db, 'users', uId, 'udharTransactions', t.id));
-            } catch (e) {
-              console.error("Error deleting transaction:", e);
-            }
-          }
-        }
       } finally {
         setIsSyncing(false);
       }
     }
-  }, [state.user, state.settings.autoCloudSync, state.bills, state.items, state.notes, state.udharCustomers, state.udharTransactions]);
+  }, [state.user, state.settings.autoCloudSync, state.bills, state.items, state.notes]);
 
   const handleToggleLock = () => {
     if (state.settings.isLocked) {
@@ -4856,12 +4015,6 @@ export default function App() {
     );
   }
 
-  if (isAuthResolving || isDataRecovering) {
-    return (
-      <AppSkeletonLoader theme={state.settings.theme} />
-    );
-  }
-
   if (!state.user) {
     return (
       <div data-theme={state.settings.theme} className="min-h-screen">
@@ -4881,7 +4034,6 @@ export default function App() {
           settings={state.settings} 
           onComplete={handleOnboardingComplete}
           userEmail={state.user.email}
-          onBack={handleLogout}
         />
       </div>
     );
@@ -5228,23 +4380,23 @@ export default function App() {
       {/* Header */}
       <header 
         id="tour-header"
-        className="sticky top-0 z-40 px-3 sm:px-6 py-3 sm:py-4 text-[var(--primary-foreground)] shadow-2xl transition-all border-b border-white/10"
+        className="sticky top-0 z-40 px-6 py-4 text-[var(--primary-foreground)] shadow-2xl transition-all border-b border-white/10"
         style={{ backgroundColor: 'var(--primary)' }}
       >
-        <div className="flex items-center justify-between w-full max-w-7xl mx-auto gap-2 sm:gap-4">
-          <div className="flex items-center gap-2 sm:gap-4 select-none min-w-0 overflow-visible shrink">
+        <div className="flex items-center justify-between w-full max-w-7xl mx-auto gap-4">
+          <div className="flex items-center gap-4 select-none shrink-0 overflow-visible min-w-0">
             <div className="relative group shrink-0 overflow-visible flex items-center justify-center">
               {/* Dynamic theme-specific sharp luminous premium core glow */}
               <div className={`absolute inset-x-0 inset-y-0 rounded-full blur-xl opacity-60 group-hover:opacity-90 transition-opacity duration-300 pointer-events-none ${getLogoBackplateClass(state.settings.theme).glow}`} />
               <div className={`absolute -inset-1.5 bg-gradient-to-r rounded-2xl blur-md opacity-30 group-hover:opacity-70 transition-opacity duration-500 pointer-events-none ${getLogoBackplateClass(state.settings.theme).gradient}`} />
               
               {/* Premium seamless borderless container with custom aspect-ratio and zoom handling */}
-              <div className="relative h-10 sm:h-14 overflow-visible flex items-center justify-center transform group-hover:scale-105 active:scale-95 transition-all duration-300 select-none pointer-events-none shrink-0">
+              <div className="relative h-14 overflow-visible flex items-center justify-center transform group-hover:scale-105 active:scale-95 transition-all duration-300 select-none pointer-events-none shrink-0">
                 {/* Custom multi-stage SVG drop-shadow filter for sharp outlines on any background */}
                 <img 
                   src={appLogo} 
                   alt="TS App Logo" 
-                  className="h-10 sm:h-14 w-auto max-w-[100px] sm:max-w-[140px] object-contain transition-all duration-350"
+                  className="h-14 w-auto max-w-[140px] object-contain transition-all duration-350"
                   style={{
                     filter: getLogoGlowFilter(state.settings.theme)
                   }}
@@ -5255,14 +4407,14 @@ export default function App() {
                 />
                 
                 {/* Non-intrusive fallback illustration block in case image fails to fetch */}
-                <div className="hidden flex h-10 sm:h-14 w-10 sm:w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 shadow-inner shrink-0">
-                  <Package size={20} className="text-white" />
+                <div className="hidden flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 shadow-inner shrink-0">
+                  <Package size={28} className="text-white" />
                 </div>
               </div>
             </div>
             <div className="flex flex-col justify-center shrink-0">
-              <h1 className="text-lg sm:text-2xl font-black tracking-tighter text-white mb-0 leading-none flex items-baseline">
-                TS <span className="hidden sm:inline-block text-xs font-bold opacity-60 ml-1.5 tracking-[0.3em] uppercase">Price Manager</span>
+              <h1 className="text-2xl font-black tracking-tighter text-white mb-0 leading-none flex items-baseline">
+                TS <span className="text-xs font-bold opacity-60 ml-1.5 tracking-[0.3em] uppercase">Price Manager</span>
               </h1>
               <div className="flex items-center gap-2 mt-1.5">
                 <button
@@ -5281,7 +4433,7 @@ export default function App() {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-3">
 
 
             {/* Notification Badge Badge with sliding drawer */}
@@ -6994,216 +6146,6 @@ export default function App() {
         isOpen={showPermissionsCenter} 
         onClose={() => setShowPermissionsCenter(false)} 
       />
-
-      {/* ☁️ Custom Google Drive Restore Picker Modal */}
-      <AnimatePresence>
-        {showDriveRestoreModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
-          >
-            <motion.div
-              initial={{ scale: 0.95, y: 15 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 15 }}
-              transition={{ type: "spring", duration: 0.4 }}
-              className="w-full max-w-2xl bg-[#090e17] border border-emerald-500/20 rounded-[2rem] overflow-hidden shadow-2xl flex flex-col max-h-[85vh]"
-            >
-              {/* Header */}
-              <div className="p-6 border-b border-emerald-500/10 flex items-center justify-between bg-gradient-to-r from-emerald-950/20 to-transparent">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-2xl bg-emerald-500/10 text-emerald-400">
-                    <Cloud size={24} />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-black uppercase tracking-wider text-white">Google Drive Backup Restore</h3>
-                    <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest mt-0.5">गूगल ड्राइव बैकअप रीस्टोर</p>
-                  </div>
-                </div>
-                <button
-                  onClick={closeDriveRestoreModal}
-                  className="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-xl transition-colors cursor-pointer"
-                >
-                  <ArrowLeft size={18} />
-                </button>
-              </div>
-
-              {/* Search & Refresh */}
-              <div className="px-6 py-4 border-b border-emerald-500/10 flex gap-3 items-center bg-emerald-950/5">
-                <div className="relative flex-1">
-                  <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search backup file name... (बैकअप फ़ाइल खोजें...)"
-                    className="w-full pl-10 pr-4 py-2.5 bg-[#0e1622] text-sm text-white rounded-xl border border-emerald-500/10 focus:border-emerald-500/30 outline-none placeholder-gray-500 font-medium"
-                    id="drive-backup-search"
-                    onChange={(e) => {
-                      const query = e.target.value.toLowerCase();
-                      const items = document.querySelectorAll('.drive-backup-item');
-                      items.forEach((item: any) => {
-                        const name = item.dataset.filename.toLowerCase();
-                        if (name.includes(query)) {
-                          item.style.display = 'flex';
-                        } else {
-                          item.style.display = 'none';
-                        }
-                      });
-                    }}
-                  />
-                </div>
-                <button
-                  onClick={handleRestoreFromDrive}
-                  disabled={driveBackupsLoading}
-                  className="p-3 text-emerald-400 hover:text-white bg-emerald-500/5 hover:bg-emerald-500/20 border border-emerald-500/10 hover:border-emerald-500/30 rounded-xl transition-all disabled:opacity-50 cursor-pointer active:scale-95"
-                  title="Refresh Backups / रिफ्रेश करें"
-                >
-                  <RefreshCw size={16} className={driveBackupsLoading ? "animate-spin" : ""} />
-                </button>
-              </div>
-
-              {/* Content */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar">
-                {window.self !== window.top && (
-                  <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-start gap-3.5 text-left mb-2">
-                    <AlertCircle size={18} className="text-amber-400 shrink-0 mt-0.5" />
-                    <div className="space-y-1.5">
-                      <h5 className="text-[10px] font-black uppercase text-amber-300 tracking-wider">
-                        Google Picker Sandbox Security Notice
-                      </h5>
-                      <p className="text-[9.5px] text-gray-300 leading-relaxed font-semibold">
-                        Since the app is currently running inside the AI Studio preview window (iframe), Google's security policy will block the <strong>Native File Picker</strong> popup.
-                      </p>
-                      <p className="text-[9.5px] text-amber-400/95 leading-normal font-bold">
-                        💡 For full Google Picker functionality, click the <strong>"Open in a new tab"</strong> button at the top-right of your preview screen, OR restore your backups instantly using our <strong>In-App Backup List</strong> shown below!
-                      </p>
-                      <p className="text-[8.5px] text-gray-400 font-medium">
-                        (गूगल सुरक्षा कारणों से प्रिव्यू विंडो में नेटिव फाइल पिकर ब्लॉक कर देता है। कृपया नए टैब में एप खोलें या नीचे दी गई इन-एप लिस्ट से सीधे रिस्टोर करें।)
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* 🔍 Manual Native Google Picker Trigger */}
-                <div className="p-4 bg-emerald-500/5 border border-emerald-500/15 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 text-left mb-2">
-                  <div className="space-y-1.5 min-w-0">
-                    <h4 className="text-xs font-black uppercase tracking-wider text-emerald-300 flex items-center gap-2">
-                      <FolderOpen size={14} className="text-emerald-400 shrink-0" />
-                      Browse with Native Google Picker
-                    </h4>
-                    <p className="text-[9.5px] text-gray-300 leading-relaxed font-semibold">
-                      Want to search other directories or choose specific backup files manually? Open the official Google Picker.
-                    </p>
-                    <p className="text-[8.5px] text-gray-400 font-medium leading-none">
-                      (गूगल ड्राइव डायरेक्टरी ब्राउज़र खोलकर कोई भी विशिष्ट फ़ाइल सीधे चुनने के लिए यहाँ क्लिक करें।)
-                    </p>
-                  </div>
-                  <Button
-                    onClick={handleOpenNativePicker}
-                    disabled={driveBackupsLoading}
-                    className="shrink-0 px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-black font-black text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95 flex items-center gap-2 cursor-pointer"
-                  >
-                    <ExternalLink size={12} className="shrink-0" />
-                    Open Selector
-                  </Button>
-                </div>
-
-                {driveAuthPending ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
-                    <div className="p-4 rounded-full bg-amber-500/10 text-amber-400 animate-pulse">
-                      <ShieldCheck size={36} />
-                    </div>
-                    <div className="max-w-md">
-                      <h4 className="text-sm font-black uppercase text-white tracking-wider">Authorize Google Drive Connection</h4>
-                      <p className="text-xs text-gray-400 mt-2 leading-relaxed">
-                        A secure Google login popup has been requested. Please look for the popup window and allow authorization to load your backups.
-                      </p>
-                      <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest mt-1">
-                        सुरक्षित गूगल लॉगिन पॉपअप खुला है। कृपया पॉपअप अनुमति दें और लॉगिन पूर्ण करें।
-                      </p>
-                    </div>
-                    <Button 
-                      onClick={handleRestoreFromDrive} 
-                      className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-black font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg active:scale-95"
-                    >
-                      Open Sign-In Popup Again
-                    </Button>
-                  </div>
-                ) : driveBackupsLoading && driveBackupsList.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-16 space-y-4">
-                    <RefreshCw className="text-emerald-400 animate-spin" size={32} />
-                    <p className="text-xs font-black uppercase tracking-widest text-emerald-400 animate-pulse">Loading Backups from Google Drive...</p>
-                  </div>
-                ) : driveBackupsList.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
-                    <div className="p-4 rounded-full bg-rose-500/10 text-rose-400">
-                      <AlertCircle size={32} />
-                    </div>
-                    <div>
-                      <p className="text-sm font-black uppercase text-white">No Backup Files Found</p>
-                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
-                        Make sure you have created a backup under "TS Price Manager Backups" folder.
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-3">
-                      Showing {driveBackupsList.length} JSON Backup Files. Click a file to restore.
-                    </p>
-                    {driveBackupsList.map((file) => {
-                      const formattedDate = file.createdTime ? new Date(file.createdTime).toLocaleString() : 'Unknown Date';
-                      const formattedSize = file.size ? `${(parseInt(file.size) / 1024).toFixed(1)} KB` : 'N/A';
-                      return (
-                        <div
-                          key={file.id}
-                          className="drive-backup-item flex items-center justify-between p-4 bg-[#0e1622] hover:bg-emerald-500/5 border border-emerald-500/10 hover:border-emerald-500/30 rounded-2xl cursor-pointer transition-all hover:translate-x-1 group"
-                          data-filename={file.name}
-                          onClick={() => handleSelectDriveBackupFile(file.id, file.name)}
-                        >
-                          <div className="flex items-center gap-3.5 min-w-0">
-                            <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 group-hover:bg-emerald-500 group-hover:text-black transition-colors shrink-0">
-                              <FileText size={16} />
-                            </div>
-                            <div className="min-w-0">
-                              <h4 className="text-xs font-bold text-white truncate max-w-md group-hover:text-emerald-300 transition-colors">
-                                {file.name}
-                              </h4>
-                              <div className="flex items-center gap-3 text-[9px] text-gray-400 font-medium uppercase tracking-widest mt-1.5">
-                                <span className="flex items-center gap-1">
-                                  📅 {formattedDate}
-                                </span>
-                                <span className="h-1 w-1 rounded-full bg-emerald-500/30" />
-                                <span className="flex items-center gap-1 text-emerald-400 font-bold">
-                                  📦 {formattedSize}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <button
-                            className="py-1.5 px-3 rounded-lg bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-black text-[9px] font-black uppercase tracking-wider transition-all"
-                          >
-                            Restore
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Footer */}
-              <div className="p-6 border-t border-emerald-500/10 bg-[#070b12] text-center">
-                <p className="text-[9px] text-gray-500 font-black uppercase tracking-widest leading-relaxed">
-                  🔒 Connection is 100% secured via Google OAuth. Restoring will replace local inventory, pricing and settings.
-                </p>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Menu / Settings Overlay Drawer */}
       <AnimatePresence>
