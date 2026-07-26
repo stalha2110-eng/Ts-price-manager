@@ -929,28 +929,40 @@ export default function SmartCalculator() {
                 </div>
 
                 {/* Tactile Memory Registers & Layout Operators Row */}
-                <div className="grid grid-cols-6 gap-1 text-[8px] font-black uppercase text-center leading-normal">
-                  <button onClick={() => handleMemoryOp('M+')} className="py-1 rounded-lg bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-650 cursor-pointer">M+</button>
-                  <button onClick={() => handleMemoryOp('M-')} className="py-1 rounded-lg bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-650 cursor-pointer">M-</button>
-                  <button onClick={() => handleMemoryOp('MR')} className="py-1 rounded-lg bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-650 cursor-pointer">MR</button>
-                  <button onClick={() => handleMemoryOp('MC')} className="py-1 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-150 text-rose-600 cursor-pointer">MC</button>
-                  
-                  {/* Advanced Micro History Undo/Redo Operators Stack */}
+                <div className="grid grid-cols-7 gap-1 text-[8.5px] font-black uppercase text-center leading-normal items-center">
+                  <button onClick={() => handleMemoryOp('M+')} className="py-1.5 rounded-lg bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-650 cursor-pointer transition-all">M+</button>
+                  <button onClick={() => handleMemoryOp('M-')} className="py-1.5 rounded-lg bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-650 cursor-pointer transition-all">M-</button>
+                  <button onClick={() => handleMemoryOp('MR')} className="py-1.5 rounded-lg bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-650 cursor-pointer transition-all">MR</button>
+
+                  {/* Undo & Redo buttons IN FRONT OF MC with NO TEXT (icon only) */}
                   <button 
                     onClick={handleUndo} 
                     disabled={undoStack.length === 0}
-                    className="py-1 rounded-lg bg-zinc-55 hover:bg-zinc-100 border border-zinc-200 cursor-pointer disabled:opacity-30 disabled:pointer-events-none text-blue-600 font-extrabold flex items-center justify-center gap-0.5 bg-zinc-50"
-                    title="Undo previous tap action"
+                    className="py-1.5 rounded-lg border cursor-pointer disabled:opacity-30 disabled:pointer-events-none text-amber-600 border-amber-200/60 bg-amber-50 hover:bg-amber-100 flex items-center justify-center transition-all active:scale-95"
+                    title="Undo (Ctrl+Z)"
                   >
-                    <Undo size={7} /> Undo
+                    <Undo size={12} />
                   </button>
                   <button 
                     onClick={handleRedo} 
                     disabled={redoStack.length === 0}
-                    className="py-1 rounded-lg bg-zinc-55 hover:bg-zinc-100 border border-zinc-200 cursor-pointer disabled:opacity-30 disabled:pointer-events-none text-blue-600 font-extrabold flex items-center justify-center gap-0.5 bg-zinc-50"
-                    title="Redo next popped tap action"
+                    className="py-1.5 rounded-lg border cursor-pointer disabled:opacity-30 disabled:pointer-events-none text-amber-600 border-amber-200/60 bg-amber-50 hover:bg-amber-100 flex items-center justify-center transition-all active:scale-95"
+                    title="Redo (Ctrl+Y)"
                   >
-                    <Redo size={7} /> Redo
+                    <Redo size={12} />
+                  </button>
+
+                  <button onClick={() => handleMemoryOp('MC')} className="py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-150 text-rose-600 cursor-pointer transition-all">MC</button>
+
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(calcInput || '0');
+                      triggerToast(`Copied "₹${calcInput || '0'}" to clipboard!`);
+                    }}
+                    className="py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-extrabold flex items-center justify-center gap-1 cursor-pointer transition-all shadow-xs active:scale-95"
+                    title="Copy result"
+                  >
+                    <Copy size={11} />
                   </button>
                 </div>
 

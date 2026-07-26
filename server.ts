@@ -82,9 +82,9 @@ Available Categories: ${categoryNames}`;
       // Model-cascading retry strategy to survive transient 503 UNAVAILABLE or high demand gracefully
       const generateWithModelCascade = async (): Promise<any> => {
         const candidateModels = [
-          "gemini-3.5-flash",
-          "gemini-3.1-flash-lite",
-          "gemini-flash-latest"
+          "gemini-2.5-flash",
+          "gemini-2.0-flash",
+          "gemini-1.5-flash"
         ];
         
         let lastError: any = null;

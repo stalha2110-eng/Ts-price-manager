@@ -7,6 +7,18 @@ import { LanguageType, AppSettings } from "../types";
 // Hinglish: What shopkeepers naturally speak (no dry/awkward literal translations)
 export const TRANSLATION_DB: Record<string, Record<LanguageType, string>> = {
   // Navigation & Screens
+  terminateSession: {
+    en: "LOG OUT",
+    hi: "लॉग आउट",
+    mr: "लॉग आउट",
+    "hi-en": "LOG OUT"
+  },
+  logOut: {
+    en: "LOG OUT",
+    hi: "लॉग आउट",
+    mr: "लॉग आउट",
+    "hi-en": "LOG OUT"
+  },
   inventory: {
     en: "Inventory",
     hi: "सामान / स्टॉक",

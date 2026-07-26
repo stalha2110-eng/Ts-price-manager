@@ -68,20 +68,25 @@ function cleanTranscriptText(text: string): string {
     for (let len1 = 1; len1 <= 15; len1++) {
       for (let len2 = len1; len2 <= 15; len2++) {
         for (let i = 0; i <= n - len1 - len2; i++) {
-          const segmentA = result.slice(i, i + len1)
-            .map(w => w.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, ""))
-            .join(" ");
-          const segmentB = result.slice(i + len1, i + len1 + len2)
-            .map(w => w.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, ""))
-            .join(" ");
+          const wordsA = result.slice(i, i + len1)
+            .map(w => w.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, ""));
+          const wordsB = result.slice(i + len1, i + len1 + len2)
+            .map(w => w.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, ""));
+            
+          const segmentA = wordsA.join(" ");
+          const segmentB = wordsB.join(" ");
             
           if (segmentA.trim() && segmentB.trim()) {
-            if (segmentB.startsWith(segmentA)) {
+            // Check word array prefixes rather than string .startsWith to avoid "100".startsWith("10") bugs
+            const isWordPrefixAofB = wordsB.length >= wordsA.length && wordsA.every((w, k) => w === wordsB[k]);
+            const isWordPrefixBofA = wordsA.length >= wordsB.length && wordsB.every((w, k) => w === wordsA[k]);
+
+            if (isWordPrefixAofB) {
               // segmentB is a more complete version, remove the prefix segmentA
               result.splice(i, len1);
               changed = true;
               break;
-            } else if (segmentA.startsWith(segmentB)) {
+            } else if (isWordPrefixBofA) {
               // segmentA is a more complete version, remove the suffix segmentB
               result.splice(i + len1, len2);
               changed = true;
@@ -392,9 +397,9 @@ export function VoiceProductAssistant({
       if (data && Array.isArray(data.products)) {
         setAiDetectedLanguage(data.languageDetected || "Detected Language");
         
-        // Enforce strictly 1 product draft at a time
-        const singleProductArray = data.products.slice(0, 1);
-        const voiceDrafts: VoiceDraftProduct[] = singleProductArray.map((p: any) => {
+        // Multi-product or single-product array based on user setting
+        const productsToProcess = vSettings.multiProduct ? data.products : data.products.slice(0, 1);
+        const voiceDrafts: VoiceDraftProduct[] = productsToProcess.map((p: any) => {
           // Find matching category by ID or standard lower-case name matching
           const matchedCategory = categories.find(c => 
             (p.categoryId && c.id === p.categoryId) || 
@@ -473,6 +478,8 @@ export function VoiceProductAssistant({
     rec.lang = micLocale;
 
     rec.__working = false;
+    let restartTimer: any = null;
+
     const originalStart = rec.start;
     rec.start = function() {
       if (rec.__working) {
@@ -483,8 +490,27 @@ export function VoiceProductAssistant({
         rec.__working = true;
         originalStart.call(rec);
       } catch (err) {
+        rec.__working = false;
         console.warn("SpeechRecognition start error caught in wrapper:", err);
       }
+    };
+
+    const attemptRestart = (delayMs = 80, retriesLeft = 6) => {
+      if (isManuallyStopped.current) return;
+      if (restartTimer) clearTimeout(restartTimer);
+
+      restartTimer = setTimeout(() => {
+        if (isManuallyStopped.current) return;
+        try {
+          rec.__working = false;
+          rec.start();
+        } catch (err) {
+          console.warn(`Speech auto-restart retry (${retriesLeft} left) failed:`, err);
+          if (retriesLeft > 0 && !isManuallyStopped.current) {
+            attemptRestart(Math.floor(delayMs * 1.6), retriesLeft - 1);
+          }
+        }
+      }, delayMs);
     };
 
     rec.onstart = () => {
@@ -595,31 +621,14 @@ export function VoiceProductAssistant({
         }
       }
 
-      // Web Speech API 500ms pause in speech debouncing mechanism before processing
-      speechPauseTimeoutRef.current = setTimeout(() => {
-        const textToParse = (finalTranscriptRef.current || "") + " " + (interimTranscriptRef.current || "");
-        const cleanedText = cleanTranscriptText(textToParse);
-        if (cleanedText && cleanedText.trim()) {
-          console.log(`[STT Integration] Speech pause debouncer triggered (500ms) for:`, cleanedText);
-          isManuallyStopped.current = true;
-          try {
-            rec.__working = false;
-            rec.stop();
-          } catch (e) {
-            console.warn("Speech stop failed on debounce action:", e);
-          }
-          setIsListening(false);
-        }
-      }, 500);
-
       // Hands-free voice assistant auto-completion:
-      // Automatically stop listening and process after configured silence duration.
-      if (autoSubmitOnSilenceRef.current) {
-        const silenceDelayMs = (silenceSecondsRef.current || 3.5) * 1000;
+      // Only trigger silence auto-submit if user is NOT currently outputting interim speech
+      if (autoSubmitOnSilenceRef.current && !sessionInterim) {
+        const silenceDelayMs = Math.max(4000, (silenceSecondsRef.current || 4.5) * 1000);
         silenceTimeoutRef.current = setTimeout(() => {
           const textToParse = (finalTranscriptRef.current || "") + " " + (interimTranscriptRef.current || "");
           const cleanedText = cleanTranscriptText(textToParse);
-          if (cleanedText && cleanedText.trim()) {
+          if (cleanedText && cleanedText.trim() && !isManuallyStopped.current) {
             console.log(`Gemini Silence Auto-Parser Triggered after ${silenceDelayMs}ms for:`, cleanedText);
             isManuallyStopped.current = true;
             try {
@@ -636,15 +645,29 @@ export function VoiceProductAssistant({
 
     rec.onerror = (e: any) => {
       rec.__working = false;
-      console.error("Speech Recognition Error", e);
-      if (e.error !== "no-speech") {
-        setRecognitionError(`Recognition failed: ${e.error}`);
+      console.warn("Speech Recognition transient status/error:", e?.error || e);
+      
+      // Do not break continuous listening session for transient non-fatal errors
+      const nonFatalErrors = ["no-speech", "aborted", "audio-capture", "network"];
+      if (nonFatalErrors.includes(e?.error)) {
+        if (!isManuallyStopped.current) {
+          attemptRestart(120, 5);
+        }
+        return;
+      }
+
+      // Only report genuine fatal errors like permission denied
+      if (e?.error === "not-allowed" || e?.error === "service-not-allowed") {
+        setRecognitionError("Microphone permission was denied. Please allow microphone access in your browser.");
         setProcessStep('error');
+        setIsListening(false);
+        isManuallyStopped.current = true;
       }
     };
 
     rec.onend = () => {
       rec.__working = false;
+      if (restartTimer) clearTimeout(restartTimer);
       // Clear silence timer on session termination
       if (silenceTimeoutRef.current) {
         clearTimeout(silenceTimeoutRef.current);
@@ -655,17 +678,11 @@ export function VoiceProductAssistant({
 
       if (!isManuallyStopped.current) {
         // Cache the last transcript in accumulatedFinalTextRef so that restarting doesn't lose old recognized text
-        accumulatedFinalTextRef.current = finalTranscriptRef.current;
-        // Microphone auto-disconnected on idle pause. Auto-restart immediately to stay live:
-        setTimeout(() => {
-          try {
-            if (!isManuallyStopped.current) {
-              rec.start();
-            }
-          } catch (err) {
-            console.warn("Speech auto-restart bypass failed:", err);
-          }
-        }, 100);
+        if (finalTranscriptRef.current) {
+          accumulatedFinalTextRef.current = mergeTranscripts(accumulatedFinalTextRef.current, finalTranscriptRef.current);
+        }
+        console.log("[STT Integration] Native end event reached while actively listening. Re-engaging speech listener automatically...");
+        attemptRestart(60, 6);
       } else {
         setIsListening(false);
         const textToParse = (finalTranscriptRef.current || "") + " " + (interimTranscriptRef.current || "");

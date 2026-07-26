@@ -4,7 +4,8 @@ import {
   ReceiptText, ShoppingCart, Percent, Edit2, Save, X, 
   PackagePlus, Trash, Sparkles, Printer, Share2, Mic, MicOff,
   Clock, Download, Calendar, RefreshCw, FileText, Coins,
-  Cloud, CloudOff, Layers, Pin, Copy, PauseCircle, Eye
+  Cloud, CloudOff, Layers, Pin, Copy, PauseCircle, Eye, Calculator,
+  History, Receipt, CreditCard, ReceiptCent, Terminal
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppState, Item, Bill, TransactionItem, Note, DraftBill } from '../types';
@@ -14,6 +15,8 @@ import { cn, formatNumber } from '../lib/utils';
 import { printerService, DEFAULT_PRINT_SETTINGS } from '../services/printerService';
 import { playFeedbackEvent } from '../services/soundFeedbackService';
 import { cleanAndValidateText } from '../services/languageEngine';
+import FullBillHistoryView from './FullBillHistoryView';
+import UniversalStoreCalculator from './UniversalStoreCalculator';
 
 interface BillingScreenProps {
   state: AppState;
@@ -285,6 +288,7 @@ export default function BillingScreen({
   const precision = state.settings.pricePrecision || 0;
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [billingSubTab, setBillingSubTab] = useState<'billing' | 'history' | 'calculator'>('billing');
   const [additionAnims, setAdditionAnims] = useState<{ id: string; name: string; price: number; x: number; y: number }[]>([]);
   const [activePredictionIndex, setActivePredictionIndex] = useState(-1);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -2078,8 +2082,211 @@ export default function BillingScreen({
   return (
     <div className="space-y-4 pb-24 max-w-7xl mx-auto text-[var(--foreground)] relative">
       
-      {/* 📁 MULTI-WINDOW POS DRAFT BILLING TABS & SMART REGISTER DECK */}
-      <div className="bg-[var(--card)]/80 backdrop-blur-md rounded-2xl border border-[var(--border)] p-4.5 space-y-3.5 shadow-lg relative overflow-hidden group">
+      {/* 🚀 TOP NAVIGATION BUTTONS / SECTIONS */}
+      <div className="bg-[var(--card)] border border-[var(--border)] p-2 sm:p-2.5 rounded-2xl shadow-md">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <button
+            onClick={() => {
+              playFeedbackEvent('notification', state.settings);
+              setBillingSubTab('billing');
+            }}
+            className={cn(
+              "py-3 px-2 sm:px-4 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer select-none group border",
+              billingSubTab === 'billing'
+                ? "bg-amber-500/10 border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-md shadow-amber-500/10 scale-[1.01]"
+                : "bg-[var(--foreground)]/[0.02] border-transparent text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.06] hover:text-[var(--foreground)]"
+            )}
+          >
+            <div className={cn(
+              "w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-all duration-200 group-hover:scale-110 relative",
+              billingSubTab === 'billing'
+                ? "bg-gradient-to-tr from-amber-500 to-amber-600 text-white shadow-lg shadow-amber-500/35 ring-2 ring-amber-400/40"
+                : "bg-[var(--foreground)]/5 text-[var(--foreground)]/70 group-hover:bg-[var(--foreground)]/10 group-hover:text-[var(--foreground)]"
+            )}>
+              <ReceiptCent className="w-5 h-5 stroke-[2.2]" />
+              {billingSubTab === 'billing' && (
+                <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-300 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-400 border border-amber-600"></span>
+                </span>
+              )}
+            </div>
+            <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider mt-2">POS BILLING</span>
+            <span className="text-[9px] font-medium text-[var(--foreground)]/50 normal-case tracking-normal hidden sm:block mt-0.5">Create & Print Invoices</span>
+          </button>
+
+          <button
+            onClick={() => {
+              playFeedbackEvent('notification', state.settings);
+              setBillingSubTab('history');
+            }}
+            className={cn(
+              "py-3 px-2 sm:px-4 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer select-none group border",
+              billingSubTab === 'history'
+                ? "bg-amber-500/10 border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-md shadow-amber-500/10 scale-[1.01]"
+                : "bg-[var(--foreground)]/[0.02] border-transparent text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.06] hover:text-[var(--foreground)]"
+            )}
+          >
+            <div className={cn(
+              "w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-all duration-200 group-hover:scale-110",
+              billingSubTab === 'history'
+                ? "bg-amber-500 text-white shadow-md shadow-amber-500/30 ring-2 ring-amber-400/30"
+                : "bg-[var(--foreground)]/5 text-[var(--foreground)]/70 group-hover:bg-[var(--foreground)]/10 group-hover:text-[var(--foreground)]"
+            )}>
+              <History className="w-5 h-5 stroke-[2.2]" />
+            </div>
+            <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider mt-2">BILL HISTORY</span>
+            <span className="text-[9px] font-medium text-[var(--foreground)]/50 normal-case tracking-normal hidden sm:block mt-0.5">Past Records & Invoices</span>
+          </button>
+
+          <button
+            onClick={() => {
+              playFeedbackEvent('notification', state.settings);
+              setBillingSubTab('calculator');
+            }}
+            className={cn(
+              "py-3 px-2 sm:px-4 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer select-none group border",
+              billingSubTab === 'calculator'
+                ? "bg-amber-500/10 border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-md shadow-amber-500/10 scale-[1.01]"
+                : "bg-[var(--foreground)]/[0.02] border-transparent text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.06] hover:text-[var(--foreground)]"
+            )}
+          >
+            <div className={cn(
+              "w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-all duration-200 group-hover:scale-110",
+              billingSubTab === 'calculator'
+                ? "bg-amber-500 text-white shadow-md shadow-amber-500/30 ring-2 ring-amber-400/30"
+                : "bg-[var(--foreground)]/5 text-[var(--foreground)]/70 group-hover:bg-[var(--foreground)]/10 group-hover:text-[var(--foreground)]"
+            )}>
+              <Calculator className="w-5 h-5 stroke-[2.2]" />
+            </div>
+            <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider mt-2">CALCULATOR</span>
+            <span className="text-[9px] font-medium text-[var(--foreground)]/50 normal-case tracking-normal hidden sm:block mt-0.5">Math & Change Return</span>
+          </button>
+        </div>
+      </div>
+
+      {/* BILL HISTORY SUB-TAB VIEW */}
+      {billingSubTab === 'history' && (
+        <FullBillHistoryView
+          state={state}
+          onUpdateState={onUpdateState}
+          t={t}
+        />
+      )}
+
+      {/* UNIVERSAL CALCULATOR SUB-TAB VIEW */}
+      {billingSubTab === 'calculator' && (
+        <UniversalStoreCalculator />
+      )}
+
+      {/* MAIN BILLING DASHBOARD SUB-TAB VIEW */}
+      {billingSubTab === 'billing' && (
+        <>
+          {/* 📋 BILLING DESK & MODE CONTROLS BAR */}
+          <div className="bg-[var(--card)] border border-[var(--border)] p-3.5 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {/* "Billing Desk" label/icon & Retail/Wholesale/Auto Options */}
+            <div className="flex items-center justify-between sm:justify-start gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <div className="h-8.5 w-8.5 rounded-xl bg-[var(--primary)]/10 text-[var(--primary)] flex items-center justify-center">
+                  <ShoppingCart size={18} />
+                </div>
+                <div>
+                  <h2 className="text-sm font-black tracking-tight uppercase leading-none">
+                    {getTranslation('posHeading')}
+                  </h2>
+                  <p className="text-[8px] font-bold opacity-50 uppercase tracking-widest mt-0.5">
+                    {getTranslation('posSubheading')}
+                  </p>
+                </div>
+              </div>
+
+              {/* Rate pricing Selector (Retail, Wholesale, Auto) */}
+              <div className="flex bg-[var(--foreground)]/5 p-0.5 rounded-lg border border-[var(--border)] gap-0.5 text-[8px] font-black uppercase">
+                {(['retail', 'wholesale', 'auto'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setBillingMode(mode)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-md transition-all cursor-pointer select-none leading-none",
+                      billingMode === mode 
+                        ? "bg-[var(--primary)] text-white font-black" 
+                        : "text-[var(--foreground)]/50 hover:text-[var(--foreground)]"
+                    )}
+                  >
+                    {mode === 'auto' ? "Auto" : mode}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Live Preview, Printer Status & Far Right Circular Calc Business button */}
+            <div className="flex items-center justify-between sm:justify-end gap-2.5 w-full sm:w-auto">
+              <div className="flex items-center gap-2">
+                {/* Real-time Bill Preview Toggle - Square Shape */}
+                <button
+                  onClick={() => {
+                    setShowLivePreview(!showLivePreview);
+                    if (window.innerWidth < 1024) {
+                      setMobilePreviewOpen(!mobilePreviewOpen);
+                    }
+                  }}
+                  style={{
+                    width: '60px',
+                    height: '38px',
+                    backgroundColor: '#ff2a2a',
+                    borderStyle: 'groove',
+                    borderWidth: '0.55px',
+                    borderColor: '#4b0d0d'
+                  }}
+                  className={cn(
+                    "rounded-xl border transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer select-none active:scale-95 shadow-xs text-white",
+                    showLivePreview
+                      ? "shadow-sm shadow-emerald-500/20"
+                      : "hover:opacity-90"
+                  )}
+                  title="Toggle Live Invoice Preview"
+                >
+                  <Eye size={14} />
+                  <span className="text-[7px] font-black uppercase tracking-tight leading-none">Live</span>
+                </button>
+
+                {/* Silent Printer Connection Indicator */}
+                <div 
+                  title="Printer Health Status Monitor"
+                  className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl border border-[var(--border)] bg-[var(--card)]/80 text-[8px] font-black tracking-wider uppercase select-none shadow-xs"
+                >
+                  <span className={cn(
+                    "h-1.5 w-1.5 rounded-full inline-block animate-pulse",
+                    printerStatus === 'connected' ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.8)]' :
+                    printerStatus === 'connecting' ? 'bg-amber-500' :
+                    'bg-neutral-400'
+                  )}></span>
+                  <span className={cn(
+                    printerStatus === 'connected' ? 'text-emerald-500 font-bold' :
+                    printerStatus === 'connecting' ? 'text-amber-500 animate-pulse' :
+                    'text-neutral-500'
+                  )}>
+                    {printerStatus === 'connected' ? 'Prn: Online' :
+                     printerStatus === 'connecting' ? 'Prn: Conn...' :
+                     'Prn: Off'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Circular Calc Business Toggle - Positioned on the far right corner */}
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('tsm-open-calculator'))}
+                style={{ width: '45px', height: '42px' }}
+                className="rounded-full bg-gradient-to-br from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white border border-amber-400/30 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-md shadow-amber-500/25 ring-2 ring-amber-500/20 hover:ring-amber-500/40 shrink-0 ml-auto sm:ml-0"
+                title="Calc Business"
+              >
+                <Calculator size={18} className="drop-shadow-xs" />
+              </button>
+            </div>
+          </div>
+
+          {/* 📁 MULTI-WINDOW POS DRAFT BILLING TABS & SMART REGISTER DECK */}
+          <div className="bg-[var(--card)]/80 backdrop-blur-md rounded-2xl border border-[var(--border)] p-4.5 space-y-3.5 shadow-lg relative overflow-hidden group">
         <div className="absolute top-0 right-0 h-32 w-32 bg-[var(--primary)]/5 rounded-full blur-2xl pointer-events-none" />
         
         <div className="flex items-center justify-between flex-wrap gap-3">
@@ -2685,126 +2892,6 @@ export default function BillingScreen({
           </div>
         )}
       </AnimatePresence>
-
-      {/* 📋 Bilingual Dynamic Headers */}
-      <div className="flex items-center justify-between border-b border-[var(--border)] pb-2 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-lg bg-[var(--primary)]/10 text-[var(--primary)] flex items-center justify-center">
-            <ShoppingCart size={18} />
-          </div>
-          <div>
-            <h2 className="text-sm font-black tracking-tight uppercase leading-none">
-              {getTranslation('posHeading')}
-            </h2>
-            <p className="text-[8px] font-bold opacity-50 uppercase tracking-widest mt-0.5">
-              {getTranslation('posSubheading')}
-            </p>
-          </div>
-        </div>
-        
-        {/* Toggle Mode Control + Billing Drawer Switch */}
-        <div className="flex items-center gap-2">
-          {/* Rate pricing Selector */}
-          <div className="flex bg-[var(--foreground)]/5 p-0.5 rounded-lg border border-[var(--border)] p-0.5 gap-0.5 text-[8px] font-black uppercase">
-            {(['retail', 'wholesale', 'auto'] as const).map(mode => (
-              <button
-                key={mode}
-                onClick={() => setBillingMode(mode)}
-                className={cn(
-                  "px-2.5 py-1 rounded-md transition-all cursor-pointer select-none leading-none",
-                  billingMode === mode 
-                    ? "bg-[var(--primary)] text-white font-black" 
-                    : "text-[var(--foreground)]/50 hover:text-[var(--foreground)]"
-                )}
-              >
-                {mode === 'auto' ? "Auto" : mode}
-              </button>
-            ))}
-          </div>
-
-          <button
-            onClick={() => onOpenHistoryDrawer?.()}
-            className="px-2.5 py-1 text-[8px] font-black uppercase tracking-wider rounded-lg border border-[var(--border)] bg-amber-500/10 hover:bg-amber-500 hover:text-white transition-all flex items-center gap-1 cursor-pointer select-none"
-          >
-            <ReceiptText size={10} />
-            <span>Reports History ({state.bills?.length || 0})</span>
-          </button>
-
-          {/* Draggable Mini Calculator Toggle */}
-          <button
-            onClick={() => window.dispatchEvent(new CustomEvent('tsm-open-calculator'))}
-            className="px-2.5 py-1 text-[8px] font-black uppercase tracking-wider rounded-lg border border-[var(--border)] bg-amber-500/10 text-amber-500 hover:bg-amber-500 hover:text-white transition-all flex items-center gap-1 cursor-pointer select-none"
-            title="Launch Draggable Smart Calculator"
-          >
-            <span>🧮</span>
-            <span>Calc Business</span>
-          </button>
-
-          {/* Real-time Bill Preview Toggle */}
-          <button
-            onClick={() => {
-              setShowLivePreview(!showLivePreview);
-              if (window.innerWidth < 1024) {
-                setMobilePreviewOpen(!mobilePreviewOpen);
-              }
-            }}
-            className={cn(
-              "px-2.5 py-1 text-[8px] font-black uppercase tracking-wider rounded-lg border transition-all flex items-center gap-1 cursor-pointer select-none",
-              showLivePreview
-                ? "bg-emerald-500 text-white border-emerald-500 shadow"
-                : "border-[var(--border)] bg-emerald-500/5 hover:bg-emerald-500/10"
-            )}
-            title="Toggle Live Invoice Preview"
-          >
-            <Eye size={10} />
-            <span>Live Preview</span>
-          </button>
-
-          {/* Cloud Sync Status Indicator */}
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-[var(--border)] bg-[var(--card)]/50 text-[8px] font-black tracking-wider uppercase">
-            {state.user && state.settings.autoCloudSync ? (
-              isSyncing ? (
-                <>
-                  <RefreshCw className="animate-spin text-amber-500" size={10} />
-                  <span className="text-amber-500">Syncing...</span>
-                </>
-              ) : (
-                <>
-                  <Cloud className="text-emerald-500" size={10} />
-                  <span className="text-emerald-500">Synced to Firebase</span>
-                </>
-              )
-            ) : (
-              <>
-                <CloudOff className="text-neutral-500" size={10} />
-                <span className="text-neutral-500">Local-Only</span>
-              </>
-            )}
-          </div>
-
-          {/* Silent Printer Connection Indicator */}
-          <div 
-            title="Printer Health Status Monitor"
-            className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-[var(--border)] bg-[var(--card)]/50 text-[8px] font-black tracking-wider uppercase select-none"
-          >
-            <span className={cn(
-              "h-1.5 w-1.5 rounded-full inline-block animate-pulse",
-              printerStatus === 'connected' ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.8)]' :
-              printerStatus === 'connecting' ? 'bg-amber-500' :
-              'bg-neutral-400'
-            )}></span>
-            <span className={cn(
-              printerStatus === 'connected' ? 'text-emerald-400' :
-              printerStatus === 'connecting' ? 'text-amber-500 animate-pulse' :
-              'text-neutral-500'
-            )}>
-              {printerStatus === 'connected' ? 'Prn: Online' :
-               printerStatus === 'connecting' ? 'Prn: Conn...' :
-               'Prn: Off'}
-            </span>
-          </div>
-        </div>
-      </div>
 
       {/* 🍽️ ENHANCED RESTAURANT/CAFE FLOOR SEATING & SERVICE WORKFLOW GRAPHIC PLAN */}
       {state.settings.businessMode === 'restaurant' && (
@@ -5779,6 +5866,8 @@ export default function BillingScreen({
           </div>
         )}
       </AnimatePresence>
+      </>
+      )}
 
       {/* Floating Sparkle Micro-animation Particles trigger */}
       <div className="fixed inset-0 pointer-events-none z-[99999] overflow-hidden">

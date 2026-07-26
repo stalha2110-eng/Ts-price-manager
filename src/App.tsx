@@ -110,7 +110,17 @@ import { PINScreen } from './components/ui/PINScreen';
 import { UnitSelectorModal } from './components/ui/UnitSelectorModal';
 import { AddCategoryModal } from './components/ui/AddCategoryModal';
 import { ManageCategoriesModal } from './components/ui/ManageCategoriesModal';
+import { 
+  Skeleton, 
+  SkeletonText, 
+  SkeletonCatalog, 
+  SkeletonPOS, 
+  SkeletonAnalytics, 
+  SkeletonUdhar, 
+  AppFullSkeleton 
+} from './components/ui/SkeletonLoader';
 import { SmartBulkEntryModal } from './components/SmartBulkEntryModal';
+import { GoogleDriveBackupModal } from './components/GoogleDriveBackupModal';
 import { Settings2, Receipt, PackagePlus, Printer, Sliders } from 'lucide-react';
 import BillingScreen from './components/BillingScreen';
 import SmartCalculator from './components/SmartCalculator';
@@ -1336,8 +1346,21 @@ export default function App() {
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [showManageCategories, setShowManageCategories] = useState(false);
   const [showVoiceAssistant, setShowVoiceAssistant] = useState(false);
+  const [showDriveBackupModal, setShowDriveBackupModal] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [isTabLoading, setIsTabLoading] = useState(false);
   const [hoveredAction, setHoveredAction] = useState<string | null>(null);
+
+  const handleTabChange = useCallback((tab: 'home' | 'billing' | 'analytics' | 'udhar' | 'notes' | 'shift' | 'goals' | 'history') => {
+    if (tab === activeTab) return;
+    setIsTabLoading(true);
+    setActiveTab(tab);
+    const timer = setTimeout(() => {
+      setIsTabLoading(false);
+    }, 240);
+    return () => clearTimeout(timer);
+  }, [activeTab]);
 
   // Advanced tactile Drag-to-Mic state engine
   const [isDraggingButton, setIsDraggingButton] = useState(false);
@@ -2504,8 +2527,17 @@ export default function App() {
           setState(prev => ({ ...prev, user: null }));
         }
       }
+      setIsAuthChecking(false);
     });
-    return () => unsubscribe();
+
+    const fallbackAuthTimer = setTimeout(() => {
+      setIsAuthChecking(false);
+    }, 1200);
+
+    return () => {
+      unsubscribe();
+      clearTimeout(fallbackAuthTimer);
+    };
   }, []);
 
   // Synchronize dynamic notifications from Cloud Firestore
@@ -3946,6 +3978,14 @@ export default function App() {
     );
   }
 
+  if (isAuthChecking) {
+    return (
+      <div data-theme={state.settings.theme} className="min-h-screen">
+        <AppFullSkeleton theme={state.settings.theme} />
+      </div>
+    );
+  }
+
   if (!state.user) {
     return (
       <div data-theme={state.settings.theme} className="min-h-screen">
@@ -4428,7 +4468,16 @@ export default function App() {
 
       {/* Main Content */}
       <main className="container mx-auto p-4 overflow-hidden">
-        <AnimatePresence mode="wait">
+        {isTabLoading ? (
+          <div className="py-2">
+            {activeTab === 'home' && <SkeletonCatalog />}
+            {activeTab === 'billing' && <SkeletonPOS />}
+            {activeTab === 'analytics' && <SkeletonAnalytics />}
+            {activeTab === 'udhar' && <SkeletonUdhar />}
+            {(activeTab === 'notes' || activeTab === 'shift' || activeTab === 'goals' || activeTab === 'history') && <SkeletonAnalytics />}
+          </div>
+        ) : (
+          <AnimatePresence mode="wait">
         {activeTab === 'home' && (
           <motion.div 
             key="home"
@@ -5031,18 +5080,19 @@ export default function App() {
           </motion.div>
         )}
         </AnimatePresence>
+        )}
       </main>
 
       {/* Bottom Nav */}
       <nav id="tour-nav" className="fixed bottom-0 left-0 right-0 z-50 border-t border-[var(--border)] bg-[var(--card)] px-4 py-2 backdrop-blur-md">
         <div className="mx-auto flex max-w-lg items-center justify-between">
-          <NavButton active={activeTab === 'home'} icon={<AnimatedHomeIcon active={activeTab === 'home'} />} label={t.all || "Home"} onClick={() => setActiveTab('home')} />
-          <NavButton active={activeTab === 'billing'} icon={<AnimatedBillingIcon active={activeTab === 'billing'} />} label="Billing" onClick={() => setActiveTab('billing')} />
+          <NavButton active={activeTab === 'home'} icon={<AnimatedHomeIcon active={activeTab === 'home'} />} label={t.all || "Home"} onClick={() => handleTabChange('home')} />
+          <NavButton active={activeTab === 'billing'} icon={<AnimatedBillingIcon active={activeTab === 'billing'} />} label="Billing" onClick={() => handleTabChange('billing')} />
           {state.settings.enabledFeatures?.analytics !== false && (
-            <NavButton active={activeTab === 'analytics'} icon={<AnimatedAnalyticsIcon active={activeTab === 'analytics'} isLocked={state.settings.isLocked} />} label="Analytics" onClick={() => setActiveTab('analytics')} />
+            <NavButton active={activeTab === 'analytics'} icon={<AnimatedAnalyticsIcon active={activeTab === 'analytics'} isLocked={state.settings.isLocked} />} label="Analytics" onClick={() => handleTabChange('analytics')} />
           )}
           {state.settings.enabledFeatures?.udhar !== false && (
-            <NavButton active={activeTab === 'udhar'} icon={<AnimatedUdharIcon active={activeTab === 'udhar'} />} label="Udhar" onClick={() => setActiveTab('udhar')} />
+            <NavButton active={activeTab === 'udhar'} icon={<AnimatedUdharIcon active={activeTab === 'udhar'} />} label="Udhar" onClick={() => handleTabChange('udhar')} />
           )}
         </div>
       </nav>
@@ -5591,42 +5641,80 @@ export default function App() {
             )}
           </motion.div>
 
+          {/* Backdrop Overlay to close menu when clicking anywhere on background */}
+          <AnimatePresence>
+            {showPlusActionMenu && (
+              <motion.div
+                key="plus-menu-backdrop"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                onClick={() => setShowPlusActionMenu(false)}
+                className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[90] cursor-pointer"
+              />
+            )}
+          </AnimatePresence>
+
           {/* Plus Action Menu Options */}
           <AnimatePresence>
             {showPlusActionMenu && (
               <motion.div
-                initial={{ opacity: 0, y: 15, scale: 0.9 }}
-                animate={{ opacity: 1, y: -20, scale: 1 }}
-                exit={{ opacity: 0, y: 15, scale: 0.9 }}
-                transition={{ type: "spring", stiffness: 350, damping: 25 }}
-                className="absolute bottom-20 right-0 flex flex-col gap-2.5 z-30 min-w-[190px] items-end pointer-events-auto text-zinc-950 font-sans"
+                key="plus-action-menu-content"
+                initial={{ opacity: 0, scale: 0.85, y: 12 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 8 }}
+                transition={{ type: "spring", stiffness: 420, damping: 28 }}
+                className="absolute bottom-[68px] right-0 flex flex-col gap-2.5 z-[101] min-w-[210px] items-end pointer-events-auto text-zinc-950 font-sans"
               >
-                {/* Standard Form Button */}
-                <button
-                  onClick={() => {
-                    setShowAddItem(true);
-                    setShowPlusActionMenu(false);
-                  }}
-                  className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-white text-zinc-950 font-black text-[11px] tracking-widest uppercase border border-zinc-200 shadow-2xl hover:bg-zinc-50 active:scale-95 transition-all w-full justify-start whitespace-nowrap cursor-pointer"
-                >
-                  <span className="text-base">📄</span>
-                  <span>STANDARD FORM</span>
-                </button>
-
                 {/* Smart Entry Button */}
-                <button
+                <motion.button
+                  initial={{ opacity: 0, x: 20, scale: 0.9 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  exit={{ opacity: 0, x: 15, scale: 0.9 }}
+                  transition={{ type: "spring", stiffness: 450, damping: 25, delay: 0.01 }}
                   onClick={() => {
                     setShowSmartBulkEntry(true);
                     setShowPlusActionMenu(false);
                   }}
-                  className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-white text-zinc-950 font-black text-[11px] tracking-widest uppercase border-2 border-amber-500 shadow-2xl hover:bg-zinc-50 active:scale-95 transition-all w-full justify-start whitespace-nowrap cursor-pointer"
+                  whileHover={{ scale: 1.03, x: -2 }}
+                  whileTap={{ scale: 0.96 }}
+                  className="flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 text-white font-black text-[11px] tracking-wider uppercase border border-amber-400 shadow-xl shadow-amber-500/30 hover:shadow-amber-500/50 transition-all w-full justify-start whitespace-nowrap cursor-pointer group relative overflow-hidden"
                 >
-                  <span className="text-base text-amber-500">⚡</span>
-                  <span className="flex items-center gap-1">
-                    SMART ENTRY
-                    <span className="text-amber-500">⚡</span>
-                  </span>
-                </button>
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+                  <div className="w-7 h-7 rounded-xl bg-white/20 text-white flex items-center justify-center text-sm font-bold shrink-0">
+                    ⚡
+                  </div>
+                  <div className="flex flex-col items-start leading-none z-10">
+                    <span className="font-black flex items-center gap-1">
+                      SMART ENTRY <span className="text-yellow-200">⚡</span>
+                    </span>
+                    <span className="text-[9px] font-medium text-amber-100 normal-case tracking-normal mt-0.5">paste text / quick list</span>
+                  </div>
+                </motion.button>
+
+                {/* Full Entry Button (Formerly Standard Form) */}
+                <motion.button
+                  initial={{ opacity: 0, x: 20, scale: 0.9 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  exit={{ opacity: 0, x: 15, scale: 0.9 }}
+                  transition={{ type: "spring", stiffness: 450, damping: 25, delay: 0.05 }}
+                  onClick={() => {
+                    setShowAddItem(true);
+                    setShowPlusActionMenu(false);
+                  }}
+                  whileHover={{ scale: 1.03, x: -2 }}
+                  whileTap={{ scale: 0.96 }}
+                  className="flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 font-black text-[11px] tracking-wider uppercase border border-zinc-200 dark:border-zinc-800 shadow-2xl hover:border-amber-500/50 transition-all w-full justify-start whitespace-nowrap cursor-pointer group"
+                >
+                  <div className="w-7 h-7 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center text-sm font-bold group-hover:bg-amber-500 group-hover:text-white transition-colors shrink-0">
+                    📄
+                  </div>
+                  <div className="flex flex-col items-start leading-none">
+                    <span className="font-black">FULL ENTRY</span>
+                    <span className="text-[9px] font-medium text-zinc-600 dark:text-zinc-400 normal-case tracking-normal mt-0.5">detailed form with all fields</span>
+                  </div>
+                </motion.button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -5727,6 +5815,29 @@ export default function App() {
             language={state.settings.language}
             precision={precision}
             hideBuyingPrice={state.settings.hideBuyingPriceByDefault}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showDriveBackupModal && (
+          <GoogleDriveBackupModal
+            key="google-drive-backup-modal"
+            isOpen={showDriveBackupModal}
+            onClose={() => setShowDriveBackupModal(false)}
+            state={state}
+            onRestoreData={(restoredState) => {
+              if (restoredState && typeof restoredState === 'object') {
+                setState((prev) => ({
+                  ...prev,
+                  ...restoredState,
+                  settings: {
+                    ...prev.settings,
+                    ...(restoredState.settings || {})
+                  }
+                }));
+              }
+            }}
+            addToast={addToast}
           />
         )}
       </AnimatePresence>
@@ -6107,6 +6218,529 @@ export default function App() {
                 {/* 🔍 UNIVERSAL FUZZY SYSTEM SEARCH ENGINE */}
                 {(() => {
                   const searchableDrawerItems = [
+                    // --- PROFILE & ACCOUNT ---
+                    {
+                      id: 'act-logout',
+                      title: 'LOG OUT / Sign Out',
+                      category: 'Profile',
+                      description: 'Safely sign out of current cloud operator session and clear active credentials',
+                      keywords: ['log out', 'logout', 'sign out', 'terminate session', 'exit account', 'auth', 'profile', 'session', 'account'],
+                      onClick: () => {
+                        setMenuTab('profile');
+                        handleLogout();
+                      }
+                    },
+                    {
+                      id: 'set-profile-operator',
+                      title: 'Operator & Merchant Profile',
+                      category: 'Profile',
+                      description: 'View active operator initials, email identity, live node status, and session authorization',
+                      keywords: ['profile', 'operator', 'merchant', 'user', 'email', 'account', 'authorization', 'node', 'admin', 'cashier'],
+                      onClick: () => {
+                        setMenuTab('profile');
+                        addToast("Navigated to Operator Profile", "success");
+                      }
+                    },
+                    {
+                      id: 'set-pwa-install',
+                      title: 'Install App / PWA Application',
+                      category: 'Profile',
+                      description: 'Install app locally on mobile or desktop for standalone, offline access',
+                      keywords: ['install app', 'pwa', 'download app', 'desktop app', 'offline app', 'install', 'home screen'],
+                      onClick: () => {
+                        setMenuTab('profile');
+                        addToast("Opened App Installation Panel", "success");
+                      }
+                    },
+
+                    // --- BUSINESS SETTINGS (Profile, Journey, Features, Categories, Dashboard, Actions, Knowledge, Recovery) ---
+                    {
+                      id: 'set-store-name',
+                      title: 'Store Name & Shop Title',
+                      category: 'Business Settings',
+                      description: 'Set official shop title for printed receipts, invoices, and app headers',
+                      keywords: ['store name', 'shop name', 'business name', 'shop title', 'merchant name', 'store title', 'biz name'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('profile');
+                        addToast("Navigated to Store Branding Details", "success");
+                      }
+                    },
+                    {
+                      id: 'set-store-owner',
+                      title: 'Store Proprietor & Owner Name',
+                      category: 'Business Settings',
+                      description: 'Set store manager or proprietor name printed on invoice headers and reports',
+                      keywords: ['owner', 'proprietor', 'manager', 'owner name', 'proprietor name', 'boss'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('profile');
+                        addToast("Navigated to Store Owner Details", "success");
+                      }
+                    },
+                    {
+                      id: 'set-store-phone',
+                      title: 'Store Contact Phone & WhatsApp',
+                      category: 'Business Settings',
+                      description: 'Configure customer care phone numbers and WhatsApp business contact',
+                      keywords: ['phone', 'mobile', 'whatsapp', 'contact', 'phone number', 'customer care', 'call', 'number'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('profile');
+                        addToast("Navigated to Store Contact Settings", "success");
+                      }
+                    },
+                    {
+                      id: 'set-store-address',
+                      title: 'Store Address & Location',
+                      category: 'Business Settings',
+                      description: 'Set physical store address, city, and location coordinates printed on invoices',
+                      keywords: ['address', 'location', 'city', 'pincode', 'physical address', 'store address', 'shop address'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('profile');
+                        addToast("Navigated to Store Address Settings", "success");
+                      }
+                    },
+                    {
+                      id: 'set-gstin',
+                      title: 'GSTIN / Legal Tax Registry',
+                      category: 'Business Settings',
+                      description: 'Set GST identification number and tax parameters for GST compliant invoices',
+                      keywords: ['gstin', 'gst', 'vat', 'tax registration', 'tax number', 'tax id', 'gst number', 'taxation'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('profile');
+                        addToast("Navigated to Tax Registration Fields", "success");
+                      }
+                    },
+                    {
+                      id: 'set-upi',
+                      title: 'UPI Payment VPA & QR Setup',
+                      category: 'Business Settings',
+                      description: 'Set merchant UPI ID to dynamically auto-generate GPay/PhonePe scan QR codes on bills',
+                      keywords: ['upi', 'qr code', 'payment gateway', 'gpay', 'phonepe', 'paytm', 'upi id', 'vpa', 'payment qr', 'qr', 'scan qr'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('profile');
+                        addToast("Navigated to UPI Payment Configuration", "success");
+                      }
+                    },
+                    {
+                      id: 'set-store-logo',
+                      title: 'Store Logo & Emblem Preset',
+                      category: 'Business Settings',
+                      description: 'Select or update store emblem preset logo icon rendered on invoices',
+                      keywords: ['logo', 'emblem', 'store logo', 'business icon', 'badge', 'symbol', 'branding logo'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('profile');
+                        addToast("Navigated to Store Logo Setup", "success");
+                      }
+                    },
+                    {
+                      id: 'set-anniversary',
+                      title: 'Store Opening Date & Anniversary',
+                      category: 'Business Settings',
+                      description: 'Set store launch date to track business age, milestone jubilees, and anniversaries',
+                      keywords: ['opening date', 'anniversary', 'store opening', 'jubilee', 'business age', 'opening time', 'birthday'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('profile');
+                        addToast("Navigated to Store Opening Anniversary Setup", "success");
+                      }
+                    },
+                    {
+                      id: 'set-journey-roadmap',
+                      title: 'Business Setup Roadmap & Progress',
+                      category: 'Business Settings',
+                      description: 'Track setup readiness factors, completion score, and step-by-step roadmap',
+                      keywords: ['journey', 'setup', 'roadmap', 'readiness', 'milestones', 'checklist', 'progress', 'score'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('journey');
+                        addToast("Navigated to Business Journey & Setup Progress", "success");
+                      }
+                    },
+                    {
+                      id: 'set-business-mode',
+                      title: 'Business Mode & Genre Selection',
+                      category: 'Business Settings',
+                      description: 'Switch preset workflows specifically suited for Kirana, Retail, Restaurant, Cafe, or Wholesale',
+                      keywords: ['business mode', 'genre', 'kirana', 'restaurant', 'retail', 'wholesale', 'cafe', 'workflow', 'metaphor'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('journey');
+                        addToast("Navigated to Business Mode Preferences", "success");
+                      }
+                    },
+                    {
+                      id: 'set-export-journey-pdf',
+                      title: 'Download Business Journey Strategy PDF',
+                      category: 'Business Settings',
+                      description: 'Export full setup roadmap and operational analysis report as a clean PDF',
+                      keywords: ['export pdf', 'journey report', 'download pdf', 'strategy pdf', 'pdf report', 'pdf', 'export'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('journey');
+                        addToast("Navigated to Business Journey PDF Export", "success");
+                      }
+                    },
+                    {
+                      id: 'set-workflow-toggles',
+                      title: 'Workflow Feature Toggles',
+                      category: 'Business Settings',
+                      description: 'Enable or disable Udhar Khata, Inventory, Customer, Cloud Sync, and Notifications modules',
+                      keywords: ['workflow', 'features', 'toggles', 'udhar toggle', 'inventory toggle', 'notifications toggle', 'sync toggle'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('features');
+                        addToast("Navigated to Workflow Feature Toggles", "success");
+                      }
+                    },
+                    {
+                      id: 'set-custom-categories',
+                      title: 'Manage Custom Catalog Categories',
+                      category: 'Business Settings',
+                      description: 'Add new product categories, assign emojis, recolor tags, and edit items',
+                      keywords: ['categories', 'add category', 'edit category', 'delete category', 'category icon', 'category color', 'custom categories'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('categories');
+                        addToast("Navigated to Catalog Categories Manager", "success");
+                      }
+                    },
+                    {
+                      id: 'set-dashboard-widgets',
+                      title: 'Customize Dashboard Widgets & Cards',
+                      category: 'Business Settings',
+                      description: 'Toggle, reorder, and resize sales revenue, gross profit, and stock alert cards',
+                      keywords: ['dashboard cards', 'sales card', 'profit card', 'low stock card', 'widget layout', 'card size', 'widgets'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('dashboard');
+                        addToast("Navigated to Dashboard Card Layouts", "success");
+                      }
+                    },
+                    {
+                      id: 'set-quick-actions',
+                      title: 'Configure Quick Action Shortcuts',
+                      category: 'Business Settings',
+                      description: 'Select up to 6 quick action buttons for instant billing, inventory, and analytics access',
+                      keywords: ['quick actions', 'shortcuts', 'quick bill', 'quick product', 'pos shortcuts', 'buttons'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('actions');
+                        addToast("Navigated to Quick Action Shortcuts", "success");
+                      }
+                    },
+                    {
+                      id: 'set-knowledge-hub',
+                      title: '🧠 Business Knowledge Hub & Manuals',
+                      category: 'Business Settings',
+                      description: 'Access storekeeper guides, billing tutorials, POS best practices, and growth manuals',
+                      keywords: ['knowledge hub', 'guides', 'tutorials', 'help', 'best practices', 'manual', 'learn', 'knowledge'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('knowledge');
+                        addToast("Navigated to Business Knowledge Hub", "success");
+                      }
+                    },
+                    {
+                      id: 'set-recovery-center',
+                      title: '🛡️ Business Recovery Center (Undo Deleted Records)',
+                      category: 'Business Settings',
+                      description: 'Restore accidentally deleted products, categories, or bills from 30-day trash archive',
+                      keywords: ['recovery center', 'deleted items', 'restore category', 'trash', 'archive', 'undo delete', 'recycle bin', 'recover', 'deleted', 'undo'],
+                      onClick: () => {
+                        setMenuTab('business_settings');
+                        setBusinessSubTab('recovery');
+                        addToast("Navigated to Business Recovery Center", "success");
+                      }
+                    },
+
+                    // --- SYSTEM SETTINGS (Interface, Security, Audio, Data) ---
+                    {
+                      id: 'set-language',
+                      title: 'Interface Language Settings',
+                      category: 'System Settings',
+                      description: 'Switch application between English, Hindi, Marathi, and bilingual Hinglish dialects',
+                      keywords: ['language', 'hindi', 'english', 'hinglish', 'marathi', 'speech', 'translation', 'locale', 'dialect'],
+                      onClick: () => {
+                        setMenuTab('settings');
+                        setSettingsSubTab('interface');
+                        addToast("Navigated to Language Settings", "success");
+                      }
+                    },
+                    {
+                      id: 'set-theme',
+                      title: 'App Theme & Dark / Light Mode',
+                      category: 'System Settings',
+                      description: 'Toggle Dark mode, Light mode, or Auto theme with custom primary accent color palettes',
+                      keywords: ['theme', 'dark mode', 'light mode', 'color scheme', 'accent color', 'appearance', 'night mode', 'colors'],
+                      onClick: () => {
+                        setMenuTab('settings');
+                        setSettingsSubTab('interface');
+                        addToast("Navigated to Theme & Appearance Settings", "success");
+                      }
+                    },
+                    {
+                      id: 'set-decimals',
+                      title: 'Decimal Points Price Rounding',
+                      category: 'System Settings',
+                      description: 'Set default fractional decimal rules (no paise, 1 paise, or standard 2 decimals)',
+                      keywords: ['precision', 'decimals', 'rounding', 'price precision', 'paisa', 'paise', 'fraction'],
+                      onClick: () => {
+                        setMenuTab('settings');
+                        setSettingsSubTab('interface');
+                        addToast("Navigated to Decimal Precision Settings", "success");
+                      }
+                    },
+                    {
+                      id: 'set-security-pin',
+                      title: 'PIN Lock & Passcode Protection',
+                      category: 'System Settings',
+                      description: 'Configure secure login passcodes, screen protection delays, and auto-lock parameters',
+                      keywords: ['security', 'pin', 'lock', 'lockout', 'password', 'autolock', 'privacy', 'passcode'],
+                      onClick: () => {
+                        setMenuTab('settings');
+                        setSettingsSubTab('security');
+                        addToast("Navigated to Security & PIN Lock Settings", "success");
+                      }
+                    },
+                    {
+                      id: 'set-reset-pin',
+                      title: 'Reset Security PIN Code',
+                      category: 'System Settings',
+                      description: 'Change active operator PIN or configure new passcode access',
+                      keywords: ['reset pin', 'change pin', 'forgot pin', 'security code', 'pin reset', 'new pin'],
+                      onClick: () => {
+                        setMenuTab('settings');
+                        setSettingsSubTab('security');
+                        addToast("Navigated to Reset PIN Settings", "success");
+                      }
+                    },
+                    {
+                      id: 'set-sound-effects',
+                      title: 'Sound Effects & Billing Beep Chimes',
+                      category: 'System Settings',
+                      description: 'Configure scanner beep audio feedback, cash register chime sounds, and alert volume',
+                      keywords: ['sound', 'audio', 'chime', 'beep', 'barcode sound', 'billing beep', 'mute', 'volume', 'sounds'],
+                      onClick: () => {
+                        setMenuTab('settings');
+                        setSettingsSubTab('sound');
+                        addToast("Navigated to Sound & Audio Settings", "success");
+                      }
+                    },
+                    {
+                      id: 'set-haptic-vibration',
+                      title: 'Haptic Touch Vibration Feedback',
+                      category: 'System Settings',
+                      description: 'Enable or disable tactile vibration feedback on button presses and scanner taps',
+                      keywords: ['haptic', 'vibration', 'touch feedback', 'vibrate', 'tactile', 'vibe'],
+                      onClick: () => {
+                        setMenuTab('settings');
+                        setSettingsSubTab('sound');
+                        addToast("Navigated to Haptic Feedback Settings", "success");
+                      }
+                    },
+                    {
+                      id: 'set-backup-cloud',
+                      title: 'Firestore Database Cloud Sync',
+                      category: 'System Settings',
+                      description: 'Upload ledger records to real-time Google Cloud, download JSON backups, or set schedules',
+                      keywords: ['backup', 'sync', 'cloud', 'firestore', 'restore', 'scheduled backup', 'data safety', 'download json'],
+                      onClick: () => {
+                        setMenuTab('settings');
+                        setSettingsSubTab('data');
+                        addToast("Navigated to Cloud Sync & Backup Settings", "success");
+                      }
+                    },
+                    {
+                      id: 'set-excel-export',
+                      title: 'Excel Stock Exporter Tool',
+                      category: 'System Settings',
+                      description: 'Download full inventory records formatted cleanly as an Excel (.xlsx) spreadsheet',
+                      keywords: ['excel', 'export', 'pdf', 'sheet', 'xlsx', 'download data', 'spreadsheet', 'catalog excel'],
+                      onClick: () => {
+                        setMenuTab('settings');
+                        setSettingsSubTab('data');
+                        addToast("Navigated to Data Exporter Settings", "success");
+                      }
+                    },
+                    {
+                      id: 'set-clear-data',
+                      title: 'Factory Reset / Clear Database',
+                      category: 'System Settings',
+                      description: 'Wipe local application data and restore clean initial factory state',
+                      keywords: ['reset data', 'clear database', 'factory reset', 'wipe data', 'delete all', 'clear cache'],
+                      onClick: () => {
+                        setMenuTab('settings');
+                        setSettingsSubTab('data');
+                        addToast("Navigated to Database Reset Settings", "success");
+                      }
+                    },
+
+                    // --- PRINTER SETTINGS ---
+                    {
+                      id: 'set-printer-bluetooth',
+                      title: 'Bluetooth Thermal Printer Scanner',
+                      category: 'Printer Settings',
+                      description: 'Scan and pair wireless Bluetooth thermal receipt printers',
+                      keywords: ['bluetooth printer', 'scan bluetooth', 'pair printer', 'wireless print', 'bluetooth', 'scan bluetooth'],
+                      onClick: () => {
+                        setMenuTab('printer');
+                        addToast("Navigated to Bluetooth Printer Scanner", "success");
+                      }
+                    },
+                    {
+                      id: 'set-printer-usb',
+                      title: 'USB / OTG Thermal Printer Detect',
+                      category: 'Printer Settings',
+                      description: 'Auto-detect and pair cable-connected USB / OTG POS receipt printers',
+                      keywords: ['usb printer', 'otg printer', 'detect usb', 'cable print', 'usb', 'otg'],
+                      onClick: () => {
+                        setMenuTab('printer');
+                        addToast("Navigated to USB Printer Detection", "success");
+                      }
+                    },
+                    {
+                      id: 'set-printer-wifi',
+                      title: 'WiFi IP Network Printer Registration',
+                      category: 'Printer Settings',
+                      description: 'Specify custom IP address to connect wireless network thermal printers',
+                      keywords: ['wifi printer', 'ip printer', 'network printer', 'ethernet print', 'wifi', 'ip address', 'register wifi'],
+                      onClick: () => {
+                        setMenuTab('printer');
+                        addToast("Navigated to Wireless IP Printer Setup", "success");
+                      }
+                    },
+                    {
+                      id: 'set-printer-paper-size',
+                      title: 'Thermal Paper Sizing (58mm / 80mm)',
+                      category: 'Printer Settings',
+                      description: 'Format receipts specifically for 58mm handheld rolls or 80mm countertop rolls',
+                      keywords: ['printer', '58mm', '80mm', 'paper width', 'margins', 'thermal printer', 'roll size', 'paper size'],
+                      onClick: () => {
+                        setMenuTab('printer');
+                        addToast("Navigated to Thermal Paper Sizing", "success");
+                      }
+                    },
+                    {
+                      id: 'set-printer-template',
+                      title: 'Receipt Templates & Formatting Styles',
+                      category: 'Printer Settings',
+                      description: 'Select Modern Minimal, Retail Classic, Compact Thermal, Wholesale, or Premium style',
+                      keywords: ['receipt template', 'minimal template', 'wholesale template', 'modern invoice', 'invoice template', 'template'],
+                      onClick: () => {
+                        setMenuTab('printer');
+                        addToast("Navigated to Receipt Template Options", "success");
+                      }
+                    },
+                    {
+                      id: 'set-printer-watermark',
+                      title: 'Print Watermark Overlay Stamp',
+                      category: 'Printer Settings',
+                      description: 'Configure PAID, PENDING, or UDHAR watermark overlay on printed thermal receipts',
+                      keywords: ['watermark', 'paid stamp', 'udhar stamp', 'opacity', 'stamp', 'print watermark'],
+                      onClick: () => {
+                        setMenuTab('printer');
+                        addToast("Navigated to Print Watermark Settings", "success");
+                      }
+                    },
+                    {
+                      id: 'set-printer-logo',
+                      title: 'Upload Store Logo Graphic for Receipts',
+                      category: 'Printer Settings',
+                      description: 'Upload custom JPEG/PNG store graphic logo printed at the header of thermal bills',
+                      keywords: ['print logo', 'receipt logo', 'upload logo', 'image logo', 'logo graphic', 'printer logo'],
+                      onClick: () => {
+                        setMenuTab('printer');
+                        addToast("Navigated to Receipt Logo Upload", "success");
+                      }
+                    },
+                    {
+                      id: 'set-printer-alignment',
+                      title: 'Receipt Header Alignment & Font Sizing',
+                      category: 'Printer Settings',
+                      description: 'Align text left/center/right and set small/medium/large receipt font sizes',
+                      keywords: ['alignment', 'center text', 'left align', 'header alignment', 'print font size', 'font sizing'],
+                      onClick: () => {
+                        setMenuTab('printer');
+                        addToast("Navigated to Receipt Typography Settings", "success");
+                      }
+                    },
+                    {
+                      id: 'set-printer-advanced-panel',
+                      title: 'Advanced Printer Hardware Panel',
+                      category: 'Printer Settings',
+                      description: 'Unlock auto-reconnect loops, item name column wrapping, and bill paper compression',
+                      keywords: ['advanced controls', 'hardware panel', 'auto reconnect', 'silent recovery', 'compression', 'paper saver'],
+                      onClick: () => {
+                        setMenuTab('printer');
+                        addToast("Navigated to Advanced Hardware Controls", "success");
+                      }
+                    },
+                    {
+                      id: 'set-printer-cooldown',
+                      title: 'Duplicate Print Lockout Cooldown',
+                      category: 'Printer Settings',
+                      description: 'Set delay interval to prevent accidental double printing during rapid checkout clicks',
+                      keywords: ['reprint', 'cooldown', 'double print', 'lockout', 'duplicate bill', 'print speed', 'reprint lock'],
+                      onClick: () => {
+                        setMenuTab('printer');
+                        addToast("Navigated to Cooldown Protection Settings", "success");
+                      }
+                    },
+                    {
+                      id: 'set-printer-test-print',
+                      title: 'Test Print Diagnostic Ticket',
+                      category: 'Printer Settings',
+                      description: 'Print sample receipt ticket to test hardware connection, alignment, and paper feed',
+                      keywords: ['test print', 'diagnostic ticket', 'spool check', 'sample receipt', 'test ticket', 'print test'],
+                      onClick: () => {
+                        setMenuTab('printer');
+                        addToast("Navigated to Test Print Diagnostics", "success");
+                      }
+                    },
+
+                    // --- OPERATIONS & TOOLS ---
+                    {
+                      id: 'set-day-closing',
+                      title: '🌙 Daily Store Close & Shift Tallies',
+                      category: 'Operations',
+                      description: 'Close active store shifts, confirm cash drawer totals, and review digital sales books',
+                      keywords: ['day close', 'closing', 'store closing', 'shift handover', 'snapshot', 'cash drawer', 'tally', 'shift close'],
+                      onClick: () => {
+                        setMenuTab('day_closing');
+                        addToast("Navigated to Daily Day Closing Centre", "success");
+                      }
+                    },
+                    {
+                      id: 'tool-calculator',
+                      title: 'Universal Calculator (with Undo & Redo)',
+                      category: 'Tools',
+                      description: 'Open floating shopkeeper calculator featuring MC/MR/MS memory, Copy, and multi-step Undo/Redo',
+                      keywords: ['calculator', 'undo redo calculator', 'mc mr ms', 'copy calculation', 'calc', 'math', 'undo', 'redo'],
+                      onClick: () => {
+                        handleTabChange('billing');
+                        setShowMenu(false);
+                        addToast("Opened Universal Calculator", "success");
+                      }
+                    },
+                    {
+                      id: 'tool-voice-assistant',
+                      title: 'Voice Product Assistant',
+                      category: 'Tools',
+                      description: 'Speak natural voice commands to look up items, check stock, or add products to cart',
+                      keywords: ['voice assistant', 'speak', 'voice search', 'microphone', 'voice product', 'audio search', 'assistant'],
+                      onClick: () => {
+                        setShowVoiceAssistant(true);
+                        setShowMenu(false);
+                      }
+                    },
+
+                    // --- PRIMARY NAVIGATION ---
                     {
                       id: 'nav-home',
                       title: 'Products Catalog',
@@ -6165,170 +6799,6 @@ export default function App() {
                         setActiveTab('notes');
                         setShowMenu(false);
                         addToast("Opened Daily Scratchpad Notes", "success");
-                      }
-                    },
-                    {
-                      id: 'set-profile',
-                      title: 'Operator Profile',
-                      category: 'System',
-                      description: 'Manage current billing operator initials, active device parameters, and PWA installs',
-                      keywords: ['profile', 'operator', 'device', 'logout', 'install app', 'pwa', 'sync status'],
-                      onClick: () => {
-                        setMenuTab('profile');
-                        addToast("Navigated to Operator Profile", "success");
-                      }
-                    },
-                    {
-                      id: 'set-store-name',
-                      title: 'Store Name & Branding Info',
-                      category: 'Business Settings',
-                      description: 'Configure official shop title, owner names, and location coordinates',
-                      keywords: ['store name', 'owner', 'address', 'phone', 'branding', 'business details', 'receipt header'],
-                      onClick: () => {
-                        setMenuTab('business_settings');
-                        setBusinessSubTab('profile');
-                        addToast("Navigated to Store Branding Details", "success");
-                      }
-                    },
-                    {
-                      id: 'set-gstin',
-                      title: 'GSTIN / Legal Tax Registry',
-                      category: 'Business Settings',
-                      description: 'Configure active GST identification numbers and legal vat parameters',
-                      keywords: ['gstin', 'gst', 'vat', 'tax registration', 'tax number', 'tax id'],
-                      onClick: () => {
-                        setMenuTab('business_settings');
-                        setBusinessSubTab('profile');
-                        addToast("Navigated to Tax Registration Fields", "success");
-                      }
-                    },
-                    {
-                      id: 'set-upi',
-                      title: 'UPI Payment QR Setup',
-                      category: 'Business Settings',
-                      description: 'Set default merchant UPI VPA address to instantly render GPay/PhonePe scan QR codes',
-                      keywords: ['upi', 'qr code', 'payment gateway', 'gpay', 'phonepe', 'paytm', 'upi address', 'collect'],
-                      onClick: () => {
-                        setMenuTab('business_settings');
-                        setBusinessSubTab('profile');
-                        addToast("Navigated to UPI Payment Configuration", "success");
-                      }
-                    },
-                    {
-                      id: 'set-business-mode',
-                      title: 'Business Genre & Operating Flow',
-                      category: 'Business Settings',
-                      description: 'Customize layout defaults specifically suited for Retail, Restaurant, Cafe, or Wholesale',
-                      keywords: ['business mode', 'business flow', 'kirana', 'retail', 'restaurant', 'cafe', 'wholesale'],
-                      onClick: () => {
-                        setMenuTab('business_settings');
-                        setBusinessSubTab('journey');
-                        addToast("Navigated to Business Mode Preferences", "success");
-                      }
-                    },
-                    {
-                      id: 'set-custom-categories',
-                      title: 'Manage Custom Catalog Categories',
-                      category: 'Business Settings',
-                      description: 'Add, update, recolor, and assign emojis to customized product categories',
-                      keywords: ['categories', 'custom categories', 'add category', 'recolor', 'emoji'],
-                      onClick: () => {
-                        setMenuTab('business_settings');
-                        setBusinessSubTab('categories');
-                        addToast("Navigated to Catalog Categories Manager", "success");
-                      }
-                    },
-                    {
-                      id: 'set-language',
-                      title: 'Interface Language Settings',
-                      category: 'System Settings',
-                      description: 'Switch application between English, Hindi, and bilingual Hinglish dialects',
-                      keywords: ['language', 'hindi', 'english', 'hinglish', 'speech', 'translation', 'locale'],
-                      onClick: () => {
-                        setMenuTab('settings');
-                        setSettingsSubTab('interface');
-                        addToast("Navigated to Language Settings", "success");
-                      }
-                    },
-                    {
-                      id: 'set-security',
-                      title: 'PIN Security & Auto-Lock',
-                      category: 'System Settings',
-                      description: 'Configure secure login passcodes, screen protection delays, and reset PIN parameters',
-                      keywords: ['security', 'pin', 'lock', 'lockout', 'password', 'autolock', 'privacy'],
-                      onClick: () => {
-                        setMenuTab('settings');
-                        setSettingsSubTab('security');
-                        addToast("Navigated to Security & PIN Lock Settings", "success");
-                      }
-                    },
-                    {
-                      id: 'set-decimals',
-                      title: 'Decimal Points Price Rounding',
-                      category: 'System Settings',
-                      description: 'Set default fractional decimal rules (no paise, 1 paise, or standard 2 decimals)',
-                      keywords: ['precision', 'decimals', 'rounding', 'price precision', 'paisa', 'paise'],
-                      onClick: () => {
-                        setMenuTab('settings');
-                        setSettingsSubTab('interface');
-                        addToast("Navigated to Decimal Precision Settings", "success");
-                      }
-                    },
-                    {
-                      id: 'set-backup',
-                      title: 'Firestore Database Cloud Sync',
-                      category: 'System Settings',
-                      description: 'Upload ledger records to real-time Google Cloud, download backups, or set schedules',
-                      keywords: ['backup', 'sync', 'cloud', 'firestore', 'restore', 'scheduled backup', 'data safety'],
-                      onClick: () => {
-                        setMenuTab('settings');
-                        setSettingsSubTab('data');
-                        addToast("Navigated to Cloud Sync Settings", "success");
-                      }
-                    },
-                    {
-                      id: 'set-excel',
-                      title: 'Excel Stock Exporter Tool',
-                      category: 'System Settings',
-                      description: 'Download full inventory records formatted cleanly with category groupings and border lines',
-                      keywords: ['excel', 'export', 'pdf', 'sheet', 'xlsx', 'download data'],
-                      onClick: () => {
-                        setMenuTab('settings');
-                        setSettingsSubTab('data');
-                        addToast("Navigated to Data Exporter Settings", "success");
-                      }
-                    },
-                    {
-                      id: 'set-printer-roll',
-                      title: 'Thermal Printer Paper Sizing',
-                      category: 'Printer Settings',
-                      description: 'Format receipts specifically for 58mm roll width, 80mm countertop width, and margin bounds',
-                      keywords: ['printer', '58mm', '80mm', 'paper width', 'margins', 'thermal printer', 'roll size'],
-                      onClick: () => {
-                        setMenuTab('printer');
-                        addToast("Navigated to Thermal Printer Sizing", "success");
-                      }
-                    },
-                    {
-                      id: 'set-printer-reprint',
-                      title: 'Double Print Lockout Protection',
-                      category: 'Printer Settings',
-                      description: 'Set a cooldown delay period to block accidental duplicates during rapid billing clicks',
-                      keywords: ['reprint', 'cooldown', 'double print', 'lockout', 'duplicate bill', 'print speed'],
-                      onClick: () => {
-                        setMenuTab('printer');
-                        addToast("Navigated to Cooldown Protection Settings", "success");
-                      }
-                    },
-                    {
-                      id: 'set-day-closing',
-                      title: '🌙 Daily Store Close & Tallies',
-                      category: 'Operations',
-                      description: 'Close active store shifts, confirm cash drawer totals, and review digital sales books',
-                      keywords: ['day close', 'closing', 'store closing', 'shift handover', 'snapshot', 'cash drawer'],
-                      onClick: () => {
-                        setMenuTab('day_closing');
-                        addToast("Navigated to Daily Day Closing Centre", "success");
                       }
                     }
                   ];
@@ -6500,6 +6970,7 @@ export default function App() {
                     onImport={importData}
                     onBackup={handleBackup}
                     onRestore={handleRestore}
+                    onOpenDriveBackupModal={() => setShowDriveBackupModal(true)}
                     onClearCache={() => {
                       if (confirm('Wipe everything?')) {
                         localStorage.clear();
@@ -8106,6 +8577,7 @@ function SettingsScreen(props: {
   onBackup: () => void;
   onRestore: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onClearCache: () => void;
+  onOpenDriveBackupModal?: () => void;
   isSyncing: boolean;
   isExporting: boolean;
   activeSubTab?: 'interface' | 'security' | 'sound' | 'data';
@@ -8432,7 +8904,7 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareProductList
                     className="flex items-center gap-2 bg-white/10 hover:bg-white text-[10px] font-black uppercase tracking-widest py-2 px-4 rounded-full transition-all text-white hover:text-[var(--primary)] shadow-lg active:scale-95"
                   >
                      {state.user ? <LogOut size={14} /> : <LogIn size={14} />}
-                     {state.user ? t.terminateSession : t.cloudEntry}
+                     {state.user ? (t.terminateSession || 'LOG OUT') : t.cloudEntry}
                   </button>
                </div>
                <div className="h-10 w-px bg-white/20" />
