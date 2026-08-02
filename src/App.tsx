@@ -120,7 +120,6 @@ import {
   AppFullSkeleton 
 } from './components/ui/SkeletonLoader';
 import { SmartBulkEntryModal } from './components/SmartBulkEntryModal';
-import { GoogleDriveBackupModal } from './components/GoogleDriveBackupModal';
 import { Settings2, Receipt, PackagePlus, Printer, Sliders } from 'lucide-react';
 import BillingScreen from './components/BillingScreen';
 import SmartCalculator from './components/SmartCalculator';
@@ -1346,7 +1345,6 @@ export default function App() {
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [showManageCategories, setShowManageCategories] = useState(false);
   const [showVoiceAssistant, setShowVoiceAssistant] = useState(false);
-  const [showDriveBackupModal, setShowDriveBackupModal] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [isTabLoading, setIsTabLoading] = useState(false);
@@ -5819,29 +5817,6 @@ export default function App() {
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {showDriveBackupModal && (
-          <GoogleDriveBackupModal
-            key="google-drive-backup-modal"
-            isOpen={showDriveBackupModal}
-            onClose={() => setShowDriveBackupModal(false)}
-            state={state}
-            onRestoreData={(restoredState) => {
-              if (restoredState && typeof restoredState === 'object') {
-                setState((prev) => ({
-                  ...prev,
-                  ...restoredState,
-                  settings: {
-                    ...prev.settings,
-                    ...(restoredState.settings || {})
-                  }
-                }));
-              }
-            }}
-            addToast={addToast}
-          />
-        )}
-      </AnimatePresence>
-      <AnimatePresence>
         {showHelp && (
           <HelpModal 
             key="help-modal"
@@ -6970,7 +6945,6 @@ export default function App() {
                     onImport={importData}
                     onBackup={handleBackup}
                     onRestore={handleRestore}
-                    onOpenDriveBackupModal={() => setShowDriveBackupModal(true)}
                     onClearCache={() => {
                       if (confirm('Wipe everything?')) {
                         localStorage.clear();
@@ -8577,7 +8551,6 @@ function SettingsScreen(props: {
   onBackup: () => void;
   onRestore: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onClearCache: () => void;
-  onOpenDriveBackupModal?: () => void;
   isSyncing: boolean;
   isExporting: boolean;
   activeSubTab?: 'interface' | 'security' | 'sound' | 'data';

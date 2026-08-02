@@ -36,7 +36,6 @@ import { cn } from '../lib/utils';
 export default function SettingsScreen({ 
   state, t, onUpdate, onShowHelp, onResetPIN,
   onExportExcel, onExportPDF, onImport, onBackup, onRestore, onClearCache,
-  onOpenDriveBackupModal,
   isSyncing, isExporting,
   activeSubTab: externalActiveSubTab,
   onChangeSubTab
@@ -48,7 +47,6 @@ export default function SettingsScreen({
   onBackup: () => void;
   onRestore: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onClearCache: () => void;
-  onOpenDriveBackupModal?: () => void;
   isSyncing: boolean;
   isExporting: boolean;
   activeSubTab?: 'interface' | 'security' | 'sound' | 'data';
@@ -1089,20 +1087,11 @@ export default function SettingsScreen({
                   <div className="card p-6 rounded-[2rem] border-[var(--border)] bg-[var(--card)] space-y-6">
                      <h4 className="text-xs font-black uppercase tracking-widest opacity-40 text-[var(--foreground)]">{t.backupInfra}</h4>
                      <div className="flex flex-col gap-3">
-                        {onOpenDriveBackupModal && (
-                          <Button 
-                            onClick={onOpenDriveBackupModal} 
-                            variant="outline" 
-                            className="justify-start gap-3 rounded-xl py-6 border-amber-500/30 text-amber-500 hover:bg-amber-500/10 shadow-lg shadow-amber-500/5 font-black uppercase"
-                          >
-                            <Cloud size={18} /> <span className="text-[10px]">Google Drive Cloud Vault</span>
-                          </Button>
-                        )}
                         <Button onClick={onBackup} variant="outline" className="justify-start gap-3 rounded-xl py-6 border-blue-500/20 text-blue-500 hover:bg-blue-500/10">
-                          <Database size={18} /> <span className="text-[10px] font-black uppercase">Backup System Now (JSON)</span>
+                          <Database size={18} /> <span className="text-[10px] font-black uppercase">Backup System Now</span>
                         </Button>
                         <label className="flex items-center justify-center gap-3 rounded-xl py-3.5 px-4 border border-dashed border-[var(--border)] text-xs font-black uppercase tracking-widest cursor-pointer hover:bg-white/5 text-[var(--foreground)] transition-colors">
-                          <Upload size={18} /> Restore Local JSON
+                          <Upload size={18} /> Restore Backup
                           <input type="file" className="hidden" accept=".json" onChange={onRestore} />
                         </label>
                      </div>
