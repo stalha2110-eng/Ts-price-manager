@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { AppState, Bill, TransactionItem, Item } from '../types';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { cn } from '../lib/utils';
+import { cn, parseTimestamp, getNormalizedDateKey, getParsedTimestampMs, calculateBillProfit } from '../lib/utils';
 import { RecoveryService } from '../services/recoveryService';
 import { printerService, DEFAULT_PRINT_SETTINGS } from '../services/printerService';
 import { playFeedbackEvent } from '../services/soundFeedbackService';
@@ -146,10 +146,9 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
 
   const todayNetProfit = useMemo(() => {
     return todayBills.reduce((sum, b) => {
-      const billProfit = b.items.reduce((acc, it) => acc + ((it.price - (it.cost || 0)) * it.quantity), 0) - (b.subtotal * (b.discount / 100));
-      return sum + billProfit;
+      return sum + calculateBillProfit(b, state.items);
     }, 0);
-  }, [todayBills]);
+  }, [todayBills, state.items]);
 
   const totalInvoiced = useMemo(() => {
     return invoicesList.reduce((sum, b) => sum + b.total, 0);
@@ -157,16 +156,17 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
 
   const estProfit = useMemo(() => {
     return invoicesList.reduce((sum, b) => {
-      const billProfit = b.items.reduce((acc, it) => acc + ((it.price - (it.cost || 0)) * it.quantity), 0) - (b.subtotal * (b.discount / 100));
-      return sum + billProfit;
+      return sum + calculateBillProfit(b, state.items);
     }, 0);
-  }, [invoicesList]);
+  }, [invoicesList, state.items]);
 
   const oldestThan24HoursBills = useMemo(() => {
     const limits = 24 * 60 * 60 * 1000;
     const nowTime = Date.now();
     return invoicesList.filter(b => {
-      const diff = nowTime - new Date(b.timestamp).getTime();
+      const tMs = getParsedTimestampMs(b.timestamp);
+      if (tMs === 0) return false;
+      const diff = nowTime - tMs;
       return diff > limits;
     });
   }, [invoicesList]);
@@ -176,29 +176,24 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
       return { bills: [], dateStr: '', formattedDate: '' };
     }
     
-    // Group bills by local date string
+    // Group bills by normalized local YYYY-MM-DD date key
     const dateGroups: { [key: string]: Bill[] } = {};
     invoicesList.forEach(b => {
-      try {
-        const d = new Date(b.timestamp);
-        if (!isNaN(d.getTime())) {
-          // Format as YYYY-MM-DD local date
-          const year = d.getFullYear();
-          const month = String(d.getMonth() + 1).padStart(2, '0');
-          const day = String(d.getDate()).padStart(2, '0');
-          const dateStr = `${year}-${month}-${day}`;
-          if (!dateGroups[dateStr]) {
-            dateGroups[dateStr] = [];
-          }
-          dateGroups[dateStr].push(b);
-        }
-      } catch (e) {
-        console.error(e);
+      const dateStr = getNormalizedDateKey(b.timestamp);
+      if (!dateGroups[dateStr]) {
+        dateGroups[dateStr] = [];
       }
+      dateGroups[dateStr].push(b);
     });
 
-    const uniqueDates = Object.keys(dateGroups).sort(); // sorted ascending, first is oldest
+    const uniqueDates = Object.keys(dateGroups)
+      .filter(d => d !== 'unknown')
+      .sort(); // sorted ascending, index 0 is oldest date (e.g. "2026-08-01")
+
     if (uniqueDates.length === 0) {
+      if (dateGroups['unknown']?.length > 0) {
+        return { bills: dateGroups['unknown'], dateStr: 'unknown', formattedDate: 'Legacy Invoices' };
+      }
       return { bills: [], dateStr: '', formattedDate: '' };
     }
 
@@ -207,9 +202,10 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
 
     let formattedDate = oldestDateStr;
     try {
-      const d = new Date(oldestDateStr + 'T12:00:00'); // set mid-day to avoid timezone offset shifts during display
-      if (!isNaN(d.getTime())) {
-        formattedDate = d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+      const [y, m, d] = oldestDateStr.split('-').map(Number);
+      const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+      if (!isNaN(dateObj.getTime())) {
+        formattedDate = dateObj.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
       }
     } catch (e) {
       // fallback
@@ -248,7 +244,7 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
 
       if (filterType === 'time') {
         if (startTime || endTime) {
-          const billTime = new Date(bill.timestamp);
+          const billTime = parseTimestamp(bill.timestamp);
           const billHours = billTime.getHours();
           const billMins = billTime.getMinutes();
           const billMinutesOfDay = billHours * 60 + billMins;
@@ -273,43 +269,47 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
       }
 
       return true;
-    }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    }).sort((a, b) => getParsedTimestampMs(b.timestamp) - getParsedTimestampMs(a.timestamp));
   }, [invoicesList, searchQuery, filterType, startInvoice, endInvoice, startTime, endTime, paymentFilter]);
 
   // Group filtered bills by calendar date for structured categorization
   const groupedBills = useMemo(() => {
-    const list: { dateLabel: string; bills: Bill[]; totalAmount: number; totalProfit: number }[] = [];
+    const list: { dateLabel: string; dateKey: string; bills: Bill[]; totalAmount: number; totalProfit: number }[] = [];
     
     filteredBills.forEach(bill => {
+      const dateKey = getNormalizedDateKey(bill.timestamp);
       let dateLabel = 'Unknown Date';
       try {
-        const d = new Date(bill.timestamp);
-        const today = new Date();
-        const yesterday = new Date();
-        yesterday.setDate(today.getDate() - 1);
-        
-        if (d.toDateString() === today.toDateString()) {
-          dateLabel = 'Today';
-        } else if (d.toDateString() === yesterday.toDateString()) {
-          dateLabel = 'Yesterday';
-        } else {
-          dateLabel = d.toLocaleDateString('en-IN', {
-            weekday: 'short',
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric'
-          });
+        const d = parseTimestamp(bill.timestamp);
+        if (d && !isNaN(d.getTime()) && d.getTime() > 0) {
+          const today = new Date();
+          const yesterday = new Date();
+          yesterday.setDate(today.getDate() - 1);
+          
+          if (d.toDateString() === today.toDateString()) {
+            dateLabel = 'Today';
+          } else if (d.toDateString() === yesterday.toDateString()) {
+            dateLabel = 'Yesterday';
+          } else {
+            dateLabel = d.toLocaleDateString('en-IN', {
+              weekday: 'short',
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric'
+            });
+          }
         }
       } catch (e) {
         console.error(e);
       }
       
-      const billProfit = bill.items.reduce((acc, it) => acc + ((it.price - (it.cost || 0)) * it.quantity), 0) - (bill.subtotal * (bill.discount / 100));
+      const billProfit = calculateBillProfit(bill, state.items);
       
-      let group = list.find(g => g.dateLabel === dateLabel);
+      let group = list.find(g => g.dateKey === dateKey);
       if (!group) {
         group = {
           dateLabel,
+          dateKey,
           bills: [],
           totalAmount: 0,
           totalProfit: 0
@@ -418,8 +418,7 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
       const totalCustomers = billsToClean.length;
       const totalSales = billsToClean.reduce((sum, b) => sum + b.total, 0);
       const totalProfit = billsToClean.reduce((sum, b) => {
-        const billProfit = b.items.reduce((acc, it) => acc + ((it.price - (it.cost || 0)) * it.quantity), 0) - (b.subtotal * (b.discount / 100));
-        return sum + billProfit;
+        return sum + calculateBillProfit(b, state.items);
       }, 0);
 
       // --- PDF Header Style ---
@@ -586,8 +585,11 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
 
 Do you want to permanently delete these ${group.bills.length} bills from history now?`,
       () => {
+        const groupSet = new Set(group.bills);
+        const groupIds = new Set(group.bills.map(gb => gb.id).filter(Boolean));
+
         onUpdateState({
-          bills: invoicesList.filter(b => !group.bills.some(gb => gb.id === b.id))
+          bills: invoicesList.filter(b => !groupSet.has(b) && !(b.id && groupIds.has(b.id)))
         });
         addToast(`Successfully deleted all ${group.bills.length} bills for ${group.dateLabel} permanently.`, "success");
       },
@@ -868,17 +870,24 @@ Do you want to permanently delete these ${group.bills.length} bills from history
       addToast("No bills found to flush.", "warning");
       return;
     }
+    const targetBills = oldestDayInfo.bills;
+    const count = targetBills.length;
+    const dateText = oldestDayInfo.formattedDate;
+
     showCustomConfirm(
       "Flush Oldest Day of Bills",
-      `Are you sure you want to permanently delete all ${oldestDayInfo.bills.length} bills from ${oldestDayInfo.formattedDate} (the oldest day in history)? This action is irreversible.`,
+      `Are you sure you want to permanently delete all ${count} bill(s) from ${dateText} (the oldest day in history)? This action is irreversible.`,
       () => {
+        const targetSet = new Set(targetBills);
+        const targetIds = new Set(targetBills.map(b => b.id).filter(Boolean));
+
         onUpdateState({
-          bills: invoicesList.filter(b => !oldestDayInfo.bills.some(ob => ob.id === b.id))
+          bills: invoicesList.filter(b => !targetSet.has(b) && !(b.id && targetIds.has(b.id)))
         });
-        addToast(`Successfully deleted ${oldestDayInfo.bills.length} bills from ${oldestDayInfo.formattedDate}.`, "success");
+        addToast(`Successfully deleted all ${count} bill(s) from ${dateText}.`, "success");
       },
       true, // isDestructive
-      "Flush Last Day",
+      "Flush Oldest Day",
       "Cancel"
     );
   };
@@ -1139,7 +1148,7 @@ Do you want to permanently delete these ${group.bills.length} bills from history
                       <div className="pl-3 border-l-2 border-dashed border-[var(--border)]/70 space-y-2.5 ml-3">
                         {group.bills.map(bill => {
                           const totalItemsCount = bill.items.reduce((acc, i) => acc + i.quantity, 0);
-                          const billProfit = bill.items.reduce((acc, it) => acc + ((it.price - (it.cost || 0)) * it.quantity), 0) - (bill.subtotal * (bill.discount / 100));
+                          const billProfit = calculateBillProfit(bill, state.items);
                           
                           return (
                             <div

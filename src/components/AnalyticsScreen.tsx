@@ -5,7 +5,7 @@ import {
   Calendar, Layers, CheckCircle2, AlertTriangle, SlidersHorizontal, Package2, ShieldAlert
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { AppState, Bill, Item, TransactionItem } from '../types';
+import { AppState, Bill, Item, TransactionItem, UnbilledEntry } from '../types';
 
 import MilestonesTab from './MilestonesTab';
 import { Trophy, Award, Sparkles, Unlock, Lock } from 'lucide-react';
@@ -13,6 +13,9 @@ import { getCalculatedAchievements } from '../lib/achievementUtils';
 import PremiumInteractiveChart from './PremiumInteractiveChart';
 import { ThemeVisualEffects } from './ThemeVisualEffects';
 import { MonthlySalesTargetPanel } from './MonthlySalesTargetPanel';
+import { UnbilledAuditAnalyticsSection } from './UnbilledAuditAnalyticsSection';
+import { calculateBillProfit, parseTimestamp } from '../lib/utils';
+import { getUnbilledEntries, UNBILLED_UPDATED_EVENT } from '../lib/unbilledStorage';
 
 interface AnalyticsScreenProps {
   state: AppState;
@@ -33,12 +36,14 @@ interface ChartBucket {
 
 // Custom animated counter using requestAnimationFrame with quadratic ease-out
 function AnimatedNumber({ value, formatter }: { value: number; formatter?: (v: number) => string }) {
-  const [displayValue, setDisplayValue] = useState(value);
-  const prevValueRef = React.useRef(value);
+  const numVal = Number(value);
+  const safeVal = Number.isFinite(numVal) ? numVal : 0;
+  const [displayValue, setDisplayValue] = useState(safeVal);
+  const prevValueRef = React.useRef(safeVal);
 
   useEffect(() => {
     const startValue = prevValueRef.current;
-    const endValue = value;
+    const endValue = safeVal;
     if (startValue === endValue) return;
 
     const startTime = performance.now();
@@ -66,13 +71,14 @@ function AnimatedNumber({ value, formatter }: { value: number; formatter?: (v: n
       cancelAnimationFrame(rAF);
       prevValueRef.current = endValue;
     };
-  }, [value]);
+  }, [safeVal]);
 
-  return <span>{formatter ? formatter(displayValue) : Math.round(displayValue).toLocaleString()}</span>;
+  const finalVal = (typeof displayValue === 'number' && !isNaN(displayValue)) ? displayValue : 0;
+  return <span>{formatter ? formatter(finalVal) : Math.round(finalVal).toLocaleString()}</span>;
 }
 
 // Utility to calculate local date bounds for current and previous intervals
-const getDateBounds = (period: 'today' | 'week' | 'month' | 'year') => {
+const getDateBounds = (period: 'today' | 'week' | 'month' | 'year' | 'all') => {
   const now = new Date();
   let currentStart = new Date();
   let prevStart = new Date();
@@ -81,7 +87,11 @@ const getDateBounds = (period: 'today' | 'week' | 'month' | 'year') => {
   // Reset to midnight for clean bounds calculations
   const formatMidnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
-  if (period === 'today') {
+  if (period === 'all') {
+    currentStart = new Date(0);
+    prevStart = new Date(0);
+    prevEnd = new Date(0);
+  } else if (period === 'today') {
     currentStart = formatMidnight(now);
     prevStart = new Date(currentStart.getTime() - 24 * 60 * 60 * 1000);
     prevEnd = currentStart;
@@ -105,12 +115,8 @@ const getDateBounds = (period: 'today' | 'week' | 'month' | 'year') => {
 };
 
 // Calculate cost of goods and margin of a single bill
-const getBillProfit = (bill: Bill) => {
-  let costOfGoods = 0;
-  bill.items.forEach(item => {
-    costOfGoods += (item.cost || 0) * item.quantity;
-  });
-  return Math.max(0, bill.total - costOfGoods);
+const getBillProfit = (bill: Bill, itemsCatalog?: Item[]) => {
+  return calculateBillProfit(bill, itemsCatalog);
 };
 
 // Map themes to highly elegant chart configurations with premium glowing color-spaces
@@ -320,19 +326,19 @@ export default function AnalyticsScreen({ state, t, onUpdateSettings, isLocked, 
       return 0;
     }
   }, [state]);
-  const [timePeriod, setTimePeriodState] = useState<'today' | 'week' | 'month' | 'year'>(() => {
+  const [timePeriod, setTimePeriodState] = useState<'today' | 'week' | 'month' | 'year' | 'all'>(() => {
     try {
       const cached = localStorage.getItem('analytics_time_period');
-      if (cached === 'today' || cached === 'week' || cached === 'month' || cached === 'year') {
-        return cached;
+      if (cached === 'today' || cached === 'week' || cached === 'month' || cached === 'year' || cached === 'all') {
+        return cached as any;
       }
     } catch (e) {
       // Storage access disabled
     }
-    return 'today';
+    return 'month';
   });
 
-  const setTimePeriod = (period: 'today' | 'week' | 'month' | 'year') => {
+  const setTimePeriod = (period: 'today' | 'week' | 'month' | 'year' | 'all') => {
     try {
       localStorage.setItem('analytics_time_period', period);
     } catch (e) {
@@ -346,33 +352,71 @@ export default function AnalyticsScreen({ state, t, onUpdateSettings, isLocked, 
   // Extract raw bills safely
   const rawBills = useMemo(() => state.bills || [], [state.bills]);
 
-  // Split bills between current interval and previous matching interval for growth analysis
-  const { currentBills, previousBills } = useMemo(() => {
+  // Real-time local unbilled micro-sales entries state
+  const [localUnbilled, setLocalUnbilled] = useState<UnbilledEntry[]>(getUnbilledEntries);
+
+  useEffect(() => {
+    const handleUpdate = () => setLocalUnbilled(getUnbilledEntries());
+    window.addEventListener(UNBILLED_UPDATED_EVENT, handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener(UNBILLED_UPDATED_EVENT, handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, []);
+
+  // Combined raw unbilled micro-sales ledger entries (deduplicated between Firestore state and localStorage)
+  const rawUnbilled = useMemo(() => {
+    const fromState = state.unbilledEntries || [];
+    const map = new Map<string, UnbilledEntry>();
+    [...localUnbilled, ...fromState].forEach(e => {
+      if (e && e.id) map.set(e.id, e);
+    });
+    return Array.from(map.values());
+  }, [state.unbilledEntries, localUnbilled]);
+
+  // Split bills and unbilled micro ledger entries between current interval and previous matching interval
+  const { currentBills, previousBills, currentUnbilled, previousUnbilled } = useMemo(() => {
     const { currentStart, prevStart, prevEnd } = getDateBounds(timePeriod);
     
-    const curr = rawBills.filter(bill => {
-      const d = new Date(bill.timestamp);
+    const currB = rawBills.filter(bill => {
+      const d = parseTimestamp(bill.timestamp);
       return d >= currentStart;
     });
 
-    const prev = rawBills.filter(bill => {
-      const d = new Date(bill.timestamp);
+    const prevB = timePeriod === 'all' ? [] : rawBills.filter(bill => {
+      const d = parseTimestamp(bill.timestamp);
       return d >= prevStart && d < prevEnd;
     });
 
-    return { currentBills: curr, previousBills: prev };
-  }, [rawBills, timePeriod]);
+    const currU = rawUnbilled.filter(entry => {
+      const d = parseTimestamp(entry.timestamp || entry.dateStr);
+      return d >= currentStart;
+    });
 
-  // Compute key summary parameters for a bills list
-  const computeMetrics = (billsList: Bill[]) => {
+    const prevU = timePeriod === 'all' ? [] : rawUnbilled.filter(entry => {
+      const d = parseTimestamp(entry.timestamp || entry.dateStr);
+      return d >= prevStart && d < prevEnd;
+    });
+
+    return { 
+      currentBills: currB, 
+      previousBills: prevB,
+      currentUnbilled: currU,
+      previousUnbilled: prevU
+    };
+  }, [rawBills, rawUnbilled, timePeriod]);
+
+  // Compute key summary parameters for a bills list AND unbilled micro-ledger entries
+  const computeMetrics = (billsList: Bill[], unbilledList: UnbilledEntry[] = []) => {
     let totalSales = 0;
     let totalProfit = 0;
     let totalBills = billsList.length;
     let totalPrints = 0;
 
     billsList.forEach(bill => {
-      totalSales += bill.total;
-      totalProfit += getBillProfit(bill);
+      totalSales += Number(bill.total) || 0;
+      totalProfit += getBillProfit(bill, state.items);
       
       // Look up print timestamps in local storage to verify print counts
       const hasPrinted = localStorage.getItem(`price_manager_last_print_time_${bill.id}`);
@@ -381,11 +425,24 @@ export default function AnalyticsScreen({ state, t, onUpdateSettings, isLocked, 
       }
     });
 
-    return { totalSales, totalProfit, totalBills, totalPrints };
+    // Add unbilled micro-sales ledger revenue into Total Sales & Total Profit
+    unbilledList.forEach(entry => {
+      const amt = Number(entry.amount) || 0;
+      totalSales += amt;
+      totalProfit += amt; // Unbilled counter quick-sales represent direct revenue
+      totalBills += 1;
+    });
+
+    return { 
+      totalSales: Number(totalSales.toFixed(2)), 
+      totalProfit: Number(totalProfit.toFixed(2)), 
+      totalBills, 
+      totalPrints 
+    };
   };
 
-  const currentMetrics = useMemo(() => computeMetrics(currentBills), [currentBills]);
-  const previousMetrics = useMemo(() => computeMetrics(previousBills), [previousBills]);
+  const currentMetrics = useMemo(() => computeMetrics(currentBills, currentUnbilled), [currentBills, currentUnbilled, state.items]);
+  const previousMetrics = useMemo(() => computeMetrics(previousBills, previousUnbilled), [previousBills, previousUnbilled, state.items]);
 
   // Compute general warehouse catalog valuation
   const warehouseMetrics = useMemo(() => {
@@ -456,6 +513,12 @@ export default function AnalyticsScreen({ state, t, onUpdateSettings, isLocked, 
   const top10SellingItems = useMemo(() => {
     const productsMap: { [key: string]: { id: string; name: string; qty: number; revenue: number; profit: number; unit: string } } = {};
 
+    const itemsCatalogMap = new Map<string, Item>();
+    state.items.forEach(i => {
+      if (i.id) itemsCatalogMap.set(i.id, i);
+      if (i.name) itemsCatalogMap.set(i.name.toLowerCase().trim(), i);
+    });
+
     currentBills.forEach(bill => {
       bill.items.forEach(sold => {
         if (!productsMap[sold.itemId]) {
@@ -468,16 +531,27 @@ export default function AnalyticsScreen({ state, t, onUpdateSettings, isLocked, 
             unit: sold.unit || 'Pcs'
           };
         }
-        productsMap[sold.itemId].qty += sold.quantity;
-        productsMap[sold.itemId].revenue += sold.price * sold.quantity;
-        productsMap[sold.itemId].profit += (sold.price - (sold.cost || 0)) * sold.quantity;
+        const qty = Number(sold.quantity) || 0;
+        const price = Number(sold.price) || 0;
+        let cost = Number(sold.cost) || 0;
+        if (cost <= 0) {
+          const catItem = itemsCatalogMap.get(sold.itemId) || itemsCatalogMap.get((sold.name || '').toLowerCase().trim());
+          if (catItem && typeof catItem.buyingPrice === 'number' && catItem.buyingPrice > 0) {
+            cost = catItem.buyingPrice;
+          } else {
+            cost = price * 0.75;
+          }
+        }
+        productsMap[sold.itemId].qty += qty;
+        productsMap[sold.itemId].revenue += price * qty;
+        productsMap[sold.itemId].profit += Math.max(0, (price - cost) * qty);
       });
     });
 
     return Object.values(productsMap)
       .sort((a, b) => b.qty - a.qty)
       .slice(0, 10);
-  }, [currentBills]);
+  }, [currentBills, state.items]);
 
   // Extract relative benchmark threshold for progress bars
   const peakLeaderQty = useMemo(() => {
@@ -566,20 +640,21 @@ export default function AnalyticsScreen({ state, t, onUpdateSettings, isLocked, 
           </p>
         </div>
 
-        {/* 4 Professional Segmented buttons optimized for quick mobile touch selection */}
+        {/* Professional Segmented buttons optimized for quick mobile touch selection */}
         <div className="flex items-center bg-[var(--foreground)]/[0.03] p-1 rounded-2xl border border-[var(--border)] self-start md:self-auto w-full md:w-auto overflow-x-auto">
           {([
             { id: 'today', name: t.today || 'Today' },
             { id: 'week', name: t.week || 'Week' },
             { id: 'month', name: t.month || 'Month' },
-            { id: 'year', name: t.year || 'Year' }
+            { id: 'year', name: t.year || 'Year' },
+            { id: 'all', name: t.allTime || 'All Time' }
           ] as const).map(tab => {
             const isSelected = timePeriod === tab.id;
             return (
               <button
                 key={tab.id}
                 onClick={() => setTimePeriod(tab.id)}
-                className={`relative flex-1 md:flex-initial px-5 py-2.5 rounded-xl text-[11px] font-extrabold uppercase tracking-widest transition-all duration-200 cursor-pointer text-center min-w-[75px] ${
+                className={`relative flex-1 md:flex-initial px-4 py-2.5 rounded-xl text-[11px] font-extrabold uppercase tracking-widest transition-all duration-200 cursor-pointer text-center min-w-[70px] ${
                   isSelected 
                     ? 'bg-[var(--primary)] text-white shadow-md' 
                     : 'text-[var(--foreground)]/50 hover:text-[var(--foreground)] bg-transparent'
@@ -694,7 +769,7 @@ export default function AnalyticsScreen({ state, t, onUpdateSettings, isLocked, 
         <MilestonesTab state={state} t={t} />
       ) : (
         <>
-          {currentBills.length === 0 && (
+          {currentBills.length === 0 && currentUnbilled.length === 0 && (
         <motion.div 
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
@@ -705,12 +780,25 @@ export default function AnalyticsScreen({ state, t, onUpdateSettings, isLocked, 
               <AlertTriangle size={18} />
             </div>
             <div className="space-y-0.5">
-              <h4 className="text-[11px] font-black uppercase tracking-tight text-[var(--foreground)]">{t.noBillsDetected || "No billing transactions detected"} ({timePeriod.toUpperCase()})</h4>
+              <h4 className="text-[11px] font-black uppercase tracking-tight text-[var(--foreground)]">
+                {t.noBillsDetected || "No billing or micro-sales transactions detected"} ({timePeriod.toUpperCase()})
+              </h4>
               <p className="text-[9.5px] uppercase tracking-wider text-[var(--foreground)]/50 leading-relaxed font-semibold">
-                {t.noBillsDetectedSub || "Your analytics telemetry pipeline is ready. Perform customer checkouts or save draft POS window actions to visualize live business parameters here."}
+                {rawBills.length > 0 || rawUnbilled.length > 0 
+                  ? `You have ${rawBills.length + rawUnbilled.length} total records in history outside this period.`
+                  : (t.noBillsDetectedSub || "Your analytics telemetry pipeline is ready. Perform customer checkouts or save draft POS window actions to visualize live business parameters here.")
+                }
               </p>
             </div>
           </div>
+          {(rawBills.length > 0 || rawUnbilled.length > 0) && timePeriod !== 'all' && (
+            <button
+              onClick={() => setTimePeriod('all')}
+              className="px-4 py-2 bg-[var(--primary)] text-white text-[10px] font-black uppercase tracking-wider rounded-xl hover:opacity-90 transition-all shadow-sm shrink-0 cursor-pointer"
+            >
+              View All Time ({rawBills.length + rawUnbilled.length} Sales Records)
+            </button>
+          )}
         </motion.div>
       )}
 
@@ -878,6 +966,7 @@ export default function AnalyticsScreen({ state, t, onUpdateSettings, isLocked, 
           state={state} 
           timePeriod={timePeriod} 
           currentBills={currentBills} 
+          currentUnbilled={currentUnbilled}
           themeChartColors={themeChartColors} 
         />
       </div>
@@ -885,8 +974,15 @@ export default function AnalyticsScreen({ state, t, onUpdateSettings, isLocked, 
       {/* Interactive Monthly Sales Goal Hub */}
       <MonthlySalesTargetPanel state={state} t={t} onUpdateSettings={onUpdateSettings} />
 
-
-
+      {/* DEDICATED REAL-TIME UNBILLED RUSH HOUR & MICRO-SALES AUDIT SECTION */}
+      <UnbilledAuditAnalyticsSection
+        state={state}
+        timePeriod={timePeriod}
+        currentBills={currentBills}
+        themeContainerStyle={themeContainerStyle}
+        themeChartColors={themeChartColors}
+        t={t}
+      />
 
       {/* 4. LEADERBOARD LIST (TOP 10 SELLING ITEMS) & WAREHOUSE INTELLIGENCE REPORT */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

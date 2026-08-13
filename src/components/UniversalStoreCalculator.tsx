@@ -7,7 +7,7 @@ import {
   X, Save, Filter, CheckSquare, Square
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn } from '../lib/utils';
+import { cn, countNumericEntries, formatItemCountLabel } from '../lib/utils';
 import { db, handleFirestoreError, OperationType, sanitizeForFirestore } from '../firebase';
 import { 
   collection, addDoc, updateDoc, deleteDoc, doc, 
@@ -38,6 +38,11 @@ export default function UniversalStoreCalculator() {
   const displayInputRef = useRef<HTMLInputElement>(null);
   const [cursorPos, setCursorPos] = useState<number>(0);
   const [calcMemory, setCalcMemory] = useState('0');
+
+  // Live item counter calculating number of numeric entries in current expression
+  const calcItemCount = useMemo(() => {
+    return countNumericEntries(calcInput);
+  }, [calcInput]);
   const [undoStack, setUndoStack] = useState<CalcStateSnapshot[]>([{ input: '', cursor: 0 }]);
   const [redoStack, setRedoStack] = useState<CalcStateSnapshot[]>([]);
   const [recentLogPreview, setRecentLogPreview] = useState<string>('');
@@ -1238,26 +1243,40 @@ export default function UniversalStoreCalculator() {
                   <button
                     type="button"
                     onClick={() => setShowNameModal(true)}
-                    className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all w-[100.5px] h-[21.5px] justify-center ml-[-16px] mr-[7px] mt-[-3px] mb-0 pt-[-8.5px]"
+                    className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all h-[26px]"
                   >
                     <Tag size={12} />
                     <span>+ Name</span>
                   </button>
                 )}
 
-                {/* Right side: Memory Indicator */}
-                {parseFloat(calcMemory) !== 0 && (
-                  <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
-                    M+ ₹{calcMemory}
-                  </span>
-                )}
+                {/* Right side: Live Item Counter & Memory Indicator */}
+                <div className="flex items-center gap-2">
+                  {/* LIVE ITEM COUNTER BADGE */}
+                  <div 
+                    id="universal-calc-item-counter-badge"
+                    className={cn(
+                      "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black tracking-wide transition-all border shadow-xs select-none",
+                      calcItemCount > 0 
+                        ? "bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-amber-500/10" 
+                        : "bg-zinc-800/80 text-zinc-400 border-zinc-700/50 opacity-70"
+                    )}
+                    title="Live Item Counter: Number of numeric entries included in current calculation"
+                  >
+                    <Layers size={13} className={calcItemCount > 0 ? "text-amber-400" : "text-zinc-500"} />
+                    <span>{formatItemCountLabel(calcItemCount)}</span>
+                  </div>
+
+                  {parseFloat(calcMemory) !== 0 && (
+                    <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-1 rounded-lg text-[10px] font-bold">
+                      M+ ₹{calcMemory}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Formula & Status Preview */}
-              <div 
-                className="text-right text-xs text-zinc-400 font-bold truncate min-h-[18px]"
-                style={{ marginTop: '0px', paddingTop: '-1px', paddingBottom: '-1px', paddingRight: '2px', paddingLeft: '0px', marginRight: '-4px', marginLeft: '-13px' }}
-              >
+              <div className="text-right text-xs text-zinc-400 font-bold truncate min-h-[18px]">
                 {recentLogPreview || (calcInput ? 'Tap display to edit digits with finger' : 'Ready')}
               </div>
 
@@ -1511,16 +1530,22 @@ export default function UniversalStoreCalculator() {
                         )}
                       </div>
 
-                      {/* Storage Info Badge */}
-                      {log.storage === 'cloud' ? (
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 flex items-center gap-0.5">
-                          <Cloud size={9} /> Cloud
+                      {/* Item Count & Storage Info Badge */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/15 text-amber-600 dark:text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                          <Layers size={9} className="text-amber-500" />
+                          {formatItemCountLabel(countNumericEntries(log.formula))}
                         </span>
-                      ) : (
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-0.5">
-                          <Smartphone size={9} /> Device
-                        </span>
-                      )}
+                        {log.storage === 'cloud' ? (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 flex items-center gap-0.5">
+                            <Cloud size={9} /> Cloud
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-0.5">
+                            <Smartphone size={9} /> Device
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div

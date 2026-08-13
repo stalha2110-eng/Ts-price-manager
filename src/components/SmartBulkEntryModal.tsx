@@ -18,6 +18,7 @@ import {
 import { Category, Item } from '../types';
 import { UNITS } from '../constants';
 import { cn } from '../lib/utils';
+import { useCustomUnits, useRecentUnits, trackRecentUnit } from '../lib/unitUtils';
 
 interface SmartBulkEntryModalProps {
   isOpen: boolean;
@@ -56,6 +57,11 @@ const KEYWORD_TO_UNIT: { [key: string]: string } = {
   'gm': 'Gram',
   '250gm': '250gm',
   '250g': '250gm',
+  'chatak': 'Chatak',
+  'chattak': 'Chatak',
+  'ctk': 'Chatak',
+  'छटांक': 'Chatak',
+  'छटाक': 'Chatak',
   'packet': 'Packet',
   'pkt': 'Packet',
   'box': 'Box',
@@ -106,6 +112,129 @@ export function SmartBulkEntryModal({
   const [isSaving, setIsSaving] = useState(false);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const [autoSuggestMargin, setAutoSuggestMargin] = useState(true);
+
+  // Custom & Recent Units management
+  const { customUnits, addCustomUnit, removeCustomUnit, allUnitsFlat } = useCustomUnits();
+  const { recentUnits } = useRecentUnits();
+  const [quickNewUnit, setQuickNewUnit] = useState('');
+
+  // Helper renderer for unit selector dropdown in Smart Entry
+  const renderSmartUnitDropdown = (currentValue: string, onSelectUnit: (u: string) => void) => {
+    const handleSelectWithTrack = (u: string) => {
+      trackRecentUnit(u);
+      onSelectUnit(u);
+      setActiveUnitDropdown(null);
+    };
+
+    const sortedStandardUnits = [...UNITS.flatMap(g => g.values)].sort((a, b) => {
+      const idxA = recentUnits.findIndex(r => r.toLowerCase() === a.toLowerCase());
+      const idxB = recentUnits.findIndex(r => r.toLowerCase() === b.toLowerCase());
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return 0;
+    });
+
+    return (
+      <div className="absolute right-0 mt-1 w-48 max-h-64 overflow-y-auto rounded-xl bg-[var(--card)] border border-[var(--border)] shadow-2xl z-40 no-scrollbar p-2 space-y-2">
+        {/* Quick Add Custom Unit Bar inside Smart Entry */}
+        <div className="space-y-1 pb-1.5 border-b border-[var(--border)]">
+          <div className="text-[7.5px] font-black uppercase text-amber-500 tracking-wider">Add Custom Unit</div>
+          <div className="flex gap-1">
+            <input
+              type="text"
+              placeholder="+ e.g. Bora, Rim..."
+              className="w-full bg-[var(--background)] border border-[var(--border)] rounded-md px-1.5 py-0.5 text-[9px] font-bold text-[var(--foreground)] outline-none focus:border-amber-500"
+              value={quickNewUnit}
+              onChange={(e) => setQuickNewUnit(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (quickNewUnit.trim()) {
+                    addCustomUnit(quickNewUnit.trim());
+                    handleSelectWithTrack(quickNewUnit.trim());
+                    setQuickNewUnit('');
+                  }
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                if (quickNewUnit.trim()) {
+                  addCustomUnit(quickNewUnit.trim());
+                  handleSelectWithTrack(quickNewUnit.trim());
+                  setQuickNewUnit('');
+                }
+              }}
+              className="px-2 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-[9px] font-black shrink-0"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+
+        {/* Standard Units List */}
+        <div className="space-y-0.5">
+          <div className="text-[7.5px] font-black uppercase text-zinc-400 tracking-wider px-1">Standard Units</div>
+          <div className="max-h-28 overflow-y-auto no-scrollbar space-y-0.5">
+            {sortedStandardUnits.map(unit => (
+              <button
+                key={unit}
+                type="button"
+                onClick={() => handleSelectWithTrack(unit)}
+                className={cn(
+                  "w-full text-left px-2 py-1 rounded text-[8.5px] font-black tracking-wider transition-colors flex items-center justify-between",
+                  currentValue.toLowerCase() === unit.toLowerCase() ? "text-[var(--primary)] bg-[var(--primary)]/10" : "text-zinc-400 hover:text-white hover:bg-[var(--foreground)]/5"
+                )}
+              >
+                <span>{unit.toUpperCase()}</span>
+                {unit === 'Chatak' && <span className="text-[7px] text-amber-400 font-bold ml-1">50g</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Custom Units List */}
+        {customUnits.length > 0 && (
+          <div className="space-y-0.5 pt-1.5 border-t border-[var(--border)]">
+            <div className="text-[7.5px] font-black uppercase text-amber-500 tracking-wider px-1">Custom Units</div>
+            <div className="max-h-24 overflow-y-auto no-scrollbar space-y-0.5">
+              {customUnits.map(unit => (
+                <div
+                  key={unit}
+                  className={cn(
+                    "w-full px-2 py-0.5 rounded text-[8.5px] font-black tracking-wider flex items-center justify-between transition-colors",
+                    currentValue.toLowerCase() === unit.toLowerCase() ? "text-amber-400 bg-amber-500/10" : "text-zinc-300 hover:bg-[var(--foreground)]/5"
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleSelectWithTrack(unit)}
+                    className="flex-1 text-left truncate pr-1"
+                  >
+                    {unit.toUpperCase()}
+                  </button>
+                  <button
+                    type="button"
+                    title="Remove custom unit"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeCustomUnit(unit);
+                    }}
+                    className="p-0.5 hover:bg-red-500/20 rounded text-red-400 hover:text-red-500 shrink-0"
+                  >
+                    <Trash2 size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   
   // Quick bulk parse state
   const [showQuickParser, setShowQuickParser] = useState(false);
@@ -924,26 +1053,9 @@ export function SmartBulkEntryModal({
                             >
                               {row.retailPriceUnit}
                             </button>
-                            
-                            {/* Retail Unit Selector Dropdown Overlay */}
+                             {/* Retail Unit Selector Dropdown Overlay */}
                             {activeUnitDropdown?.rowIndex === index && activeUnitDropdown?.field === 'retail' && (
-                              <div className="absolute right-0 mt-1 w-24 max-h-40 overflow-y-auto rounded-lg bg-[var(--card)] border border-[var(--border)] shadow-2xl z-30 no-scrollbar py-0.5">
-                                {allUnitsList.map(unit => (
-                                  <button
-                                    key={unit}
-                                    onClick={() => {
-                                      handleUpdateRow(index, { retailPriceUnit: unit });
-                                      setActiveUnitDropdown(null);
-                                    }}
-                                    className={cn(
-                                      "w-full text-left px-2 py-1 text-[8px] font-black tracking-widest hover:bg-zinc-850 transition-colors",
-                                      row.retailPriceUnit === unit ? "text-[var(--primary)] bg-[var(--primary)]/5" : "text-zinc-500 hover:text-zinc-200"
-                                    )}
-                                  >
-                                    {unit.toUpperCase()}
-                                  </button>
-                                ))}
-                              </div>
+                              renderSmartUnitDropdown(row.retailPriceUnit, (unit) => handleUpdateRow(index, { retailPriceUnit: unit }))
                             )}
                           </div>
                         </div>
@@ -991,23 +1103,7 @@ export function SmartBulkEntryModal({
 
                             {/* Wholesale Unit Selector Dropdown Overlay */}
                             {activeUnitDropdown?.rowIndex === index && activeUnitDropdown?.field === 'wholesale' && (
-                              <div className="absolute right-0 mt-1 w-24 max-h-40 overflow-y-auto rounded-lg bg-[var(--card)] border border-[var(--border)] shadow-2xl z-30 no-scrollbar py-0.5">
-                                {allUnitsList.map(unit => (
-                                  <button
-                                    key={unit}
-                                    onClick={() => {
-                                      handleUpdateRow(index, { wholesalePriceUnit: unit });
-                                      setActiveUnitDropdown(null);
-                                    }}
-                                    className={cn(
-                                      "w-full text-left px-2 py-1 text-[8px] font-black tracking-widest hover:bg-zinc-850 transition-colors",
-                                      row.wholesalePriceUnit === unit ? "text-[var(--primary)] bg-[var(--primary)]/5" : "text-zinc-500 hover:text-zinc-200"
-                                    )}
-                                  >
-                                    {unit.toUpperCase()}
-                                  </button>
-                                ))}
-                              </div>
+                              renderSmartUnitDropdown(row.wholesalePriceUnit, (unit) => handleUpdateRow(index, { wholesalePriceUnit: unit }))
                             )}
                           </div>
                         </div>
@@ -1055,23 +1151,7 @@ export function SmartBulkEntryModal({
 
                             {/* Cost Unit Selector Dropdown Overlay */}
                             {activeUnitDropdown?.rowIndex === index && activeUnitDropdown?.field === 'cost' && (
-                              <div className="absolute right-0 mt-1 w-24 max-h-40 overflow-y-auto rounded-lg bg-[var(--card)] border border-[var(--border)] shadow-2xl z-30 no-scrollbar py-0.5">
-                                {allUnitsList.map(unit => (
-                                  <button
-                                    key={unit}
-                                    onClick={() => {
-                                      handleUpdateRow(index, { buyingPriceUnit: unit });
-                                      setActiveUnitDropdown(null);
-                                    }}
-                                    className={cn(
-                                      "w-full text-left px-2 py-1 text-[8px] font-black tracking-widest hover:bg-zinc-850 transition-colors",
-                                      row.buyingPriceUnit === unit ? "text-[var(--primary)] bg-[var(--primary)]/5" : "text-zinc-500 hover:text-zinc-200"
-                                    )}
-                                  >
-                                    {unit.toUpperCase()}
-                                  </button>
-                                ))}
-                              </div>
+                              renderSmartUnitDropdown(row.buyingPriceUnit, (unit) => handleUpdateRow(index, { buyingPriceUnit: unit }))
                             )}
                           </div>
                         </div>

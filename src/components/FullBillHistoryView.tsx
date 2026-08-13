@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { AppState, Bill, TransactionItem, Item } from '../types';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { cn } from '../lib/utils';
+import { cn, calculateBillProfit } from '../lib/utils';
 import { RecoveryService } from '../services/recoveryService';
 import { playFeedbackEvent } from '../services/soundFeedbackService';
 
@@ -123,10 +123,9 @@ export default function FullBillHistoryView({ state, onUpdateState }: FullBillHi
 
   const todayNetProfit = useMemo(() => {
     return todayBills.reduce((sum, b) => {
-      const billProfit = b.items.reduce((acc, it) => acc + ((it.price - (it.cost || 0)) * it.quantity), 0) - (b.subtotal * (b.discount / 100));
-      return sum + billProfit;
+      return sum + calculateBillProfit(b, state.items);
     }, 0);
-  }, [todayBills]);
+  }, [todayBills, state.items]);
 
   const totalInvoiced = useMemo(() => {
     return invoicesList.reduce((sum, b) => sum + b.total, 0);
@@ -134,10 +133,9 @@ export default function FullBillHistoryView({ state, onUpdateState }: FullBillHi
 
   const totalMarginAllTime = useMemo(() => {
     return invoicesList.reduce((sum, b) => {
-      const billProfit = b.items.reduce((acc, it) => acc + ((it.price - (it.cost || 0)) * it.quantity), 0) - (b.subtotal * (b.discount / 100));
-      return sum + billProfit;
+      return sum + calculateBillProfit(b, state.items);
     }, 0);
-  }, [invoicesList]);
+  }, [invoicesList, state.items]);
 
   const averageBillValue = useMemo(() => {
     if (invoicesList.length === 0) return 0;
@@ -226,7 +224,7 @@ export default function FullBillHistoryView({ state, onUpdateState }: FullBillHi
         console.error(e);
       }
       
-      const billProfit = bill.items.reduce((acc, it) => acc + ((it.price - (it.cost || 0)) * it.quantity), 0) - (bill.subtotal * (bill.discount / 100));
+      const billProfit = calculateBillProfit(bill, state.items);
       
       let group = list.find(g => g.dateLabel === dateLabel);
       if (!group) {
@@ -356,8 +354,7 @@ export default function FullBillHistoryView({ state, onUpdateState }: FullBillHi
 
       const totalSales = filteredBills.reduce((s, b) => s + b.total, 0);
       const totalProfit = filteredBills.reduce((s, b) => {
-        const p = b.items.reduce((acc, it) => acc + ((it.price - (it.cost || 0)) * it.quantity), 0) - (b.subtotal * (b.discount / 100));
-        return s + p;
+        return s + calculateBillProfit(b, state.items);
       }, 0);
 
       doc.setFont("helvetica", "bold");
@@ -907,7 +904,7 @@ export default function FullBillHistoryView({ state, onUpdateState }: FullBillHi
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {group.bills.map(bill => {
                   const itemsCount = bill.items.reduce((sum, it) => sum + it.quantity, 0);
-                  const billProfit = bill.items.reduce((acc, it) => acc + ((it.price - (it.cost || 0)) * it.quantity), 0) - (bill.subtotal * (bill.discount / 100));
+                  const billProfit = calculateBillProfit(bill, state.items);
 
                   return (
                     <div

@@ -8,15 +8,25 @@ async function startServer() {
 
   app.use(express.json({ limit: "10mb" }));
 
-  // Lazy initializer for the Gemini SDK
-  let aiClient: GoogleGenAI | null = null;
-  function getAIClient(): GoogleGenAI {
-    if (!aiClient) {
+  // Lazy initializer for the Gemini SDK with custom user API key support
+  let defaultAiClient: GoogleGenAI | null = null;
+  function getAIClient(customApiKey?: string): GoogleGenAI {
+    if (customApiKey && customApiKey.trim()) {
+      return new GoogleGenAI({
+        apiKey: customApiKey.trim(),
+        httpOptions: {
+          headers: {
+            "User-Agent": "aistudio-build-custom-key",
+          },
+        },
+      });
+    }
+    if (!defaultAiClient) {
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
         throw new Error("GEMINI_API_KEY environment variable is not defined in the secrets of this applet.");
       }
-      aiClient = new GoogleGenAI({
+      defaultAiClient = new GoogleGenAI({
         apiKey: apiKey,
         httpOptions: {
           headers: {
@@ -25,18 +35,18 @@ async function startServer() {
         },
       });
     }
-    return aiClient;
+    return defaultAiClient;
   }
 
   // 1. Voice Parsing Endpoint
   app.post("/api/voice/parse", async (req, res) => {
     try {
-      const { transcript, categories } = req.body;
+      const { transcript, categories, apiKey: customApiKey } = req.body;
       if (!transcript || !transcript.trim()) {
         return res.status(400).json({ error: "Transcript is empty or missing" });
       }
 
-      const ai = getAIClient();
+      const ai = getAIClient(customApiKey);
       const systemInstruction = `You are a professional retail and grocery inventory management AI specializing in Indian languages, English, and regional dialects (Hinglish, Marathinglish, pure Hindi, pure Marathi, colloquial phrases, and shopkeeper jargon).
 Your task is to analyze raw voice recognition transcripts (which may contain typos or run-on words because of speech-to-text limitations) and convert them into a structured database list of products.
 
@@ -82,9 +92,8 @@ Available Categories: ${categoryNames}`;
       // Model-cascading retry strategy to survive transient 503 UNAVAILABLE or high demand gracefully
       const generateWithModelCascade = async (): Promise<any> => {
         const candidateModels = [
-          "gemini-2.5-flash",
-          "gemini-2.0-flash",
-          "gemini-1.5-flash"
+          "gemini-3.6-flash",
+          "gemini-flash-latest"
         ];
         
         let lastError: any = null;
@@ -195,6 +204,41 @@ Available Categories: ${categoryNames}`;
         .replace(/failed/gi, "unsuccessful");
       console.warn("Gemini Parse API issue encountered:", sanitizedMsg);
       return res.status(500).json({ error: "Failed to process speech transcript" });
+    }
+  });
+
+  // Test Custom Gemini API Key Endpoint
+  app.post("/api/voice/test-key", async (req, res) => {
+    try {
+      const { apiKey } = req.body;
+      if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+        return res.status(400).json({ success: false, error: "API key is empty or invalid." });
+      }
+
+      const testAi = getAIClient(apiKey.trim());
+      let response: any = null;
+      try {
+        response = await testAi.models.generateContent({
+          model: "gemini-3.6-flash",
+          contents: "Respond with the word OK if active.",
+        });
+      } catch (e) {
+        // Backup test model
+        response = await testAi.models.generateContent({
+          model: "gemini-flash-latest",
+          contents: "Respond with the word OK if active.",
+        });
+      }
+
+      if (response && response.text) {
+        return res.json({ success: true, message: "Custom Gemini API Key validated successfully!" });
+      }
+      return res.status(400).json({ success: false, error: "Received empty response from Gemini model." });
+    } catch (err: any) {
+      const sanitizedMsg = (err.message || String(err))
+        .replace(/error/gi, "issue")
+        .replace(/failed/gi, "unsuccessful");
+      return res.status(400).json({ success: false, error: sanitizedMsg });
     }
   });
 

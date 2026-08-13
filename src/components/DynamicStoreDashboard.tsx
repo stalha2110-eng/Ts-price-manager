@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { AppState, Bill, AppSettings, Item, UdharCustomer, UdharTransaction } from '../types';
 import { Button } from './ui/Button';
-import { cn, formatCurrency } from '../lib/utils';
+import { cn, formatCurrency, calculateBillProfit } from '../lib/utils';
 import { RecoveryService } from '../services/recoveryService';
 
 // Card ID Definition
@@ -114,11 +114,7 @@ export default function DynamicStoreDashboard({
   }, [state.bills, todayStr]);
 
   const getBillProfit = (b: Bill) => {
-    const itemsProfit = (b.items || []).reduce((sum, item) => sum + (((item.price || 0) - (item.cost || 0)) * (item.quantity || 0)), 0);
-    if (b.discount && b.discount > 0) {
-      return itemsProfit * (1 - (b.discount / 100));
-    }
-    return itemsProfit;
+    return calculateBillProfit(b, state.items);
   };
 
   const dailyProgress = useMemo(() => {
@@ -129,7 +125,7 @@ export default function DynamicStoreDashboard({
       profit += getBillProfit(b);
     });
     return { sales, profit, count: todaysBills.length };
-  }, [todaysBills]);
+  }, [todaysBills, state.items]);
 
   // Inventory value & counts
   const totalValue = useMemo(() => {

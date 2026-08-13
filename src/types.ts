@@ -58,6 +58,14 @@ export interface Item {
   minStockLevel?: number;
 }
 
+export interface CustomApiKeyItem {
+  id: string;
+  name: string;
+  key: string;
+  createdAt: string;
+  status?: 'active' | 'untested' | 'verified' | 'failed';
+}
+
 export interface AppSettings {
   theme: ThemeType;
   language: LanguageType;
@@ -93,6 +101,9 @@ export interface AppSettings {
   salesAlertNotify?: boolean;
   aiNotify?: boolean;
   dailySummaryTime?: string;
+  customApiKeys?: CustomApiKeyItem[];
+  activeApiKeyId?: string | null;
+  customApiKey?: string;
   // --- Business Mode System ---
   businessMode?: 'kirana' | 'wholesale' | 'restaurant' | 'hotel' | 'mobile_shop' | 'hardware' | 'general';
   
@@ -221,6 +232,8 @@ export interface AppSettings {
   enableInstantLanguageRefresh?: boolean;
   showLanguagePreview?: boolean;
   autoTranslateVoiceProducts?: boolean;
+  // --- Custom Units Management ---
+  customUnits?: string[];
 }
 
 export interface InAppNotification {
@@ -262,6 +275,16 @@ export interface UdharTransaction {
   dueDate?: string; // Optional due date for the payment
 }
 
+export interface UnbilledEntry {
+  id: string;
+  amount: number;
+  category: string;
+  timestamp: number;
+  dateStr: string;
+  cashier?: string;
+  note?: string;
+}
+
 export interface AppState {
   items: Item[];
   notes: Note[];
@@ -274,6 +297,7 @@ export interface AppState {
   bills?: Bill[];
   udharCustomers?: UdharCustomer[];
   udharTransactions?: UdharTransaction[];
+  unbilledEntries?: UnbilledEntry[];
 }
 
 export interface TransactionItem {
@@ -347,6 +371,7 @@ export interface BusinessShift {
   closingCash: number;
   totalSales: number;
   totalProfit: number;
+  cashierName?: string;
   totalBills: number;
   totalPrints: number;
   pendingUdhar: number;

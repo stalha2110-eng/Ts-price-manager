@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, sanitizeForFirestore, handleFirestoreError, OperationType, getMessagingInstance } from '../firebase';
 import { InAppNotification, DeviceRegistration } from '../types';
+import { getNormalizedDateKey, parseTimestamp } from '../lib/utils';
 
 import { 
   playSynthesizedSound, 
@@ -77,6 +78,7 @@ export class NotificationService {
   private static onMessageUnsubscribe: (() => void) | null = null;
   private static listenerStartedAt: number = Date.now();
   private static isSubscribedToTokens: boolean = false;
+  private static lastDailySummarySentDate: string | null = null;
 
   /**
    * Initialize standard listeners for real-time notification sync from Firestore.
@@ -446,20 +448,56 @@ export class NotificationService {
     userId: string | null,
     bills: any[],
     settings: any,
+    existingNotifications: InAppNotification[] = [],
+    onUpdateSettings?: (updatedSettings: any) => void,
     forceTrigger: boolean = false
   ) {
     if (!userId || userId === 'guest_user') return;
-    if (settings.dailySummaryNotify === false) return;
+    if (settings?.dailySummaryNotify === false) return;
 
     try {
-      const lastSentDate = localStorage.getItem('last_daily_sum_sent');
+      const todayDateKey = getNormalizedDateKey(new Date());
       const todayStr = new Date().toDateString();
+      const lastSentDate = localStorage.getItem('last_daily_sum_sent');
+      const settingsLastSent = settings?.lastDailySummarySentDate;
 
       // Trigger once per day or when explicitly forced (via admin sandbox or scheduler click)
-      if (lastSentDate === todayStr && !forceTrigger) return;
+      if (!forceTrigger) {
+        if (
+          lastSentDate === todayDateKey || 
+          lastSentDate === todayStr || 
+          this.lastDailySummarySentDate === todayDateKey || 
+          this.lastDailySummarySentDate === todayStr ||
+          settingsLastSent === todayDateKey ||
+          settingsLastSent === todayStr
+        ) {
+          return;
+        }
 
-      const summaryTime = settings.dailySummaryTime || "20:00";
-      const [shour, smin] = summaryTime.split(':').map(Number);
+        // Additional safeguard: Check if a daily summary notification already exists for today
+        if (Array.isArray(existingNotifications) && existingNotifications.length > 0) {
+          const alreadyHasTodaySummary = existingNotifications.some(n => {
+            const isSummaryCat = n.category === 'analytics' || n.title?.includes('Daily Summary') || n.title?.includes('दैनिक सारांश');
+            if (isSummaryCat) {
+              const notifDateKey = getNormalizedDateKey(n.timestamp);
+              return notifDateKey === todayDateKey;
+            }
+            return false;
+          });
+
+          if (alreadyHasTodaySummary) {
+            this.lastDailySummarySentDate = todayDateKey;
+            try { localStorage.setItem('last_daily_sum_sent', todayDateKey); } catch (e) {}
+            if (onUpdateSettings && settingsLastSent !== todayDateKey) {
+              onUpdateSettings({ ...settings, lastDailySummarySentDate: todayDateKey });
+            }
+            return;
+          }
+        }
+      }
+
+      const summaryTime = settings?.dailySummaryTime || "20:00";
+      const [shour, smin] = (summaryTime.includes(':') ? summaryTime : "20:00").split(':').map(Number);
       const currentTime = new Date();
       
       const currentHours = currentTime.getHours();
@@ -469,14 +507,28 @@ export class NotificationService {
       const isTargetTime = (currentHours > shour) || (currentHours === shour && currentMinutes >= smin);
 
       if (isTargetTime || forceTrigger) {
-        // Calculate today's sales and profits
-        const todayBills = bills.filter(b => {
-          const billDate = new Date(b.timestamp);
-          return billDate.toDateString() === todayStr;
+        // Mark as sent IMMEDIATELY synchronously across all memory/storage channels to prevent repeat triggers
+        if (!forceTrigger) {
+          this.lastDailySummarySentDate = todayDateKey;
+          try {
+            localStorage.setItem('last_daily_sum_sent', todayDateKey);
+          } catch (e) {}
+          if (onUpdateSettings) {
+            onUpdateSettings({ ...settings, lastDailySummarySentDate: todayDateKey });
+          }
+        }
+
+        // Calculate today's sales and profits accurately using parseTimestamp
+        const todayBills = (bills || []).filter(b => {
+          if (!b?.timestamp) return false;
+          return getNormalizedDateKey(b.timestamp) === todayDateKey;
         });
 
-        const totalSalesSum = todayBills.reduce((acc, b) => acc + (b.total || 0), 0);
-        const totalProfitSum = todayBills.reduce((acc, b) => acc + ((b.total || 0) - (b.subtotal * 0.8)), 0); // Approx cost ratio or actual cost
+        const totalSalesSum = todayBills.reduce((acc, b) => acc + (Number(b.total) || 0), 0);
+        const totalProfitSum = todayBills.reduce((acc, b) => {
+          if (typeof b.profit === 'number') return acc + b.profit;
+          return acc + ((Number(b.total) || 0) - ((Number(b.subtotal) || 0) * 0.8));
+        }, 0);
 
         const billCount = todayBills.length;
 
@@ -492,8 +544,6 @@ export class NotificationService {
           category: 'analytics',
           timestamp: new Date().toISOString(),
           deepLink: { screen: 'analytics' }
-        }).then(() => {
-          localStorage.setItem('last_daily_sum_sent', todayStr);
         }).catch(console.error);
       }
     } catch (err) {

@@ -20,9 +20,18 @@ import {
   Clock,
   Mail,
   Cloud,
-  AlertTriangle
+  AlertTriangle,
+  Key,
+  Plus,
+  Trash2,
+  Eye,
+  EyeOff,
+  Check,
+  Sparkles,
+  Cpu,
+  Zap
 } from 'lucide-react';
-import { AppState, AppSettings, ThemeType, LanguageType } from '../types';
+import { AppState, AppSettings, ThemeType, LanguageType, CustomApiKeyItem } from '../types';
 import { 
   playNotificationChime, 
   triggerVibration, 
@@ -55,6 +64,105 @@ export default function SettingsScreen({
   const [localActiveSubTab, setLocalActiveSubTab] = useState<'interface' | 'security' | 'sound' | 'data'>('interface');
   const activeSubTab = externalActiveSubTab || localActiveSubTab;
   const setActiveSubTab = onChangeSubTab || setLocalActiveSubTab;
+
+  // Custom API Key Management State
+  const [showAddKeyModal, setShowAddKeyModal] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [newKeyValue, setNewKeyValue] = useState('');
+  const [keyVisibilityMap, setKeyVisibilityMap] = useState<{ [id: string]: boolean }>({});
+  const [testingKeyId, setTestingKeyId] = useState<string | null>(null);
+  const [keyTestResults, setKeyTestResults] = useState<{ [id: string]: { success: boolean; message: string } }>({});
+  const [addKeyError, setAddKeyError] = useState<string | null>(null);
+
+  const customKeysList = state.settings.customApiKeys || [];
+  const activeKeyId = state.settings.activeApiKeyId;
+  const isDefaultActive = !activeKeyId || activeKeyId === 'default';
+  const activeKeyObj = !isDefaultActive ? customKeysList.find(k => k.id === activeKeyId) : null;
+
+  const handleTestKey = async (keyId: string, keyValue: string) => {
+    setTestingKeyId(keyId);
+    setKeyTestResults(prev => ({ ...prev, [keyId]: { success: false, message: 'Testing key connection...' } }));
+    try {
+      const res = await fetch('/api/voice/test-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: keyValue })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setKeyTestResults(prev => ({
+          ...prev,
+          [keyId]: { success: true, message: data.message || 'Key verified successfully!' }
+        }));
+      } else {
+        setKeyTestResults(prev => ({
+          ...prev,
+          [keyId]: { success: false, message: data.error || 'Failed to validate API key.' }
+        }));
+      }
+    } catch (e: any) {
+      setKeyTestResults(prev => ({
+        ...prev,
+        [keyId]: { success: false, message: e.message || 'Network error while testing key.' }
+      }));
+    } finally {
+      setTestingKeyId(null);
+    }
+  };
+
+  const handleAddCustomKey = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newKeyValue.trim()) {
+      setAddKeyError('Please enter a valid Gemini API key.');
+      return;
+    }
+    const keyVal = newKeyValue.trim();
+    const nameVal = newKeyName.trim() || `API Key ${(customKeysList.length + 1)}`;
+    const newKeyObj: CustomApiKeyItem = {
+      id: `key_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      name: nameVal,
+      key: keyVal,
+      createdAt: new Date().toISOString(),
+      status: 'untested'
+    };
+
+    const updatedKeys = [...customKeysList, newKeyObj];
+
+    onUpdate({
+      customApiKeys: updatedKeys,
+      activeApiKeyId: newKeyObj.id,
+      customApiKey: newKeyObj.key
+    });
+
+    setNewKeyName('');
+    setNewKeyValue('');
+    setAddKeyError(null);
+    setShowAddKeyModal(false);
+  };
+
+  const handleDeleteKey = (keyId: string) => {
+    const updatedKeys = customKeysList.filter(k => k.id !== keyId);
+    const isCurrentlyActive = activeKeyId === keyId;
+    const newActiveId = isCurrentlyActive
+      ? (updatedKeys.length > 0 ? updatedKeys[0].id : 'default')
+      : activeKeyId;
+    
+    const newActiveKeyVal = updatedKeys.find(k => k.id === newActiveId)?.key;
+
+    onUpdate({
+      customApiKeys: updatedKeys,
+      activeApiKeyId: newActiveId,
+      customApiKey: newActiveKeyVal || undefined
+    });
+  };
+
+  const handleSelectActiveKey = (keyId: string) => {
+    const selectedObj = customKeysList.find(k => k.id === keyId);
+    onUpdate({
+      activeApiKeyId: keyId,
+      customApiKey: selectedObj ? selectedObj.key : undefined
+    });
+  };
 
   const accentOptions = [
     { id: 'indigo', color: '#6366f1' },
@@ -494,6 +602,208 @@ export default function SettingsScreen({
                         variant="ghost"
                       >+</Button>
                     </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* 🔑 Voice Assistant & Gemini API Keys Section */}
+              <section className="space-y-6">
+                <div className="flex items-center gap-4">
+                  <div className="h-1 w-8 bg-amber-500 opacity-30 rounded-full" />
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-amber-500">
+                    Voice Assistant &amp; Gemini API Keys
+                  </label>
+                </div>
+
+                <div className="card p-8 rounded-[3rem] border-[var(--border)] bg-[var(--card)] space-y-8 shadow-2xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-[50px] rounded-full" />
+                  
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Key className="text-amber-500" size={18} />
+                        <h4 className="font-black uppercase tracking-tight text-sm text-[var(--foreground)]">
+                          API Key Orchestrator
+                        </h4>
+                      </div>
+                      <p className="text-[10px] opacity-60 font-medium mt-1 leading-relaxed text-[var(--foreground)] max-w-xl">
+                        The app uses the default built-in system key. Add your custom Gemini API key(s) here for Voice Product Assistant and AI services to use your custom quotas or account limits.
+                      </p>
+                    </div>
+
+                    <Button
+                      onClick={() => {
+                        setAddKeyError(null);
+                        setShowAddKeyModal(true);
+                      }}
+                      className="rounded-full px-6 h-11 text-[11px] uppercase font-black bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 shadow-lg flex items-center gap-2 shrink-0"
+                    >
+                      <Plus size={16} /> Add Custom API Key
+                    </Button>
+                  </div>
+
+                  {/* Active Key Indicator Status Card */}
+                  <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-500 shrink-0">
+                        <Sparkles size={18} />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-black tracking-widest text-amber-500 uppercase block">Active AI Engine Key</span>
+                        <p className="text-xs font-bold text-[var(--foreground)]">
+                          {activeKeyObj 
+                            ? `Custom Key: ${activeKeyObj.name} (${activeKeyObj.key.slice(0, 6)}...${activeKeyObj.key.slice(-4)})`
+                            : 'Default System Gemini Key (Built-in)'
+                          }
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-extrabold px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase tracking-wider self-start sm:self-auto">
+                      ✓ Operational
+                    </span>
+                  </div>
+
+                  {/* Available Keys List */}
+                  <div className="space-y-3 pt-2">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-[var(--foreground)] opacity-50 block">
+                      Configured Keys Hierarchy
+                    </label>
+
+                    {/* Default System Key Option */}
+                    <div className={cn(
+                      "p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3",
+                      isDefaultActive 
+                        ? "bg-indigo-500/10 border-indigo-500/40 ring-1 ring-indigo-500/30" 
+                        : "bg-[var(--card)] border-[var(--border)] opacity-80 hover:opacity-100"
+                    )}>
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400">
+                          <Cpu size={18} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs text-[var(--foreground)]">Default System API Key</span>
+                            {isDefaultActive && (
+                              <span className="text-[9px] font-black bg-indigo-500 text-white px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                Active Default
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] opacity-50 font-mono block mt-0.5">Built-in Applet Gemini Key</span>
+                        </div>
+                      </div>
+
+                      {!isDefaultActive && (
+                        <Button
+                          variant="outline"
+                          onClick={() => handleSelectActiveKey('default')}
+                          className="h-8 rounded-xl text-[10px] uppercase font-black px-4 self-start sm:self-auto"
+                        >
+                          Use Default Key
+                        </Button>
+                      )}
+                    </div>
+
+                    {/* Custom Keys List */}
+                    {customKeysList.map((item) => {
+                      const isActive = activeKeyId === item.id || (!activeKeyId && customKeysList[0]?.id === item.id);
+                      const isRevealed = !!keyVisibilityMap[item.id];
+                      const testResult = keyTestResults[item.id];
+                      const isTesting = testingKeyId === item.id;
+
+                      return (
+                        <div key={item.id} className={cn(
+                          "p-4 rounded-2xl border transition-all space-y-3",
+                          isActive 
+                            ? "bg-amber-500/10 border-amber-500/40 ring-1 ring-amber-500/30" 
+                            : "bg-[var(--card)] border-[var(--border)]"
+                        )}>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-start gap-3">
+                              <div className="p-2 rounded-xl bg-amber-500/20 text-amber-500 shrink-0 mt-0.5 sm:mt-0">
+                                <Key size={18} />
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-xs text-[var(--foreground)]">{item.name}</span>
+                                  {isActive && (
+                                    <span className="text-[9px] font-black bg-amber-500 text-slate-950 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                      Active Key
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="font-mono text-[11px] opacity-70 bg-black/20 px-2 py-0.5 rounded border border-white/10">
+                                    {isRevealed 
+                                      ? item.key 
+                                      : `${item.key.slice(0, 6)}••••••••••••${item.key.slice(-4)}`
+                                    }
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setKeyVisibilityMap(prev => ({ ...prev, [item.id]: !isRevealed }))}
+                                    className="text-xs opacity-50 hover:opacity-100 p-1"
+                                    title={isRevealed ? "Hide Key" : "Show Key"}
+                                  >
+                                    {isRevealed ? <EyeOff size={14} /> : <Eye size={14} />}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                              {!isActive && (
+                                <Button
+                                  variant="outline"
+                                  onClick={() => handleSelectActiveKey(item.id)}
+                                  className="h-8 rounded-xl text-[10px] uppercase font-black px-3 border-amber-500/30 text-amber-500 hover:bg-amber-500/10"
+                                >
+                                  Activate
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                disabled={isTesting}
+                                onClick={() => handleTestKey(item.id, item.key)}
+                                className="h-8 rounded-xl text-[10px] uppercase font-extrabold px-3 bg-white/5 hover:bg-white/10 flex items-center gap-1.5"
+                              >
+                                {isTesting ? (
+                                  <>
+                                    <RefreshCw size={12} className="animate-spin text-amber-500" />
+                                    Testing...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Zap size={12} className="text-amber-400" />
+                                    Test
+                                  </>
+                                )}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                onClick={() => handleDeleteKey(item.id)}
+                                className="h-8 rounded-xl text-[10px] uppercase font-bold px-2.5 text-rose-500 hover:bg-rose-500/10"
+                                title="Delete Key"
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </div>
+                          </div>
+
+                          {testResult && (
+                            <div className={cn(
+                              "text-[10px] font-bold px-3 py-1.5 rounded-xl border flex items-center gap-2",
+                              testResult.success 
+                                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" 
+                                : "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                            )}>
+                              {testResult.success ? <Check size={12} /> : <AlertTriangle size={12} />}
+                              <span>{testResult.message}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </section>
@@ -1265,6 +1575,94 @@ export default function SettingsScreen({
              <ArrowRight size={20} className="opacity-0 group-hover:opacity-100 transition-all -translate-x-4 group-hover:translate-x-0 text-[var(--foreground)]" />
            </Button>
         </section>
+
+        {/* Add Custom API Key Modal */}
+        <AnimatePresence>
+          {showAddKeyModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="card w-full max-w-md p-6 rounded-[2.5rem] border-[var(--border)] bg-[var(--card)] shadow-2xl space-y-5 relative"
+              >
+                <div className="flex items-center justify-between border-b border-[var(--border)] pb-4">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-amber-500/20 text-amber-500">
+                      <Key size={20} />
+                    </div>
+                    <div>
+                      <h3 className="font-black uppercase tracking-tight text-sm text-[var(--foreground)]">Add Custom Gemini API Key</h3>
+                      <p className="text-[10px] opacity-50 font-medium">Use custom quota for Voice Assistant &amp; AI</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowAddKeyModal(false)}
+                    className="p-1 rounded-full text-zinc-400 hover:text-white"
+                  >
+                    <XCircle size={20} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleAddCustomKey} className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-wider text-[var(--foreground)] opacity-70 block mb-1">
+                      Key Name / Alias
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. My Personal Gemini Key"
+                      value={newKeyName}
+                      onChange={(e) => setNewKeyName(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-[var(--border)] text-xs font-semibold focus:outline-none focus:border-amber-500 text-[var(--foreground)]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-wider text-[var(--foreground)] opacity-70 block mb-1">
+                      Gemini API Key <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="AIzaSy..."
+                      value={newKeyValue}
+                      onChange={(e) => setNewKeyValue(e.target.value)}
+                      required
+                      className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-[var(--border)] font-mono text-xs focus:outline-none focus:border-amber-500 text-[var(--foreground)]"
+                    />
+                    <p className="text-[9px] opacity-50 mt-1.5">
+                      💡 Get a free API key from <a href="https://aistudio.google.com" target="_blank" rel="noopener noreferrer" className="text-amber-400 underline">Google AI Studio</a>.
+                    </p>
+                  </div>
+
+                  {addKeyError && (
+                    <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold flex items-center gap-2">
+                      <AlertTriangle size={14} />
+                      <span>{addKeyError}</span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end gap-3 pt-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setShowAddKeyModal(false)}
+                      className="rounded-full px-5 h-10 text-[11px] uppercase font-bold"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      className="rounded-full px-6 h-10 text-[11px] uppercase font-black bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-lg"
+                    >
+                      Save &amp; Activate Key
+                    </Button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.div>
   );

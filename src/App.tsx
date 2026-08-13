@@ -85,6 +85,7 @@ import {
   Paperclip,
   Zap,
   Check,
+  Save,
   Menu,
   Eye,
   EyeOff,
@@ -129,6 +130,7 @@ import BillHistoryDrawer from './components/BillHistoryDrawer';
 import NotificationCenter from './components/NotificationCenter';
 import PrinterSettingsScreen from './components/PrinterSettingsScreen';
 import { LatestAchievementWidget } from './components/MilestonesTab';
+import { UnbilledQuickLedgerWidget } from './components/UnbilledQuickLedgerWidget';
 import DynamicStoreDashboard from './components/DynamicStoreDashboard';
 import { AnimatedBillingIcon } from './components/AnimatedBillingIcon';
 import { AnimatedHomeIcon } from './components/AnimatedHomeIcon';
@@ -137,6 +139,7 @@ import { AnimatedUdharIcon } from './components/AnimatedUdharIcon';
 import { AnimatedPlusIcon } from './components/AnimatedPlusIcon';
 import { playFeedbackEvent, playSynthesizedSound, playWelcomeAnnouncement } from './services/soundFeedbackService';
 import { getCalculatedAchievements, Milestone, downloadCertificateOfMilestone, ensureIsoString } from './lib/achievementUtils';
+import { getUnbilledEntries, saveUnbilledEntries } from './lib/unbilledStorage';
 import { 
   db, 
   auth, 
@@ -178,7 +181,8 @@ import {
   DeviceRegistration,
   HistoryEntry,
   BusinessGoal,
-  BusinessShift
+  BusinessShift,
+  UnbilledEntry
 } from './types';
 import { 
   NotificationService, 
@@ -196,8 +200,10 @@ import {
 import { 
   cn, 
   formatCurrency, 
-  formatNumber 
+  formatNumber,
+  parseTimestamp
 } from './lib/utils';
+import { trackRecentUnit, useRecentUnits } from './lib/unitUtils';
 import { translateItemName, getSmartNoteCategorization } from './services/translationService';
 import { cleanAndValidateText } from './services/languageEngine';
 import { VoiceProductAssistant } from './components/VoiceProductAssistant';
@@ -500,6 +506,7 @@ const getInitialState = (): AppState => {
     bills: deduplicateById(bills),
     udharCustomers: deduplicateById(udharCustomers),
     udharTransactions: deduplicateById(udharTransactions),
+    unbilledEntries: getUnbilledEntries(),
   };
 };
 
@@ -714,7 +721,7 @@ function NotificationBar({
                  </div>
               </div>
             </motion.div>
-          )}
+        )}
         </AnimatePresence>
       </div>
     </div>
@@ -1058,9 +1065,16 @@ export default function App() {
     NotificationService.checkAndTriggerDailySummary(
       state.user?.uid || null,
       state.bills || [],
-      state.settings
+      state.settings,
+      notifications,
+      (updatedSettings) => {
+        setState(prev => ({
+          ...prev,
+          settings: updatedSettings
+        }));
+      }
     );
-  }, [currentTime, state.user, state.bills, state.settings]);
+  }, [currentTime, state.user, state.bills, state.settings, notifications]);
 
   // Automated background cloud backup plan observer
   useEffect(() => {
@@ -2722,13 +2736,14 @@ export default function App() {
             subtotal: typeof data.subtotal === 'number' ? data.subtotal : 0,
             total: typeof data.total === 'number' ? data.total : 0,
             paymentMethod: data.paymentMethod || 'Cash',
-            timestamp: data.timestamp || new Date().toISOString(),
+            timestamp: parseTimestamp(data.timestamp || new Date()).toISOString(),
             deviceId: data.deviceId || '',
             deviceName: data.deviceName || ''
           });
         }
       });
       
+      setAnalyticsRenderKey(k => k + 1);
       setState(prev => {
         const localBills = prev.bills || [];
         const unsyncedBills = localBills.filter(lb => !billsList.some(cb => cb.id === lb.id));
@@ -2743,10 +2758,8 @@ export default function App() {
           const merged = [...billsList, ...unsyncedBills].sort((a, b) => 
             new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
           );
-          setAnalyticsRenderKey(k => k + 1);
           return { ...prev, bills: deduplicateById(merged) };
         }
-        setAnalyticsRenderKey(k => k + 1);
         return { ...prev, bills: deduplicateById(billsList) };
       });
     }, (error) => {
@@ -2756,11 +2769,54 @@ export default function App() {
       }
     });
 
+    // Sync Unbilled Micro-Sales Ledger Entries
+    const unbilledRef = collection(db, 'users', state.user.uid, 'unbilledEntries');
+    const unsubUnbilled = onSnapshot(query(unbilledRef, orderBy('timestamp', 'desc')), (snap) => {
+      const unbilledList: UnbilledEntry[] = [];
+      snap.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data) {
+          unbilledList.push({
+            id: docSnap.id,
+            amount: typeof data.amount === 'number' ? data.amount : Number(data.amount) || 0,
+            category: data.category || 'General',
+            timestamp: typeof data.timestamp === 'number' ? data.timestamp : parseTimestamp(data.timestamp || data.dateStr).getTime(),
+            dateStr: data.dateStr || new Date().toISOString(),
+            cashier: data.cashier || 'Store Cashier',
+            note: data.note || ''
+          });
+        }
+      });
+      
+      const localEntries = getUnbilledEntries();
+      const unsyncedEntries = localEntries.filter(le => !unbilledList.some(ue => ue.id === le.id));
+      let finalUnbilled = unbilledList;
+      if (unsyncedEntries.length > 0) {
+        unsyncedEntries.forEach(async (entry) => {
+          try {
+            await setDoc(doc(db, 'users', state.user!.uid, 'unbilledEntries', entry.id), entry);
+          } catch (e) {
+            console.error("Self-healing background unbilled entry upload failed:", e);
+          }
+        });
+        finalUnbilled = [...unbilledList, ...unsyncedEntries].sort((a, b) => b.timestamp - a.timestamp);
+      }
+
+      saveUnbilledEntries(finalUnbilled);
+      setAnalyticsRenderKey(k => k + 1);
+      setState(prev => ({ ...prev, unbilledEntries: finalUnbilled }));
+    }, (error) => {
+      if (auth.currentUser) {
+        console.error("Unbilled entries sync error:", error);
+      }
+    });
+
     return () => {
       unsubSettings();
       unsubItems();
       unsubNotes();
       unsubBills();
+      unsubUnbilled();
     };
   }, [state.user, state.settings.autoCloudSync]);
 
@@ -4048,7 +4104,7 @@ export default function App() {
               )}
             </div>
           </motion.div>
-        )}
+      )}
       </AnimatePresence>
 
       {/* 🔔 PREMIUM REAL-TIME NOTIFICATION POPUP PORTAL */}
@@ -4138,31 +4194,37 @@ export default function App() {
         </AnimatePresence>
       </div>
 
-      {/* 🔮 CUSTOM TOAST SYSTEM PORTAL */}
+      {/* 🔮 CUSTOM TOAST SYSTEM PORTAL (TOP OF DASHBOARD BANNER) */}
       <AnimatePresence>
         {toast && (
           <motion.div 
-            initial={{ opacity: 0, y: 50, scale: 0.95 }}
+            initial={{ opacity: 0, y: -45, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            className="fixed bottom-6 right-6 z-[99] p-4 bg-slate-900/90 dark:bg-slate-950/90 backdrop-blur-md rounded-2xl border border-slate-800 shadow-2xl flex items-center justify-between gap-4 min-w-[280px] max-w-sm text-xs select-none text-white font-sans"
+            exit={{ opacity: 0, y: -25, scale: 0.95 }}
+            transition={{ type: 'spring', damping: 22, stiffness: 300 }}
+            className="fixed top-5 left-1/2 -translate-x-1/2 z-[9999] p-3.5 px-5 bg-slate-900/95 dark:bg-slate-950/95 backdrop-blur-md rounded-2xl border border-slate-700/60 shadow-[0_20px_50px_rgba(0,0,0,0.3)] flex items-center justify-between gap-4 min-w-[300px] max-w-md text-xs select-none text-white font-sans ring-1 ring-white/10"
           >
             <div className="flex items-center gap-3">
               <div className={cn(
-                "h-7 w-7 rounded-lg flex items-center justify-center shrink-0",
-                toast.type === 'success' ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                "h-8 w-8 rounded-xl flex items-center justify-center shrink-0 border shadow-inner",
+                toast.type === 'success' ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-amber-500/15 text-amber-400 border-amber-500/30"
               )}>
-                {toast.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+                {toast.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
               </div>
-              <p className="font-extrabold uppercase tracking-tight text-[10px] text-white/95 leading-normal max-w-[200px]">
-                {toast.message}
-              </p>
+              <div className="flex flex-col">
+                <span className="text-[8px] font-black uppercase tracking-widest text-emerald-400/90 leading-none mb-1">
+                  System Notification
+                </span>
+                <p className="font-extrabold uppercase tracking-tight text-[11px] text-white/95 leading-tight">
+                  {toast.message}
+                </p>
+              </div>
             </div>
             <button 
               onClick={() => setToast(null)}
-              className="p-1 rounded-md hover:bg-white/10 active:scale-95 transition-all text-white/40 hover:text-white shrink-0 cursor-pointer"
+              className="p-1.5 rounded-lg hover:bg-white/10 active:scale-90 transition-all text-white/40 hover:text-white shrink-0 cursor-pointer"
             >
-              <X size={12} />
+              <X size={13} />
             </button>
           </motion.div>
         )}
@@ -4254,8 +4316,8 @@ export default function App() {
                     <span>By: {quickPeek.payload.lastChangedBy || 'Device Manager'}</span>
                   </div>
                 </div>
-              )}
 
+              )}
               {/* Generic Close Overlay */}
               <div className="pt-2 border-t border-[var(--border)]">
                 <button 
@@ -4494,16 +4556,6 @@ export default function App() {
                <div className="absolute inset-0 bg-gradient-to-t from-black/15 via-transparent to-transparent pointer-events-none" />
                <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="space-y-2">
-                     <div className="flex flex-wrap gap-1.5 items-center">
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[8.5px] font-black uppercase tracking-widest bg-white/10 border border-white/20 text-white animate-pulse">
-                           <span className="h-1.5 w-1.5 rounded-full bg-green-400" /> Active Branch Node
-                        </span>
-                        {state.settings.businessMode && (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[8.5px] font-black uppercase tracking-widest bg-white/25 border border-white/35 text-white font-mono">
-                             {BUSINESS_MODES[state.settings.businessMode]?.emoji || '🏪'} {BUSINESS_MODES[state.settings.businessMode]?.name || 'Kirana Store'}
-                          </span>
-                        )}
-                     </div>
                      <h1 className="text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none text-white drop-shadow">
                         {state.settings.storeName || "SYSTEM ADMINISTRATIVE HUB"}
                      </h1>
@@ -4530,15 +4582,31 @@ export default function App() {
                         </button>
                      </div>
                   </div>
-                  {state.settings.storeAddress && (
-                     <div className="md:text-right shrink-0">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-white/50 mb-1 flex items-center md:justify-end gap-1"><MapPin size={11} /> Store Location</p>
-                        <p className="text-xs font-black max-w-[200px] line-clamp-2 md:text-right text-white/90">{state.settings.storeAddress}</p>
-                        {state.settings.storePhone && <p className="text-[10px] font-mono opacity-60 mt-0.5">{state.settings.storePhone}</p>}
+                  <div className="md:text-right shrink-0 flex flex-col md:items-end justify-between">
+                     {state.settings.storeAddress && (
+                        <div>
+                           <p className="text-[9px] font-black uppercase tracking-widest text-white/50 mb-1 flex items-center md:justify-end gap-1"><MapPin size={11} /> Store Location</p>
+                           <p className="text-xs font-black max-w-[200px] line-clamp-2 md:text-right text-white/90">{state.settings.storeAddress}</p>
+                        </div>
+                     )}
+                     <div className="flex items-center md:justify-end gap-2 text-[10px] mt-1">
+                        {state.settings.storePhone && <span className="font-mono opacity-60">{state.settings.storePhone}</span>}
+                        {state.settings.storePhone && <span className="text-white/30">•</span>}
+                        <span className="font-mono text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-white/15 border border-white/20 text-white shrink-0">
+                           {BUSINESS_MODES[state.settings.businessMode]?.emoji || '🏪'} {BUSINESS_MODES[state.settings.businessMode]?.name || 'Kirana Store'}
+                        </span>
                      </div>
-                  )}
+                  </div>
                </div>
             </div>
+
+            {/* ⚡ UNBILLED RUSH HOUR & MICRO-SALES QUICK LEDGER (POSITIONED DIRECTLY ABOVE FAVORITE SHORTCUTS) */}
+            <UnbilledQuickLedgerWidget
+              state={state}
+              addToast={addToast}
+              activeShiftCashier={activeShift?.cashierName}
+            />
+
                  {/* ⚡ Quick Operational Actions Panel */}
                <div className="bg-[var(--card)] border border-[var(--border)] rounded-[2.5rem] p-6 md:p-8 space-y-6 shadow-xl relative overflow-hidden backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 duration-500">
                   {/* Decorative top illumination ambient light flare */}
@@ -4942,7 +5010,7 @@ export default function App() {
                            )}
                          </div>
                        </motion.div>
-                     )}
+                   )}
                    </AnimatePresence>
                  </div>
  
@@ -5020,8 +5088,8 @@ export default function App() {
               </motion.div>
             </div>
           </motion.div>
-        )}
 
+        )}
         {activeTab === 'billing' && (
           <motion.div 
             key="billing"
@@ -5162,7 +5230,7 @@ export default function App() {
                </div>
             </div>
           </motion.div>
-        )}
+      )}
       </AnimatePresence>
 
       {/* 🔮 IMMERSIVE SELF-HEALING OVERLAY */}
@@ -5220,7 +5288,7 @@ export default function App() {
               </div>
             </div>
           </motion.div>
-        )}
+      )}
       </AnimatePresence>
 
       {/* 🔮 INTELLIGENT RECOVERY DIAGNOSTICS CENTER Drawer */}
@@ -5505,7 +5573,7 @@ export default function App() {
                   </span>
                 </div>
               </motion.div>
-            )}
+          )}
           </AnimatePresence>
 
           {/* 2. Stretching Plasma caramel Connector Stream (SVG) - physically pulls button to target */}
@@ -6838,8 +6906,8 @@ export default function App() {
                             </button>
                           </div>
                         </div>
-                      )}
 
+                      )}
                       {drawerSearchQuery && (
                         <div className="max-h-[14rem] overflow-y-auto divide-y divide-[var(--border)] pr-1 space-y-1 scrollbar-thin mt-1">
                           {filteredDrawerResults.length > 0 ? (
@@ -7234,8 +7302,8 @@ const ItemCard = React.memo(({ item, isLocked, language, precision, onEdit, onDe
             <div className="h-full bg-[var(--primary)] transition-all duration-75" style={{ width: `${holdProgress}%` }} />
           </div>
         </div>
-      )}
 
+      )}
       {/* Selection Badge */}
       {isSelected && (
         <div className="absolute top-3 right-3 z-30 bg-[var(--primary)] text-white p-1 rounded-full shadow-lg border border-white/20">
@@ -7611,18 +7679,14 @@ function OnboardingTour({
 
   // States inside Wizard to capture user selections
   const [storeType, setStoreType] = useState('retail');
-  const [storeName, setStoreName] = useState('TS Price Manager');
-  const [storeOwner, setStoreOwner] = useState('');
-  const [storeAddress, setStoreAddress] = useState('101, Business Main St, Hub');
-  const [storePhone, setStorePhone] = useState('+91 9876543210');
   const [selectedLang, setSelectedLang] = useState<LanguageType>('en');
   const [selectedCurrency, setSelectedCurrency] = useState('INR');
   const [selectedTheme, setSelectedTheme] = useState<ThemeType>('retro-blue');
   const [printerFormat, setPrinterFormat] = useState('80mm');
   const [itemsBootstrapped, setItemsBootstrapped] = useState(false);
 
-  // Total 8 steps (0 to 7)
-  const totalSteps = 8;
+  // Total 7 steps (0 to 6)
+  const totalSteps = 7;
 
   // Bootstrap sample inventory
   const handleBootstrapSampleItems = () => {
@@ -7664,9 +7728,6 @@ function OnboardingTour({
   const handleFinishWizard = () => {
     // Update settings cleanly
     handleUpdateSettings({
-      storeName,
-      storeAddress,
-      storePhone,
       language: selectedLang,
       theme: selectedTheme,
       hasSeenOnboarding: true,
@@ -7717,8 +7778,8 @@ function OnboardingTour({
                   <span>Interactive Real-time Sync Ready</span>
                 </div>
               </motion.div>
-            )}
 
+            )}
             {step === 1 && (
               <motion.div key="step-1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 animate-in fade-in zoom-in-95">
                 <h3 className="text-lg font-black uppercase tracking-tight">Select Business Model Sector</h3>
@@ -7744,59 +7805,10 @@ function OnboardingTour({
                   ))}
                 </div>
               </motion.div>
-            )}
 
+            )}
             {step === 2 && (
-              <motion.div key="step-2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-3">
-                <h3 className="text-lg font-black uppercase tracking-tight">Store Identity & Coordinates</h3>
-                <p className="text-xs text-[var(--foreground)]/60">These credentials print natively at the header of thermal roll drafts.</p>
-                
-                <div className="space-y-3 mt-2">
-                  <div>
-                    <label className="text-[9px] font-black uppercase tracking-widest text-[var(--foreground)]/50">Store Branding Name</label>
-                    <input 
-                      type="text" 
-                      value={storeName} 
-                      onChange={e => setStoreName(e.target.value)} 
-                      className="w-full mt-1 px-3 py-2 text-xs rounded-xl bg-[var(--foreground)]/5 border border-[var(--border)] text-[var(--foreground)] outline-none font-bold"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-[9px] font-black uppercase tracking-widest text-[var(--foreground)]/50">Owner Proprietor Name</label>
-                      <input 
-                        type="text" 
-                        value={storeOwner} 
-                        placeholder="Talha Khan"
-                        onChange={e => setStoreOwner(e.target.value)} 
-                        className="w-full mt-1 px-3 py-2 text-xs rounded-xl bg-[var(--foreground)]/5 border border-[var(--border)] text-[var(--foreground)] outline-none font-bold"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[9px] font-black uppercase tracking-widest text-[var(--foreground)]/50">Help Hotline Phone</label>
-                      <input 
-                        type="text" 
-                        value={storePhone} 
-                        onChange={e => setStorePhone(e.target.value)} 
-                        className="w-full mt-1 px-3 py-2 text-xs rounded-xl bg-[var(--foreground)]/5 border border-[var(--border)] text-[var(--foreground)] outline-none font-bold"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-[9px] font-black uppercase tracking-widest text-[var(--foreground)]/50">Physical Address</label>
-                    <input 
-                      type="text" 
-                      value={storeAddress} 
-                      onChange={e => setStoreAddress(e.target.value)} 
-                      className="w-full mt-1 px-3 py-2 text-xs rounded-xl bg-[var(--foreground)]/5 border border-[var(--border)] text-[var(--foreground)] outline-none font-bold"
-                    />
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {step === 3 && (
-              <motion.div key="step-3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
+              <motion.div key="step-2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
                 <h3 className="text-lg font-black uppercase tracking-tight">Localization & Currency Standard</h3>
                 <p className="text-xs text-[var(--foreground)]/60">Choose language preferences and currencies format for price columns.</p>
                 
@@ -7842,10 +7854,10 @@ function OnboardingTour({
                   </div>
                 </div>
               </motion.div>
-            )}
 
-            {step === 4 && (
-              <motion.div key="step-4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 select-none">
+            )}
+            {step === 3 && (
+              <motion.div key="step-3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 select-none">
                 <h3 className="text-lg font-black uppercase tracking-tight">Select Aura Visual Theme</h3>
                 <p className="text-xs text-[var(--foreground)]/60">Match the terminal colors with your computer screen or hardware vibe.</p>
                 <div className="grid grid-cols-2 gap-3 pt-2">
@@ -7869,10 +7881,10 @@ function OnboardingTour({
                   ))}
                 </div>
               </motion.div>
-            )}
 
-            {step === 5 && (
-              <motion.div key="step-5" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
+            )}
+            {step === 4 && (
+              <motion.div key="step-4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
                 <h3 className="text-lg font-black uppercase tracking-tight">Bootstrap Starter Catalog</h3>
                 <p className="text-xs text-[var(--foreground)]/60">Initialize local storage with 10 standard general grocery goods (Atta, Oil, Tea) so you can checkout invoice instantly.</p>
                 
@@ -7897,10 +7909,10 @@ function OnboardingTour({
                   )}
                 </div>
               </motion.div>
-            )}
 
-            {step === 6 && (
-              <motion.div key="step-6" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 select-none">
+            )}
+            {step === 5 && (
+              <motion.div key="step-5" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 select-none">
                 <h3 className="text-lg font-black uppercase tracking-tight">Receipt Roll Format Configuration</h3>
                 <p className="text-xs text-[var(--foreground)]/60">Configure your spool layout to prevent clipped text or printing overlaps.</p>
                 
@@ -7924,10 +7936,10 @@ function OnboardingTour({
                   ))}
                 </div>
               </motion.div>
-            )}
 
-            {step === 7 && (
-              <motion.div key="step-7" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 text-center">
+            )}
+            {step === 6 && (
+              <motion.div key="step-6" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 text-center">
                 <div className="h-14 w-14 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center mx-auto mb-2 animate-bounce">
                   <CheckCircle size={32} />
                 </div>
@@ -7940,7 +7952,7 @@ function OnboardingTour({
                   Secured workspace • cloud connection established
                 </div>
               </motion.div>
-            )}
+          )}
           </AnimatePresence>
         </div>
 
@@ -8115,7 +8127,8 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
 
   const [activeUnitSelection, setActiveUnitSelection] = useState<'base'|'retail'|'wholesale'|'buy'|null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
-  
+  const { recentUnits } = useRecentUnits();
+
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const section1Ref = React.useRef<HTMLDivElement>(null);
   const section2Ref = React.useRef<HTMLDivElement>(null);
@@ -8134,6 +8147,7 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
   };
 
   const handleUnitSelect = (unit: string) => {
+    trackRecentUnit(unit);
     const currentSel = activeUnitSelection;
     if (activeUnitSelection === 'base') setFormData(prev => ({ ...prev, unit }));
     if (activeUnitSelection === 'buy') setFormData(prev => ({ ...prev, buyingPriceUnit: unit }));
@@ -8306,6 +8320,8 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
                      {formData.unit} <ChevronDown size={14} />
                    </button>
                  </div>
+
+
                  <div className="flex flex-wrap gap-1.5 pt-2">
                    {quickQtys.map(q => (
                      <button key={q} onClick={() => setFormData(prev => ({ ...prev, quantity: q }))} className="px-3 py-1.5 rounded-lg bg-[var(--background)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">{q} {formData.unit}</button>
@@ -8808,6 +8824,301 @@ function PasswordLinkManager({ user, settings }: { user: any; settings: any }) {
   );
 }
 
+/**
+ * Dedicated Store Credentials Form with Cloud & Local Persistence Save Trigger
+ */
+function StoreCredentialsSection({ 
+  state, 
+  onUpdate 
+}: { 
+  state: AppState; 
+  onUpdate: (updates: Partial<AppSettings>) => void; 
+}) {
+  const [storeName, setStoreName] = useState(state.settings.storeName || "");
+  const [storeOwnerName, setStoreOwnerName] = useState(state.settings.storeOwnerName || "");
+  const [storePhone, setStorePhone] = useState(state.settings.storePhone || "");
+  const [storeAddress, setStoreAddress] = useState(state.settings.storeAddress || "");
+  const [storeOpeningTime, setStoreOpeningTime] = useState(state.settings.storeOpeningTime || "08:00");
+  const [storeClosingTime, setStoreClosingTime] = useState(state.settings.storeClosingTime || "21:00");
+  const [reminderTimeBeforeMinutes, setReminderTimeBeforeMinutes] = useState(
+    state.settings.reminderTimeBeforeMinutes !== undefined ? state.settings.reminderTimeBeforeMinutes : 15
+  );
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Sync state if state.settings changes externally (e.g. from cloud sync)
+  useEffect(() => {
+    setStoreName(state.settings.storeName || "");
+    setStoreOwnerName(state.settings.storeOwnerName || "");
+    setStorePhone(state.settings.storePhone || "");
+    setStoreAddress(state.settings.storeAddress || "");
+    setStoreOpeningTime(state.settings.storeOpeningTime || "08:00");
+    setStoreClosingTime(state.settings.storeClosingTime || "21:00");
+    if (state.settings.reminderTimeBeforeMinutes !== undefined) {
+      setReminderTimeBeforeMinutes(state.settings.reminderTimeBeforeMinutes);
+    }
+  }, [
+    state.settings.storeName,
+    state.settings.storeOwnerName,
+    state.settings.storePhone,
+    state.settings.storeAddress,
+    state.settings.storeOpeningTime,
+    state.settings.storeClosingTime,
+    state.settings.reminderTimeBeforeMinutes
+  ]);
+
+  const handleSaveStoreCredentials = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setIsSaving(true);
+    try {
+      await onUpdate({
+        storeName: storeName.trim(),
+        storeOwnerName: storeOwnerName.trim(),
+        storePhone: storePhone.trim(),
+        storeAddress: storeAddress.trim(),
+        storeOpeningTime,
+        storeClosingTime,
+        reminderTimeBeforeMinutes
+      });
+      setSaveSuccess(true);
+      setTimeout(() => {
+        setSaveSuccess(false);
+      }, 3500);
+    } catch (err) {
+      console.error("Save store credentials error:", err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const isCloudActive = !!(state.user && state.user.uid !== 'guest_user' && state.settings.autoCloudSync !== false);
+
+  return (
+    <div className="bg-[var(--card)] border border-[var(--border)] rounded-[2.5rem] p-6 sm:p-8 space-y-6 shadow-sm">
+      {/* Header with Title and Sync Status Badge */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--border)] pb-5">
+        <div>
+          <h3 className="text-lg font-black uppercase tracking-tight text-[var(--foreground)] flex items-center gap-2">
+            <Store size={22} className="text-[var(--primary)] shrink-0" /> 
+            {cleanAndValidateText("Store Credentials / दुकान की जानकारी", state.settings.language, state.settings)}
+          </h3>
+          <p className="text-[10px] opacity-60 uppercase font-bold tracking-wider mt-1">
+            Configure official shop details for receipts, invoices, SMS billing, and cloud synchronization.
+          </p>
+        </div>
+
+        {/* Persistence Status Chip */}
+        <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--background)] border border-[var(--border)] w-fit">
+          <div className={`h-2 w-2 rounded-full ${isCloudActive ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+          <span className="text-[9.5px] font-black uppercase tracking-wider opacity-80 flex items-center gap-1">
+            {isCloudActive ? (
+              <>
+                <Cloud size={11} className="text-emerald-500" />
+                <span>Cloud & Local Sync Active</span>
+              </>
+            ) : (
+              <>
+                <Database size={11} className="text-amber-500" />
+                <span>Local Storage Persistence</span>
+              </>
+            )}
+          </span>
+        </div>
+      </div>
+
+      {/* Success Banner */}
+      <AnimatePresence>
+        {saveSuccess && (
+          <motion.div
+            initial={{ opacity: 0, y: -8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.98 }}
+            className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center justify-between gap-3 text-emerald-600 dark:text-emerald-400"
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0">
+                <CheckCircle size={18} className="text-emerald-500" />
+              </div>
+              <div>
+                <p className="text-xs font-black uppercase tracking-wide">
+                  Store Credentials Saved Successfully!
+                </p>
+                <p className="text-[10px] opacity-80 font-medium">
+                  {isCloudActive 
+                    ? "Updated and synced in real-time to your Firestore Cloud Database and Local Storage."
+                    : "Saved securely to Local Device Storage."}
+                </p>
+              </div>
+            </div>
+            <span className="text-[9px] font-black uppercase px-2 py-1 rounded bg-emerald-500/20 border border-emerald-500/20">
+              Verified
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Inputs Form Grid */}
+      <form onSubmit={handleSaveStoreCredentials} className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {/* Shop / Store Name */}
+          <div className="space-y-1.5">
+            <label className="text-[9.5px] font-black uppercase tracking-wider opacity-70 flex items-center gap-1.5">
+              <Store size={13} className="text-[var(--primary)] shrink-0" /> 
+              {cleanAndValidateText("Shop / Store Name (दुकान का नाम)", state.settings.language, state.settings)}
+            </label>
+            <input 
+              type="text" 
+              value={storeName} 
+              onChange={e => setStoreName(e.target.value)}
+              className="w-full bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl px-4 py-3 text-xs font-bold placeholder:opacity-30 outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 transition-all"
+              placeholder="e.g. Ramesh General Store"
+            />
+          </div>
+
+          {/* Store Owner Name */}
+          <div className="space-y-1.5">
+            <label className="text-[9.5px] font-black uppercase tracking-wider opacity-70 flex items-center gap-1.5">
+              <User size={13} className="text-[var(--primary)] shrink-0" /> 
+              {cleanAndValidateText("Store Owner Name (मालिक का नाम)", state.settings.language, state.settings)}
+            </label>
+            <input 
+              type="text" 
+              value={storeOwnerName} 
+              onChange={e => setStoreOwnerName(e.target.value)}
+              className="w-full bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl px-4 py-3 text-xs font-bold placeholder:opacity-30 outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 transition-all"
+              placeholder="e.g. Ramesh Kumar"
+            />
+          </div>
+
+          {/* Phone Number */}
+          <div className="space-y-1.5">
+            <label className="text-[9.5px] font-black uppercase tracking-wider opacity-70 flex items-center gap-1.5">
+              <Phone size={13} className="text-[var(--primary)] shrink-0" /> 
+              {cleanAndValidateText("Phone Number (फोन नंबर)", state.settings.language, state.settings)}
+            </label>
+            <input 
+              type="text" 
+              value={storePhone} 
+              onChange={e => setStorePhone(e.target.value)}
+              className="w-full bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl px-4 py-3 text-xs font-bold placeholder:opacity-30 outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 transition-all"
+              placeholder="e.g. +91 98765 43210"
+            />
+          </div>
+
+          {/* Shop Address */}
+          <div className="space-y-1.5">
+            <label className="text-[9.5px] font-black uppercase tracking-wider opacity-70 flex items-center gap-1.5">
+              <MapPin size={13} className="text-[var(--primary)] shrink-0" /> 
+              {cleanAndValidateText("Shop Address (दुकान का पता)", state.settings.language, state.settings)}
+            </label>
+            <input 
+              type="text" 
+              value={storeAddress} 
+              onChange={e => setStoreAddress(e.target.value)}
+              className="w-full bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl px-4 py-3 text-xs font-bold placeholder:opacity-30 outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 transition-all"
+              placeholder="e.g. Main Chowk, Sector 5, New Delhi"
+            />
+          </div>
+
+          {/* Hours Section Header */}
+          <div className="space-y-1.5 md:col-span-2 pt-4 border-t border-[var(--border)] mt-2">
+            <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-[var(--primary)] flex items-center gap-2">
+              <Clock size={14} className="text-[var(--primary)] shrink-0" /> 
+              {cleanAndValidateText("Store Hours & Operational Cycle (दुकान का समय और दैनिक चक्र)", state.settings.language, state.settings)}
+            </h4>
+            <p className="text-[9px] opacity-50 uppercase font-bold tracking-wider">
+              Define opening and closing times. Daily prompts will assist you in saving end-of-day reports and shift registers.
+            </p>
+          </div>
+
+          {/* Opening Time */}
+          <div className="space-y-1.5">
+            <label className="text-[9.5px] font-black uppercase tracking-wider opacity-70 flex items-center gap-1.5">
+              <Sun size={13} className="text-amber-500 shrink-0" /> 
+              {cleanAndValidateText("Store Opening Time (दुकान खुलने का समय)", state.settings.language, state.settings)}
+            </label>
+            <input 
+              type="time" 
+              value={storeOpeningTime} 
+              onChange={e => setStoreOpeningTime(e.target.value)}
+              className="w-full bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 transition-all"
+            />
+          </div>
+
+          {/* Closing Time */}
+          <div className="space-y-1.5">
+            <label className="text-[9.5px] font-black uppercase tracking-wider opacity-70 flex items-center gap-1.5">
+              <Moon size={13} className="text-indigo-400 shrink-0" /> 
+              {cleanAndValidateText("Store Closing Time (दुकान बंद होने का समय)", state.settings.language, state.settings)}
+            </label>
+            <input 
+              type="time" 
+              value={storeClosingTime} 
+              onChange={e => setStoreClosingTime(e.target.value)}
+              className="w-full bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 transition-all"
+            />
+          </div>
+
+          {/* Closing Reminder Minutes */}
+          <div className="space-y-1.5 md:col-span-2">
+            <label className="text-[9.5px] font-black uppercase tracking-wider opacity-70 flex items-center gap-1.5">
+              <Bell size={13} className="text-[var(--primary)] shrink-0" /> 
+              {cleanAndValidateText("Closing Reminder Alert (दुकान बंद होने से कितने पहले अलर्ट दें?)", state.settings.language, state.settings)}
+            </label>
+            <select 
+              value={String(reminderTimeBeforeMinutes)} 
+              onChange={e => setReminderTimeBeforeMinutes(parseInt(e.target.value) || 0)}
+              className="w-full bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl px-4 py-3 text-xs font-bold shadow-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 transition-all cursor-pointer"
+            >
+              <option value="0">{cleanAndValidateText("Exactly at Closing Time (बिल्कुल बंद होने के समय)", state.settings.language, state.settings)}</option>
+              <option value="5">{cleanAndValidateText("5 Minutes Before Closing (बंद होने से 5 मिनट पहले)", state.settings.language, state.settings)}</option>
+              <option value="10">{cleanAndValidateText("10 Minutes Before Closing (बंद होने से 10 मिनट पहले)", state.settings.language, state.settings)}</option>
+              <option value="15">{cleanAndValidateText("15 Minutes Before Closing (बंद होने से 15 मिनट पहले)", state.settings.language, state.settings)}</option>
+              <option value="30">{cleanAndValidateText("30 Minutes Before Closing (बंद होने से 30 मिनट पहले)", state.settings.language, state.settings)}</option>
+              <option value="60">{cleanAndValidateText("1 Hour Before Closing (बंद होने से 1 घंटा पहले)", state.settings.language, state.settings)}</option>
+            </select>
+          </div>
+        </div>
+
+        {/* 🎯 Explicit Save Button */}
+        <div className="pt-4 border-t border-[var(--border)] flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p className="text-[10px] opacity-60 uppercase font-bold">
+            Press save to write credentials directly to Cloud Database & Local Storage.
+          </p>
+
+          <button
+            type="submit"
+            disabled={isSaving}
+            className={`w-full sm:w-auto px-8 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2.5 transition-all shadow-lg active:scale-95 cursor-pointer ${
+              saveSuccess 
+                ? 'bg-emerald-600 text-white shadow-emerald-500/25 ring-2 ring-emerald-400' 
+                : 'bg-[var(--primary)] hover:opacity-95 text-white shadow-[var(--primary)]/25'
+            }`}
+          >
+            {isSaving ? (
+              <>
+                <RefreshCw size={16} className="animate-spin" />
+                <span>Saving to Database...</span>
+              </>
+            ) : saveSuccess ? (
+              <>
+                <CheckCircle size={16} className="animate-bounce" />
+                <span>✓ Credentials Saved!</span>
+              </>
+            ) : (
+              <>
+                <Save size={16} />
+                <span>Save Store Credentials / सेव करें</span>
+              </>
+            )}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareProductList, isSharing, onUpdate, onLogout }: { 
   state: AppState; 
   t: any; 
@@ -8889,120 +9200,8 @@ function ProfileScreen({ state, t, deferredPrompt, onInstall, onShareProductList
          </div>
       </div>
 
-      {/* 🏪 Store Configuration Form */}
-      <div className="bg-[var(--card)] border border-[var(--border)] rounded-[2.5rem] p-8 space-y-6 shadow-sm">
-         <div>
-            <h3 className="text-lg font-black uppercase tracking-tight text-[var(--foreground)] flex items-center gap-2">
-               <Store size={20} className="text-[var(--primary)]" /> {cleanAndValidateText("Store Credentials / दुकान की जानकारी", state.settings.language, state.settings)}
-            </h3>
-            <p className="text-[9px] opacity-45 uppercase font-bold tracking-wider mt-1">Configure your official shop metadata for client receipts, SMS billing, and invoice branding.</p>
-         </div>
-
-         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <div className="space-y-1.5">
-               <label className="text-[9px] font-black uppercase tracking-wider opacity-60 flex items-center gap-1.5">
-                  <Store size={13} className="text-[var(--primary)]" /> {cleanAndValidateText("Shop / Store Name (दुकान का नाम)", state.settings.language, state.settings)}
-               </label>
-               <input 
-                  type="text" 
-                  value={state.settings.storeName || ""} 
-                  onChange={e => onUpdate({ storeName: e.target.value })}
-                  className="w-full bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl px-4 py-3 text-xs font-bold placeholder:opacity-30 outline-none focus:border-[var(--primary)] transition-all"
-                  placeholder="e.g. Ramesh General Store"
-               />
-            </div>
-
-            <div className="space-y-1.5">
-               <label className="text-[9px] font-black uppercase tracking-wider opacity-60 flex items-center gap-1.5">
-                  <User size={13} className="text-[var(--primary)]" /> {cleanAndValidateText("Store Owner Name (मालिक का नाम)", state.settings.language, state.settings)}
-               </label>
-               <input 
-                  type="text" 
-                  value={state.settings.storeOwnerName || ""} 
-                  onChange={e => onUpdate({ storeOwnerName: e.target.value })}
-                  className="w-full bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl px-4 py-3 text-xs font-bold placeholder:opacity-30 outline-none focus:border-[var(--primary)] transition-all"
-                  placeholder="e.g. Ramesh Kumar"
-               />
-            </div>
-
-            <div className="space-y-1.5">
-               <label className="text-[9px] font-black uppercase tracking-wider opacity-60 flex items-center gap-1.5">
-                  <Phone size={13} className="text-[var(--primary)]" /> {cleanAndValidateText("Phone Number (फोन नंबर)", state.settings.language, state.settings)}
-               </label>
-               <input 
-                  type="text" 
-                  value={state.settings.storePhone || ""} 
-                  onChange={e => onUpdate({ storePhone: e.target.value })}
-                  className="w-full bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl px-4 py-3 text-xs font-bold placeholder:opacity-30 outline-none focus:border-[var(--primary)] transition-all"
-                  placeholder="e.g. +91 98765 43210"
-               />
-            </div>
-
-            <div className="space-y-1.5">
-               <label className="text-[9px] font-black uppercase tracking-wider opacity-60 flex items-center gap-1.5">
-                  <MapPin size={13} className="text-[var(--primary)]" /> {cleanAndValidateText("Shop Address (दुकान का पता)", state.settings.language, state.settings)}
-               </label>
-               <input 
-                  type="text" 
-                  value={state.settings.storeAddress || ""} 
-                  onChange={e => onUpdate({ storeAddress: e.target.value })}
-                  className="w-full bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl px-4 py-3 text-xs font-bold placeholder:opacity-30 outline-none focus:border-[var(--primary)] transition-all"
-                  placeholder="e.g. Main Chowk, Sector 5, New Delhi"
-               />
-            </div>
-
-            <div className="space-y-1.5 md:col-span-2 pt-4 border-t border-[var(--border)] mt-2">
-               <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-[var(--primary)] flex items-center gap-2">
-                  <Clock size={14} className="text-[var(--primary)]" /> {cleanAndValidateText("Store hours & Daily Cycle Prompts (दुकान का समय और दैनिक चक्र प्रबंधन)", state.settings.language, state.settings)}
-               </h4>
-               <p className="text-[9px] opacity-45 uppercase font-bold tracking-wider">
-                  Specify opening and closing schedules. The app will prompt you to save/export backup registers and flush bill histories so that each shift starts with a clean slate.
-               </p>
-            </div>
-
-            <div className="space-y-1.5">
-               <label className="text-[9px] font-black uppercase tracking-wider opacity-60 flex items-center gap-1.5">
-                  <Sun size={13} className="text-amber-500" /> {cleanAndValidateText("Store Opening Time (दुकान खुलने का समय)", state.settings.language, state.settings)}
-               </label>
-               <input 
-                  type="time" 
-                  value={state.settings.storeOpeningTime || "08:00"} 
-                  onChange={e => onUpdate({ storeOpeningTime: e.target.value })}
-                  className="w-full bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-[var(--primary)] transition-all"
-               />
-            </div>
-
-            <div className="space-y-1.5">
-               <label className="text-[9px] font-black uppercase tracking-wider opacity-60 flex items-center gap-1.5">
-                  <Moon size={13} className="text-indigo-400" /> {cleanAndValidateText("Store Closing Time (दुकान बंद होने का समय)", state.settings.language, state.settings)}
-               </label>
-               <input 
-                  type="time" 
-                  value={state.settings.storeClosingTime || "21:00"} 
-                  onChange={e => onUpdate({ storeClosingTime: e.target.value })}
-                  className="w-full bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl px-4 py-3 text-xs font-bold outline-none focus:border-[var(--primary)] transition-all"
-               />
-            </div>
-
-            <div className="space-y-1.5 md:col-span-2">
-               <label className="text-[9px] font-black uppercase tracking-wider opacity-60 flex items-center gap-1.5">
-                  <Bell size={13} className="text-[var(--primary)]" /> {cleanAndValidateText("Set Reminder Time Before Closing (दुकान बंद होने से कितने पहले अलर्ट दें?)", state.settings.language, state.settings)}
-               </label>
-               <select 
-                  value={state.settings.reminderTimeBeforeMinutes !== undefined ? String(state.settings.reminderTimeBeforeMinutes) : "15"} 
-                  onChange={e => onUpdate({ reminderTimeBeforeMinutes: parseInt(e.target.value) || 0 })}
-                  className="w-full bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-2xl px-4 py-3 text-xs font-bold shadow-sm outline-none focus:border-[var(--primary)] transition-all cursor-pointer animate-none"
-               >
-                  <option value="0">{cleanAndValidateText("Exactly at Closing Time (बिल्कुल बंद होने के समय)", state.settings.language, state.settings)}</option>
-                  <option value="5">{cleanAndValidateText("5 Minutes Before Closing (बंद होने से 5 मिनट पहले)", state.settings.language, state.settings)}</option>
-                  <option value="10">{cleanAndValidateText("10 Minutes Before Closing (बंद होने से 10 मिनट पहले)", state.settings.language, state.settings)}</option>
-                  <option value="15">{cleanAndValidateText("15 Minutes Before Closing (बंद होने से 15 मिनट पहले)", state.settings.language, state.settings)}</option>
-                  <option value="30">{cleanAndValidateText("30 Minutes Before Closing (बंद होने से 30 मिनट पहले)", state.settings.language, state.settings)}</option>
-                  <option value="60">{cleanAndValidateText("1 Hour Before Closing (बंद होने से 1 घंटा पहले)", state.settings.language, state.settings)}</option>
-               </select>
-            </div>
-         </div>
-      </div>
+      {/* 🏪 Store Configuration Form with Explicit Save Button */}
+      <StoreCredentialsSection state={state} onUpdate={onUpdate} />
 
       {/* 🔐 Account Security & Multi-Device Sync Card */}
       {state.user && (

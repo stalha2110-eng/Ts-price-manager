@@ -380,12 +380,26 @@ export function VoiceProductAssistant({
     setAiDetectedLanguage("");
 
     try {
+      // Determine active custom API key if user configured custom key(s) in Settings -> Security & Sync
+      let customApiKey: string | undefined = undefined;
+      if (appSettings?.customApiKeys && appSettings.customApiKeys.length > 0) {
+        if (appSettings.activeApiKeyId && appSettings.activeApiKeyId !== 'default') {
+          const found = appSettings.customApiKeys.find(k => k.id === appSettings.activeApiKeyId);
+          if (found) customApiKey = found.key;
+        } else if (appSettings.activeApiKeyId === undefined) {
+          customApiKey = appSettings.customApiKeys[0]?.key;
+        }
+      } else if (appSettings?.customApiKey) {
+        customApiKey = appSettings.customApiKey;
+      }
+
       const response = await fetch("/api/voice/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           transcript: cleanedText,
-          categories: categories
+          categories: categories,
+          apiKey: customApiKey
         })
       });
 

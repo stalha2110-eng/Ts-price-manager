@@ -4,13 +4,15 @@ import {
   TrendingUp, TrendingDown, RefreshCw, Flame, Info, ChevronRight, HelpCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { AppState, Bill } from '../types';
+import { AppState, Bill, UnbilledEntry } from '../types';
 import { ThemeVisualEffects } from './ThemeVisualEffects';
+import { calculateBillProfit, parseTimestamp } from '../lib/utils';
 
 interface PremiumInteractiveChartProps {
   state: AppState;
-  timePeriod: 'today' | 'week' | 'month' | 'year';
+  timePeriod: 'today' | 'week' | 'month' | 'year' | 'all';
   currentBills: Bill[];
+  currentUnbilled?: UnbilledEntry[];
   themeChartColors: any;
 }
 
@@ -24,16 +26,12 @@ export interface DataPoint {
 }
 
 // Helper to calculate profit of a single bill
-const getBillProfit = (bill: Bill) => {
-  let costOfGoods = 0;
-  bill.items.forEach(item => {
-    costOfGoods += (item.cost || 0) * item.quantity;
-  });
-  return Math.max(0, bill.total - costOfGoods);
+const getBillProfit = (bill: Bill, itemsCatalog?: any[]) => {
+  return calculateBillProfit(bill, itemsCatalog);
 };
 
 // Generates highly realistic and stylish demo data when no transactions occur
-const getSimulatedData = (period: 'today' | 'week' | 'month' | 'year'): DataPoint[] => {
+const getSimulatedData = (period: 'today' | 'week' | 'month' | 'year' | 'all'): DataPoint[] => {
   const now = new Date();
   const year = now.getFullYear();
   const monthIdx = now.getMonth();
@@ -148,6 +146,7 @@ export default function PremiumInteractiveChart({
   state, 
   timePeriod, 
   currentBills,
+  currentUnbilled = [],
   themeChartColors 
 }: PremiumInteractiveChartProps) {
   const [dataMode, setDataMode] = useState<'live' | 'demo'>('live');
@@ -178,7 +177,7 @@ export default function PremiumInteractiveChart({
   const touchStartScale = useRef(1);
 
   // Auto fallback logic if live data is empty
-  const hasLiveBills = currentBills.length > 0;
+  const hasLiveBills = currentBills.length > 0 || currentUnbilled.length > 0;
   useEffect(() => {
     if (!hasLiveBills) {
       setDataMode('demo');
@@ -194,7 +193,7 @@ export default function PremiumInteractiveChart({
     setHoverIndex(null);
   }, [timePeriod, isFullscreen]);
 
-  // Translate bills to proper time-indexed buckets
+  // Translate bills and unbilled micro-sales entries to proper time-indexed buckets
   const realChartData = useMemo(() => {
     const now = new Date();
     const year = now.getFullYear();
@@ -216,14 +215,26 @@ export default function PremiumInteractiveChart({
       });
 
       currentBills.forEach(bill => {
-        const d = new Date(bill.timestamp);
+        const d = parseTimestamp(bill.timestamp);
         const hour = d.getHours();
         if (hour >= 0 && hour < 24) {
-          buckets[hour].sales += bill.total;
-          buckets[hour].profit += getBillProfit(bill);
+          buckets[hour].sales += Number(bill.total) || 0;
+          buckets[hour].profit += getBillProfit(bill, state.items);
           buckets[hour].bills += 1;
         }
       });
+
+      currentUnbilled.forEach(entry => {
+        const d = parseTimestamp(entry.timestamp || entry.dateStr);
+        const hour = d.getHours();
+        if (hour >= 0 && hour < 24) {
+          const amt = Number(entry.amount) || 0;
+          buckets[hour].sales += amt;
+          buckets[hour].profit += amt;
+          buckets[hour].bills += 1;
+        }
+      });
+
       return buckets;
     } else if (timePeriod === 'week') {
       const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -237,15 +248,28 @@ export default function PremiumInteractiveChart({
       }));
 
       currentBills.forEach(bill => {
-        const d = new Date(bill.timestamp);
+        const d = parseTimestamp(bill.timestamp);
         let dayIndex = d.getDay() - 1; // getDay(): 0 = Sun
         if (dayIndex === -1) dayIndex = 6; // Sun
         if (dayIndex >= 0 && dayIndex < 7) {
-          buckets[dayIndex].sales += bill.total;
-          buckets[dayIndex].profit += getBillProfit(bill);
+          buckets[dayIndex].sales += Number(bill.total) || 0;
+          buckets[dayIndex].profit += getBillProfit(bill, state.items);
           buckets[dayIndex].bills += 1;
         }
       });
+
+      currentUnbilled.forEach(entry => {
+        const d = parseTimestamp(entry.timestamp || entry.dateStr);
+        let dayIndex = d.getDay() - 1;
+        if (dayIndex === -1) dayIndex = 6;
+        if (dayIndex >= 0 && dayIndex < 7) {
+          const amt = Number(entry.amount) || 0;
+          buckets[dayIndex].sales += amt;
+          buckets[dayIndex].profit += amt;
+          buckets[dayIndex].bills += 1;
+        }
+      });
+
       return buckets;
     } else if (timePeriod === 'month') {
       const days = new Date(year, monthIdx + 1, 0).getDate();
@@ -260,16 +284,30 @@ export default function PremiumInteractiveChart({
       }));
 
       currentBills.forEach(bill => {
-        const d = new Date(bill.timestamp);
+        const d = parseTimestamp(bill.timestamp);
         if (d.getFullYear() === year && d.getMonth() === monthIdx) {
           const dateNum = d.getDate();
           if (dateNum >= 1 && dateNum <= days) {
-            buckets[dateNum - 1].sales += bill.total;
-            buckets[dateNum - 1].profit += getBillProfit(bill);
+            buckets[dateNum - 1].sales += Number(bill.total) || 0;
+            buckets[dateNum - 1].profit += getBillProfit(bill, state.items);
             buckets[dateNum - 1].bills += 1;
           }
         }
       });
+
+      currentUnbilled.forEach(entry => {
+        const d = parseTimestamp(entry.timestamp || entry.dateStr);
+        if (d.getFullYear() === year && d.getMonth() === monthIdx) {
+          const dateNum = d.getDate();
+          if (dateNum >= 1 && dateNum <= days) {
+            const amt = Number(entry.amount) || 0;
+            buckets[dateNum - 1].sales += amt;
+            buckets[dateNum - 1].profit += amt;
+            buckets[dateNum - 1].bills += 1;
+          }
+        }
+      });
+
       return buckets;
     } else {
       const mNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -283,19 +321,33 @@ export default function PremiumInteractiveChart({
       }));
 
       currentBills.forEach(bill => {
-        const d = new Date(bill.timestamp);
-        if (d.getFullYear() === year) {
-          const mIdx = d.getMonth();
-          if (mIdx >= 0 && mIdx < 12) {
-            buckets[mIdx].sales += bill.total;
-            buckets[mIdx].profit += getBillProfit(bill);
+        const d = parseTimestamp(bill.timestamp);
+        const mIdx = d.getMonth();
+        if (mIdx >= 0 && mIdx < 12) {
+          if (timePeriod === 'all' || d.getFullYear() === year) {
+            buckets[mIdx].sales += Number(bill.total) || 0;
+            buckets[mIdx].profit += getBillProfit(bill, state.items);
             buckets[mIdx].bills += 1;
           }
         }
       });
+
+      currentUnbilled.forEach(entry => {
+        const d = parseTimestamp(entry.timestamp || entry.dateStr);
+        const mIdx = d.getMonth();
+        if (mIdx >= 0 && mIdx < 12) {
+          if (timePeriod === 'all' || d.getFullYear() === year) {
+            const amt = Number(entry.amount) || 0;
+            buckets[mIdx].sales += amt;
+            buckets[mIdx].profit += amt;
+            buckets[mIdx].bills += 1;
+          }
+        }
+      });
+
       return buckets;
     }
-  }, [currentBills, timePeriod]);
+  }, [currentBills, currentUnbilled, timePeriod, state.items]);
 
   // Pick active dataset based on state toggle
   const activeDataset = useMemo(() => {

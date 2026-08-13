@@ -7,7 +7,7 @@ import {
   TrendingUp, Percent, DollarSign, RefreshCw as LoopIcon, PlayCircle, Clock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn } from '../lib/utils';
+import { cn, countNumericEntries, formatItemCountLabel } from '../lib/utils';
 
 // Types of entries in Calculation History / Favorites
 interface CalcLog {
@@ -235,6 +235,7 @@ export default function SmartCalculator() {
   // ==========================================
   const [calcInput, setCalcInput] = useState('');
   const [calcMemory, setCalcMemory] = useState('0');
+  const calcItemCount = countNumericEntries(calcInput);
   const [undoStack, setUndoStack] = useState<string[]>(['']);
   const [redoStack, setRedoStack] = useState<string[]>([]);
   const [recentLogPreview, setRecentLogPreview] = useState<string>('');
@@ -756,22 +757,39 @@ export default function SmartCalculator() {
               <div className="space-y-2">
                 {/* PROFESSIONAL HIGH-CONTRAST DIGITAL DISPLAY PANEL */}
                 <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-3 text-right font-mono mb-2 shadow-inner">
-                  {/* Ledger preview from calculation list */}
-                  <div className="flex justify-between items-center text-[8.5px] text-zinc-450 font-sans tracking-wide mb-1 leading-none">
-                    <span className="flex items-center gap-1">
-                      <Clock size={8} /> History Preview
+                  {/* Top status bar with Live Item Counter */}
+                  <div className="flex justify-between items-center text-[9px] font-sans tracking-wide mb-1 leading-none">
+                    <span className="flex items-center gap-1 text-zinc-400">
+                      <Clock size={9} /> {recentLogPreview ? 'Preview' : 'Ready'}
                     </span>
-                    <span className="truncate italic max-w-[180px] text-zinc-450 font-medium">{recentLogPreview || 'No formula recorded.'}</span>
+                    {/* Live Item Counter Badge */}
+                    <span 
+                      id="smart-calc-item-counter-badge"
+                      className={cn(
+                        "px-2 py-0.5 rounded-md text-[9.5px] font-black tracking-wide flex items-center gap-1 border transition-all select-none",
+                        calcItemCount > 0 
+                          ? "bg-amber-100 text-amber-800 border-amber-300 shadow-2xs" 
+                          : "bg-zinc-100 text-zinc-400 border-zinc-200"
+                      )}
+                      title="Live Item Counter: Number of numeric entries included in current calculation"
+                    >
+                      <Layers size={10} className={calcItemCount > 0 ? "text-amber-600" : "text-zinc-400"} />
+                      <span>{formatItemCountLabel(calcItemCount)}</span>
+                    </span>
                   </div>
                   {/* Current Active Expression */}
-                  <div className="text-[10px] text-zinc-600 font-bold tracking-normal truncate leading-none mb-1.5 min-h-[14px]">
+                  <div className="text-[11px] text-zinc-600 font-bold tracking-normal truncate leading-none mb-1.5 min-h-[16px]">
                     {calcInput ? calcInput : '0'}
                   </div>
                   {/* Current Output Target Result */}
                   <div className="flex justify-between items-end">
-                    {parseFloat(calcMemory) !== 0 && (
+                    {parseFloat(calcMemory) !== 0 ? (
                       <span className="text-[8px] bg-indigo-50 text-indigo-600 border border-indigo-200/50 px-1 py-0.5 rounded uppercase font-bold tracking-wider leading-none">
                         M+ [₹{parseFloat(calcMemory)}]
+                      </span>
+                    ) : (
+                      <span className="text-[8.5px] text-zinc-400 font-sans italic">
+                        {recentLogPreview ? recentLogPreview : ''}
                       </span>
                     )}
                     <span className="text-xl font-bold font-mono tracking-tight text-emerald-600 leading-none truncate">
@@ -1525,9 +1543,15 @@ export default function SmartCalculator() {
                           className="flex-1 cursor-pointer truncate mr-2 flex flex-col text-left leading-tight"
                           title="Restore outcome to calculator screen"
                         >
-                          <span className="text-[7.5px] text-zinc-400 tracking-wide mb-0.5 flex items-center gap-1">
-                            <Clock size={7} /> {item.timestamp}
-                          </span>
+                          <div className="flex items-center justify-between gap-1 mb-0.5">
+                            <span className="text-[7.5px] text-zinc-400 tracking-wide flex items-center gap-1">
+                              <Clock size={7} /> {item.timestamp}
+                            </span>
+                            <span className="text-[7.5px] font-extrabold bg-amber-50 text-amber-700 border border-amber-200 px-1 py-0.5 rounded flex items-center gap-0.5">
+                              <Layers size={7} className="text-amber-500" />
+                              {formatItemCountLabel(countNumericEntries(item.formula))}
+                            </span>
+                          </div>
                           <span className="text-zinc-600 text-[8.5px] truncate max-w-[200px]">{item.formula}</span>
                           <span className="text-emerald-655 font-extrabold text-sm tracking-tight mt-0.5">₹{item.outcome}</span>
                         </div>

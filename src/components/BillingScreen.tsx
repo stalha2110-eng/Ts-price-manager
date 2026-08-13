@@ -11,12 +11,16 @@ import { motion, AnimatePresence } from 'motion/react';
 import { AppState, Item, Bill, TransactionItem, Note, DraftBill } from '../types';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { cn, formatNumber } from '../lib/utils';
+import { cn, formatNumber, getParsedTimestampMs, calculateBillProfit } from '../lib/utils';
 import { printerService, DEFAULT_PRINT_SETTINGS } from '../services/printerService';
 import { playFeedbackEvent } from '../services/soundFeedbackService';
 import { cleanAndValidateText } from '../services/languageEngine';
+import { trackRecentUnit, useRecentUnits } from '../lib/unitUtils';
 import FullBillHistoryView from './FullBillHistoryView';
 import UniversalStoreCalculator from './UniversalStoreCalculator';
+import { AnimatedPosBillingIcon } from './AnimatedPosBillingIcon';
+import { AnimatedBillHistoryIcon } from './AnimatedBillHistoryIcon';
+import { AnimatedCalculatorIcon } from './AnimatedCalculatorIcon';
 
 interface BillingScreenProps {
   state: AppState;
@@ -286,6 +290,7 @@ export default function BillingScreen({
   };
 
   const precision = state.settings.pricePrecision || 0;
+  const { recentUnits } = useRecentUnits();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [billingSubTab, setBillingSubTab] = useState<'billing' | 'history' | 'calculator'>('billing');
@@ -764,7 +769,9 @@ export default function BillingScreen({
     const limits = 24 * 60 * 60 * 1000;
     const nowTime = Date.now();
     return (state.bills || []).filter(b => {
-      const diff = nowTime - new Date(b.timestamp).getTime();
+      const tMs = getParsedTimestampMs(b.timestamp);
+      if (tMs === 0) return false;
+      const diff = nowTime - tMs;
       return diff > limits;
     });
   }, [state.bills]);
@@ -1291,14 +1298,17 @@ export default function BillingScreen({
     const costVal = parseFloat(manualCost) || 0;
     const tempId = `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
+    const selectedUnit = manualUnit.trim() || 'Pcs';
+    trackRecentUnit(selectedUnit);
+
     const newCartItem: CartItem = {
       id: tempId,
-      item: { id: tempId, isManual: true, retailPrice: rateVal, unit: manualUnit },
+      item: { id: tempId, isManual: true, retailPrice: rateVal, unit: selectedUnit },
       name: manualName.trim(),
       quantity: 1,
       price: rateVal,
       cost: costVal,
-      unit: manualUnit.trim() || 'Pcs'
+      unit: selectedUnit
     };
     
     setCart([...cart, newCartItem]);
@@ -1734,8 +1744,7 @@ export default function BillingScreen({
       const totalCustomers = billsToClean.length;
       const totalSales = billsToClean.reduce((sum, b) => sum + b.total, 0);
       const totalProfit = billsToClean.reduce((sum, b) => {
-        const billProfit = b.items.reduce((acc, it) => acc + ((it.price - (it.cost || 0)) * it.quantity), 0) - (b.subtotal * (b.discount / 100));
-        return sum + billProfit;
+        return sum + calculateBillProfit(b, state.items);
       }, 0);
 
       // --- PDF Header Style ---
@@ -2082,37 +2091,29 @@ export default function BillingScreen({
   return (
     <div className="space-y-4 pb-24 max-w-7xl mx-auto text-[var(--foreground)] relative">
       
-      {/* 🚀 TOP NAVIGATION BUTTONS / SECTIONS */}
-      <div className="bg-[var(--card)] border border-[var(--border)] p-2 sm:p-2.5 rounded-2xl shadow-md">
-        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+      {/* 🚀 TOP NAVIGATION BUTTONS / COMPACT SUB-TAB BAR */}
+      <div className="bg-[var(--card)] border border-[var(--border)] p-1 sm:p-1.5 rounded-xl sm:rounded-2xl shadow-xs">
+        <div className="grid grid-cols-3 gap-1 sm:gap-1.5">
           <button
             onClick={() => {
               playFeedbackEvent('notification', state.settings);
               setBillingSubTab('billing');
             }}
             className={cn(
-              "py-3 px-2 sm:px-4 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer select-none group border",
+              "py-2 px-1.5 sm:px-3.5 rounded-lg sm:rounded-xl flex flex-row items-center justify-center gap-1 sm:gap-2 transition-all cursor-pointer select-none border font-black text-[11px] sm:text-xs tracking-wide sm:tracking-wider uppercase relative overflow-hidden",
               billingSubTab === 'billing'
-                ? "bg-amber-500/10 border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-md shadow-amber-500/10 scale-[1.01]"
-                : "bg-[var(--foreground)]/[0.02] border-transparent text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.06] hover:text-[var(--foreground)]"
+                ? "bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 text-white border-amber-500/50 shadow-sm shadow-amber-500/25 scale-[1.01]"
+                : "bg-transparent border-transparent text-[var(--foreground)]/80 hover:bg-[var(--foreground)]/5 hover:text-[var(--foreground)]"
             )}
           >
-            <div className={cn(
-              "w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-all duration-200 group-hover:scale-110 relative",
-              billingSubTab === 'billing'
-                ? "bg-gradient-to-tr from-amber-500 to-amber-600 text-white shadow-lg shadow-amber-500/35 ring-2 ring-amber-400/40"
-                : "bg-[var(--foreground)]/5 text-[var(--foreground)]/70 group-hover:bg-[var(--foreground)]/10 group-hover:text-[var(--foreground)]"
-            )}>
-              <ReceiptCent className="w-5 h-5 stroke-[2.2]" />
-              {billingSubTab === 'billing' && (
-                <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-300 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-400 border border-amber-600"></span>
-                </span>
-              )}
-            </div>
-            <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider mt-2">POS BILLING</span>
-            <span className="text-[9px] font-medium text-[var(--foreground)]/50 normal-case tracking-normal hidden sm:block mt-0.5">Create & Print Invoices</span>
+            <AnimatedPosBillingIcon active={billingSubTab === 'billing'} size={18} className={billingSubTab === 'billing' ? "text-white" : "text-amber-500 dark:text-amber-400"} />
+            <span className="whitespace-nowrap font-black tracking-wide sm:tracking-wider text-[11px] sm:text-xs drop-shadow-2xs">POS</span>
+            {billingSubTab === 'billing' && (
+              <span className="relative flex h-2 w-2 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-200 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+              </span>
+            )}
           </button>
 
           <button
@@ -2121,22 +2122,20 @@ export default function BillingScreen({
               setBillingSubTab('history');
             }}
             className={cn(
-              "py-3 px-2 sm:px-4 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer select-none group border",
+              "py-2 px-1.5 sm:px-3.5 rounded-lg sm:rounded-xl flex flex-row items-center justify-center gap-1 sm:gap-2 transition-all cursor-pointer select-none border font-black text-[11px] sm:text-xs tracking-wide sm:tracking-wider uppercase relative overflow-hidden",
               billingSubTab === 'history'
-                ? "bg-amber-500/10 border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-md shadow-amber-500/10 scale-[1.01]"
-                : "bg-[var(--foreground)]/[0.02] border-transparent text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.06] hover:text-[var(--foreground)]"
+                ? "bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 text-white border-amber-500/50 shadow-sm shadow-amber-500/25 scale-[1.01]"
+                : "bg-transparent border-transparent text-[var(--foreground)]/80 hover:bg-[var(--foreground)]/5 hover:text-[var(--foreground)]"
             )}
           >
-            <div className={cn(
-              "w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-all duration-200 group-hover:scale-110",
-              billingSubTab === 'history'
-                ? "bg-amber-500 text-white shadow-md shadow-amber-500/30 ring-2 ring-amber-400/30"
-                : "bg-[var(--foreground)]/5 text-[var(--foreground)]/70 group-hover:bg-[var(--foreground)]/10 group-hover:text-[var(--foreground)]"
-            )}>
-              <History className="w-5 h-5 stroke-[2.2]" />
-            </div>
-            <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider mt-2">BILL HISTORY</span>
-            <span className="text-[9px] font-medium text-[var(--foreground)]/50 normal-case tracking-normal hidden sm:block mt-0.5">Past Records & Invoices</span>
+            <AnimatedBillHistoryIcon active={billingSubTab === 'history'} size={18} className={billingSubTab === 'history' ? "text-white" : "text-amber-500 dark:text-amber-400"} />
+            <span className="whitespace-nowrap font-black tracking-wide sm:tracking-wider text-[11px] sm:text-xs drop-shadow-2xs">History</span>
+            {billingSubTab === 'history' && (
+              <span className="relative flex h-2 w-2 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-200 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+              </span>
+            )}
           </button>
 
           <button
@@ -2145,22 +2144,20 @@ export default function BillingScreen({
               setBillingSubTab('calculator');
             }}
             className={cn(
-              "py-3 px-2 sm:px-4 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer select-none group border",
+              "py-2 px-1.5 sm:px-3.5 rounded-lg sm:rounded-xl flex flex-row items-center justify-center gap-1 sm:gap-2 transition-all cursor-pointer select-none border font-black text-[11px] sm:text-xs tracking-wide sm:tracking-wider uppercase relative overflow-hidden",
               billingSubTab === 'calculator'
-                ? "bg-amber-500/10 border-amber-500/40 text-amber-600 dark:text-amber-400 shadow-md shadow-amber-500/10 scale-[1.01]"
-                : "bg-[var(--foreground)]/[0.02] border-transparent text-[var(--foreground)]/70 hover:bg-[var(--foreground)]/[0.06] hover:text-[var(--foreground)]"
+                ? "bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 text-white border-amber-500/50 shadow-sm shadow-amber-500/25 scale-[1.01]"
+                : "bg-transparent border-transparent text-[var(--foreground)]/80 hover:bg-[var(--foreground)]/5 hover:text-[var(--foreground)]"
             )}
           >
-            <div className={cn(
-              "w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-all duration-200 group-hover:scale-110",
-              billingSubTab === 'calculator'
-                ? "bg-amber-500 text-white shadow-md shadow-amber-500/30 ring-2 ring-amber-400/30"
-                : "bg-[var(--foreground)]/5 text-[var(--foreground)]/70 group-hover:bg-[var(--foreground)]/10 group-hover:text-[var(--foreground)]"
-            )}>
-              <Calculator className="w-5 h-5 stroke-[2.2]" />
-            </div>
-            <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider mt-2">CALCULATOR</span>
-            <span className="text-[9px] font-medium text-[var(--foreground)]/50 normal-case tracking-normal hidden sm:block mt-0.5">Math & Change Return</span>
+            <AnimatedCalculatorIcon active={billingSubTab === 'calculator'} size={18} className={billingSubTab === 'calculator' ? "text-white" : "text-amber-500 dark:text-amber-400"} />
+            <span className="whitespace-nowrap font-black tracking-wide sm:tracking-wider text-[11px] sm:text-xs drop-shadow-2xs">Calculator</span>
+            {billingSubTab === 'calculator' && (
+              <span className="relative flex h-2 w-2 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-200 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -2184,23 +2181,18 @@ export default function BillingScreen({
         <>
           {/* 📋 BILLING DESK & MODE CONTROLS BAR */}
           <div className="bg-[var(--card)] border border-[var(--border)] p-3.5 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            {/* "Billing Desk" label/icon & Retail/Wholesale/Auto Options */}
-            <div className="flex items-center justify-between sm:justify-start gap-3 flex-wrap">
+            {/* "Billing Desk" title and Rate pricing Selector (Retail, Wholesale, Auto) in one line */}
+            <div className="flex items-center justify-between w-full">
               <div className="flex items-center gap-2">
                 <div className="h-8.5 w-8.5 rounded-xl bg-[var(--primary)]/10 text-[var(--primary)] flex items-center justify-center">
                   <ShoppingCart size={18} />
                 </div>
-                <div>
-                  <h2 className="text-sm font-black tracking-tight uppercase leading-none">
-                    {getTranslation('posHeading')}
-                  </h2>
-                  <p className="text-[8px] font-bold opacity-50 uppercase tracking-widest mt-0.5">
-                    {getTranslation('posSubheading')}
-                  </p>
-                </div>
+                <h2 className="text-sm font-black tracking-tight uppercase leading-none">
+                  {getTranslation('posHeading')}
+                </h2>
               </div>
 
-              {/* Rate pricing Selector (Retail, Wholesale, Auto) */}
+              {/* Rate pricing Selector (Retail, Wholesale, Auto) on the right corner */}
               <div className="flex bg-[var(--foreground)]/5 p-0.5 rounded-lg border border-[var(--border)] gap-0.5 text-[8px] font-black uppercase">
                 {(['retail', 'wholesale', 'auto'] as const).map(mode => (
                   <button
@@ -3882,9 +3874,15 @@ export default function BillingScreen({
                                   
                                   if (currentUnitLower === 'kg' || currentUnitLower === 'kilogram' || currentUnitLower === 'kilograms') {
                                     options.push({ label: 'to Grams (g)', target: 'g', factor: 1000 });
+                                    options.push({ label: 'to Chatak (50g)', target: 'Chatak', factor: 20 });
                                     options.push({ label: 'to Pounds (lb)', target: 'lb', factor: 2.20462 });
                                   } else if (currentUnitLower === 'g' || currentUnitLower === 'gram' || currentUnitLower === 'grams') {
                                     options.push({ label: 'to Kilograms (kg)', target: 'kg', factor: 0.001 });
+                                    options.push({ label: 'to Chatak (50g)', target: 'Chatak', factor: 0.02 });
+                                  } else if (currentUnitLower === 'chatak' || currentUnitLower === 'chattak' || currentUnitLower === 'ctk' || currentUnitLower === 'छटांक' || currentUnitLower === 'छटाक') {
+                                    options.push({ label: 'to Grams (50g)', target: 'g', factor: 50 });
+                                    options.push({ label: 'to Kilograms (kg)', target: 'kg', factor: 0.05 });
+                                    options.push({ label: 'to 250gm', target: '250gm', factor: 0.2 });
                                   } else if (currentUnitLower === 'ltr' || currentUnitLower === 'litre' || currentUnitLower === 'liters' || currentUnitLower === 'liter') {
                                     options.push({ label: 'to Milliliters (ml)', target: 'ml', factor: 1000 });
                                   } else if (currentUnitLower === 'ml' || currentUnitLower === 'milliliter' || currentUnitLower === 'milliliters') {
@@ -4785,14 +4783,14 @@ export default function BillingScreen({
                   </div>
                 </div>
 
-                <div className="space-y-0.5">
+                <div className="space-y-1">
                   <label className="text-[8px] font-black uppercase opacity-60">Unit (इकाई) *</label>
                   <input
                     type="text"
                     value={manualUnit}
                     onChange={(e) => setManualUnit(e.target.value)}
-                    placeholder="e.g. Kg, Pcs, Bag"
-                    className="w-full bg-[var(--foreground)]/5 border border-[var(--border)] px-3 py-2 rounded-xl text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)] font-bold"
+                    placeholder="e.g. Kg, Pcs, Bag, Chatak"
+                    className="w-full bg-[var(--foreground)]/5 border border-[var(--border)] px-3 py-2 rounded-xl text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)] font-bold uppercase"
                   />
                 </div>
 

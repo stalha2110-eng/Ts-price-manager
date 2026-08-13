@@ -79,6 +79,8 @@ export function normalizeUnit(word: string): string {
   
   // KG
   if (/^kg|kilo|kilogram|kg\.?|किलो|किग्रा|कलो$/i.test(w)) return "KG";
+  // Chatak
+  if (/^chatak|chattak|ctk|छटांक|छटाक$/i.test(w)) return "Chatak";
   // GM
   if (/^g|gm|gms|gram|grams|ग्राम|ग्राम्स|ग्राम्$/i.test(w)) return "GM";
   // LTR
@@ -161,7 +163,7 @@ function parseSingleProductPhrase(phrase: string, existingItems: Item[]): VoiceD
   const costKeywords = /(?:cost|buying|bought|purchase|buying price|खरीद|खरीदी|कॉस्ट|लागत)/gi;
   
   // Units vocabulary check
-  const unitKeywords = /(?:kg|kilo|kilogram|किग्रा|किलो|gram|gm|ग्राम|piece|pc|pcs|पीस|नग|packet|pkt|पैकेट|box|बॉक्स|carton|कार्टन|dozen|दर्जन|liter|ltr|लीटर|ml|एमएल|bundle|बंडल|tray|ट्रे|unit|यूनिट)/gi;
+  const unitKeywords = /(?:kg|kilo|kilogram|किग्रा|किलो|chatak|chattak|ctk|छटांक|छटाक|gram|gm|ग्राम|piece|pc|pcs|पीस|नग|packet|pkt|पैकेट|box|बॉक्स|carton|कार्टन|dozen|दर्जन|liter|ltr|लीटर|ml|एमएल|bundle|बंडल|tray|ट्रे|unit|यूनिट)/gi;
   
   // Extract all numbers
   const numberRegex = /(\d+(?:\.\d+)?)/g;

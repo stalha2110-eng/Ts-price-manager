@@ -1,5 +1,6 @@
 import { AppState, Bill, Item, UdharCustomer } from '../types';
 import { jsPDF } from 'jspdf';
+import { calculateBillProfit as calcProfit } from './utils';
 
 export const ensureIsoString = (val: any): string => {
   if (!val) return '';
@@ -187,14 +188,8 @@ export interface MonthlyAchievementReport {
 }
 
 // Helper to calculate bill profit
-export const calculateBillProfit = (bill: Bill): number => {
-  let costOfGoods = 0;
-  if (bill.items && Array.isArray(bill.items)) {
-    bill.items.forEach(item => {
-      costOfGoods += (item.cost || 0) * (item.quantity || 0);
-    });
-  }
-  return Math.max(0, (bill.total || 0) - costOfGoods);
+export const calculateBillProfit = (bill: Bill, itemsCatalog?: Item[]): number => {
+  return calcProfit(bill, itemsCatalog);
 };
 
 export const getCalculatedAchievements = (state: AppState) => {
