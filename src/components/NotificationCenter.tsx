@@ -54,6 +54,7 @@ export default function NotificationCenter({
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'inventory' | 'udhar' | 'analytics' | 'system'>('all');
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [showConfirmMarkAll, setShowConfirmMarkAll] = useState(false);
+  const [showConfirmDeleteAll, setShowConfirmDeleteAll] = useState(false);
   const [localDeletedIds, setLocalDeletedIds] = useState<string[]>([]);
   const [swipedNotificationId, setSwipedNotificationId] = useState<string | null>(null);
   
@@ -187,6 +188,32 @@ export default function NotificationCenter({
     }
   };
 
+  const handleDeleteAllNotifications = () => {
+    setShowConfirmDeleteAll(true);
+  };
+
+  const executeConfirmDeleteAll = () => {
+    const allIds = unifiedList.map(n => n.id);
+    setLocalDeletedIds(prev => Array.from(new Set([...prev, ...allIds])));
+
+    // Dismiss active dynamic alerts
+    activeAlerts.forEach(a => {
+      handleDismissNotification(a.id);
+    });
+
+    // Delete cloud & offline notifications
+    notifications.forEach(n => {
+      NotificationService.deleteNotification(state.user?.uid || null, n.id);
+    });
+
+    if (onMarkAllRead) {
+      const alertIds = activeAlerts.map(a => a.id);
+      onMarkAllRead(alertIds);
+    }
+
+    setShowConfirmDeleteAll(false);
+  };
+
   const handleSendBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!adminTitle.trim() || !adminMsg.trim()) return;
@@ -241,6 +268,16 @@ export default function NotificationCenter({
               </div>
 
               <div className="flex items-center gap-2">
+                {filteredList.length > 0 && (
+                  <button 
+                    onClick={handleDeleteAllNotifications}
+                    title="Delete All Notifications"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-extrabold text-xs transition-all active:scale-95 shadow-sm shadow-rose-500/25 cursor-pointer"
+                  >
+                    <Trash2 size={13} />
+                    <span>Delete All</span>
+                  </button>
+                )}
                 {state.user && (
                   <button 
                     onClick={() => setShowAdminPanel(!showAdminPanel)}
@@ -399,7 +436,7 @@ export default function NotificationCenter({
                 {filteredList.some(n => !n.isRead) && (
                   <button 
                     onClick={handleMarkAllRead}
-                    className="text-[9px] font-black uppercase tracking-widest text-[var(--primary)] hover:underline inline-flex items-center gap-1 leading-none"
+                    className="text-[9px] font-black uppercase tracking-widest text-[var(--primary)] hover:underline inline-flex items-center gap-1 leading-none cursor-pointer"
                   >
                     <CheckCheck size={12} />
                     <span>Mark all read</span>
@@ -586,14 +623,74 @@ export default function NotificationCenter({
             </div>
             
             {/* Drawer Footer */}
-            <div className="p-6 border-t border-[var(--border)] bg-gradient-to-r from-transparent to-[var(--primary)]/5 shrink-0">
-              <div className="flex items-center justify-between text-[10px] font-semibold opacity-40 uppercase tracking-widest">
+            <div className="p-4 px-6 border-t border-[var(--border)] bg-gradient-to-r from-transparent to-[var(--primary)]/5 flex items-center justify-between gap-3 shrink-0">
+              <div className="flex flex-col text-[10px] font-semibold opacity-50 uppercase tracking-widest">
                 <span>Vibration & Sound Enabled</span>
                 <span className="font-mono text-[9px]">FCM SYNCHRONIZER</span>
               </div>
             </div>
           </motion.div>
         </>
+      )}
+    </AnimatePresence>
+
+    {/* Confirmation Modal overlay to confirm Delete All */}
+    <AnimatePresence>
+      {showConfirmDeleteAll && (
+        <div className="fixed inset-0 z-[1400] flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowConfirmDeleteAll(false)}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 15 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 15 }}
+            className="relative w-full max-w-sm bg-[var(--card)] border border-[var(--border)] rounded-[2rem] p-6 shadow-2xl z-10 flex flex-col space-y-4"
+          >
+            <div className="flex justify-between items-center pb-2 border-b border-[var(--border)]">
+              <h4 className="text-xs font-black uppercase tracking-tight text-rose-500 flex items-center gap-1.5">
+                <Trash2 size={15} />
+                <span>Delete All Notifications? / सभी सूचनाएं हटाएं?</span>
+              </h4>
+              <button
+                onClick={() => setShowConfirmDeleteAll(false)}
+                className="h-6 w-6 rounded-md bg-[var(--foreground)]/5 hover:bg-[var(--foreground)]/10 text-[var(--foreground)]/60 hover:text-[var(--foreground)] flex items-center justify-center cursor-pointer transition-colors"
+              >
+                <X size={12} />
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs leading-relaxed text-[var(--foreground)]/80">
+              <p className="font-bold">
+                Are you sure you want to delete all notifications?
+              </p>
+              <p className="text-[10px] opacity-70 leading-relaxed uppercase text-rose-500/90 font-semibold">
+                ⚠️ This will permanently purge all alerts, stock triggers, and notification feeds from your account!
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowConfirmDeleteAll(false)}
+                className="py-2 px-3 bg-[var(--foreground)]/5 border border-[var(--border)] rounded-xl text-[9px] font-black uppercase tracking-wider hover:bg-[var(--foreground)]/10 text-[var(--foreground)] active:scale-95 transition-all cursor-pointer text-center"
+              >
+                Cancel / रद्द करें
+              </button>
+              <button
+                type="button"
+                onClick={executeConfirmDeleteAll}
+                className="py-2 px-3 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-[9px] font-black uppercase tracking-wider shadow-lg shadow-rose-500/20 active:scale-95 transition-all cursor-pointer text-center"
+              >
+                Yes, Delete All
+              </button>
+            </div>
+          </motion.div>
+        </div>
       )}
     </AnimatePresence>
 
