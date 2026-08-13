@@ -128,6 +128,7 @@ import AnalyticsScreen from './components/AnalyticsScreen';
 import UdharScreen from './components/UdharScreen';
 import BillHistoryDrawer from './components/BillHistoryDrawer';
 import NotificationCenter from './components/NotificationCenter';
+import { backNavManager, useBackModal } from './utils/backNavigationManager';
 import PrinterSettingsScreen from './components/PrinterSettingsScreen';
 import { LatestAchievementWidget } from './components/MilestonesTab';
 import { UnbilledQuickLedgerWidget } from './components/UnbilledQuickLedgerWidget';
@@ -1047,6 +1048,20 @@ export default function App() {
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
   const [currentTime, setCurrentTime] = useState(new Date());
 
+  // Set up PWA Back Navigation System hooks
+  useEffect(() => {
+    backNavManager.setOnTabChangeCallback((tab) => {
+      setActiveTab(tab as any);
+    });
+  }, []);
+
+  useBackModal(showMenu, () => setShowMenu(false), 'drawer_menu');
+  useBackModal(showPlusActionMenu, () => setShowPlusActionMenu(false), 'plus_action_menu');
+  useBackModal(showSmartBulkEntry, () => setShowSmartBulkEntry(false), 'smart_bulk_entry');
+  useBackModal(showNotificationsDropdown, () => setShowNotificationsDropdown(false), 'notifications_dropdown');
+  useBackModal(quickPeek !== null, () => setQuickPeek(null), 'quick_peek');
+  useBackModal(showRecoveryCenter, () => setShowRecoveryCenter(false), 'recovery_center');
+
   // Request browser Notification permissions on launch
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
@@ -1368,6 +1383,7 @@ export default function App() {
     if (tab === activeTab) return;
     setIsTabLoading(true);
     setActiveTab(tab);
+    backNavManager.onTabChanged(tab);
     const timer = setTimeout(() => {
       setIsTabLoading(false);
     }, 240);
@@ -9656,6 +9672,7 @@ function NoteCard({
 }
 
 function NoteFormModal({ onClose, onSave, t }: { onClose: () => void; onSave: (data: any) => void; t: any }) {
+  useBackModal(true, onClose, 'note_form_modal');
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -9835,6 +9852,7 @@ function GoalShiftPanelModal({
   state: any;
   t: any;
 }) {
+  useBackModal(isOpen, onClose, 'goal_shift_panel');
   const [activeTab, setActiveTabLocal] = useState<'shift' | 'history'>('shift');
 
   // Input states for New Shift Setup

@@ -22,6 +22,7 @@ import {
 import { InAppNotification, AppState, Item } from '../types';
 import { NotificationService } from '../services/notificationService';
 import { cn } from '../lib/utils';
+import { useBackModal } from '../utils/backNavigationManager';
 
 interface NotificationCenterProps {
   isOpen: boolean;
@@ -63,6 +64,11 @@ export default function NotificationCenter({
   const [adminTitle, setAdminTitle] = useState('');
   const [adminMsg, setAdminMsg] = useState('');
   const [adminPriority, setAdminPriority] = useState<'high' | 'medium' | 'low'>('medium');
+
+  useBackModal(isOpen, onClose, 'notification_center');
+  useBackModal(showConfirmMarkAll, () => setShowConfirmMarkAll(false), 'notif_confirm_mark_all');
+  useBackModal(showConfirmDeleteAll, () => setShowConfirmDeleteAll(false), 'notif_confirm_delete_all');
+  useBackModal(showAdminPanel, () => setShowAdminPanel(false), 'notif_admin_panel');
 
   // Unified notifications list
   const unifiedList = useMemo(() => {

@@ -13,6 +13,7 @@ import { cn, parseTimestamp, getNormalizedDateKey, getParsedTimestampMs, calcula
 import { RecoveryService } from '../services/recoveryService';
 import { printerService, DEFAULT_PRINT_SETTINGS } from '../services/printerService';
 import { playFeedbackEvent } from '../services/soundFeedbackService';
+import { useBackModal } from '../utils/backNavigationManager';
 
 interface BillHistoryDrawerProps {
   isOpen: boolean;
@@ -60,6 +61,10 @@ export default function BillHistoryDrawer({ isOpen, onClose, state, onUpdateStat
     message: string;
     type: 'success' | 'info' | 'warning' | 'error';
   }[]>([]);
+
+  useBackModal(isOpen, onClose, 'bill_history_drawer');
+  useBackModal(customConfirm !== null, () => setCustomConfirm(null), 'bill_history_confirm');
+  useBackModal(activeBillDetail !== null, () => setActiveBillDetail(null), 'bill_history_detail');
 
   const addToast = (message: string, type: 'success' | 'info' | 'warning' | 'error' = 'success') => {
     const id = `toast-${Date.now()}-${Math.random()}`;
