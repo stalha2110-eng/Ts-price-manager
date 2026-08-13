@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ts-price-manager-v5';
+const CACHE_NAME = 'ts-price-manager-v6';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -30,9 +30,10 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Stale-while-revalidate strategy
+// Stale-while-revalidate strategy (excludes /api/ routes)
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  if (event.request.url.includes('/api/')) return;
 
   event.respondWith(
     caches.open(CACHE_NAME).then((cache) => {

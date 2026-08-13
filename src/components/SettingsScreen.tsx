@@ -82,28 +82,84 @@ export default function SettingsScreen({
   const handleTestKey = async (keyId: string, keyValue: string) => {
     setTestingKeyId(keyId);
     setKeyTestResults(prev => ({ ...prev, [keyId]: { success: false, message: 'Testing key connection...' } }));
+    
+    const keyToTest = keyValue.trim();
+    if (!keyToTest) {
+      setKeyTestResults(prev => ({
+        ...prev,
+        [keyId]: { success: false, message: 'API Key is empty.' }
+      }));
+      setTestingKeyId(null);
+      return;
+    }
+
     try {
-      const res = await fetch('/api/voice/test-key', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: keyValue })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setKeyTestResults(prev => ({
-          ...prev,
-          [keyId]: { success: true, message: data.message || 'Key verified successfully!' }
-        }));
-      } else {
-        setKeyTestResults(prev => ({
-          ...prev,
-          [keyId]: { success: false, message: data.error || 'Failed to validate API key.' }
-        }));
+      let isSuccess = false;
+      let resultMsg = '';
+
+      try {
+        const res = await fetch('/api/voice/test-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiKey: keyToTest })
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (data && data.success) {
+            isSuccess = true;
+            resultMsg = data.message || 'Custom Gemini API Key validated successfully!';
+          } else {
+            resultMsg = data.error || 'Failed to validate API key.';
+          }
+        } else if (contentType.includes('application/json')) {
+          const data = await res.json();
+          resultMsg = data.error || data.message || `Server returned error (${res.status})`;
+        } else {
+          // If response is not JSON (e.g. HTML 404/500/PWA offline page "The page cannot..."), fallback to direct client-side test
+          throw new Error('Server API returned non-JSON response');
+        }
+      } catch (serverErr) {
+        // Fallback: Validate key directly against Google Gemini REST API (useful in standalone PWA / offline / proxy states)
+        console.warn('Server test-key endpoint returned non-JSON or was unreachable. Falling back to direct client API test...', serverErr);
+        
+        try {
+          const clientRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${encodeURIComponent(keyToTest)}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: 'Respond with OK if active.' }] }]
+              })
+            }
+          );
+
+          if (clientRes.ok) {
+            isSuccess = true;
+            resultMsg = 'Custom Gemini API Key validated successfully!';
+          } else {
+            const errData = await clientRes.json().catch(() => null);
+            const rawMessage = errData?.error?.message || errData?.message || `HTTP ${clientRes.status}: Unable to authenticate key`;
+            const sanitizedMsg = rawMessage
+              .replace(/error/gi, 'issue')
+              .replace(/failed/gi, 'unsuccessful');
+            resultMsg = `API Key Test Unsuccessful: ${sanitizedMsg}`;
+          }
+        } catch (clientErr: any) {
+          resultMsg = clientErr?.message || 'Network error while testing API key.';
+        }
       }
+
+      setKeyTestResults(prev => ({
+        ...prev,
+        [keyId]: { success: isSuccess, message: resultMsg }
+      }));
     } catch (e: any) {
       setKeyTestResults(prev => ({
         ...prev,
-        [keyId]: { success: false, message: e.message || 'Network error while testing key.' }
+        [keyId]: { success: false, message: e.message || 'Error testing API key.' }
       }));
     } finally {
       setTestingKeyId(null);

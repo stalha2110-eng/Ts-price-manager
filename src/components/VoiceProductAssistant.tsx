@@ -404,7 +404,12 @@ export function VoiceProductAssistant({
       });
 
       if (!response.ok) {
-        throw new Error(`AI processing service returned error: ${response.status}`);
+        throw new Error(`AI processing service returned status ${response.status}`);
+      }
+
+      const contentType = response.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("Server returned a non-JSON response. Please check network connection.");
       }
 
       const data = await response.json();
