@@ -279,7 +279,7 @@ export class NotificationService {
     playNotificationChime(notif.priority);
     triggerVibration(notif.priority);
 
-    if (!userId || userId === 'guest_user') {
+    if (!userId || userId === 'guest_user' || !db) {
       // Local storage fallback when user is logged out / offline cache only
       const cached = JSON.parse(localStorage.getItem('ts_cached_offline_notifications') || '[]');
       const localNotif = { ...notif, id: fallbackId, isRead: false };
@@ -443,6 +443,7 @@ export class NotificationService {
 
   /**
    * Check and auto-generate daily sales summary reports inside Cloud notifications channel.
+   * Triggers ONCE per day, exactly 10 minutes before store closing time.
    */
   public static checkAndTriggerDailySummary(
     userId: string | null,
@@ -456,12 +457,14 @@ export class NotificationService {
     if (settings?.dailySummaryNotify === false) return;
 
     try {
-      const todayDateKey = getNormalizedDateKey(new Date());
-      const todayStr = new Date().toDateString();
+      const now = new Date();
+      const todayDateKey = getNormalizedDateKey(now);
+      const todayStr = now.toDateString();
+
       const lastSentDate = localStorage.getItem('last_daily_sum_sent');
       const settingsLastSent = settings?.lastDailySummarySentDate;
 
-      // Trigger once per day or when explicitly forced (via admin sandbox or scheduler click)
+      // 1. Strict Once-Per-Day Check across memory, localStorage, and Firestore settings
       if (!forceTrigger) {
         if (
           lastSentDate === todayDateKey || 
@@ -471,13 +474,13 @@ export class NotificationService {
           settingsLastSent === todayDateKey ||
           settingsLastSent === todayStr
         ) {
-          return;
+          return; // Already sent today!
         }
 
-        // Additional safeguard: Check if a daily summary notification already exists for today
+        // Additional safeguard: Check if a daily summary notification already exists for today in existingNotifications
         if (Array.isArray(existingNotifications) && existingNotifications.length > 0) {
           const alreadyHasTodaySummary = existingNotifications.some(n => {
-            const isSummaryCat = n.category === 'analytics' || n.title?.includes('Daily Summary') || n.title?.includes('दैनिक सारांश');
+            const isSummaryCat = n.category === 'analytics' || n.title?.includes('Summary') || n.title?.includes('दैनिक सारांश');
             if (isSummaryCat) {
               const notifDateKey = getNormalizedDateKey(n.timestamp);
               return notifDateKey === todayDateKey;
@@ -491,23 +494,37 @@ export class NotificationService {
             if (onUpdateSettings && settingsLastSent !== todayDateKey) {
               onUpdateSettings({ ...settings, lastDailySummarySentDate: todayDateKey });
             }
-            return;
+            return; // Already sent today!
           }
         }
       }
 
-      const summaryTime = settings?.dailySummaryTime || "20:00";
-      const [shour, smin] = (summaryTime.includes(':') ? summaryTime : "20:00").split(':').map(Number);
-      const currentTime = new Date();
-      
-      const currentHours = currentTime.getHours();
-      const currentMinutes = currentTime.getMinutes();
+      // 2. Calculate store closing time and target notification time (10 minutes BEFORE store closing)
+      const closingTimeStr = settings?.storeClosingTime || settings?.dailySummaryTime || "21:00";
+      const [chour, cmin] = closingTimeStr.includes(':') ? closingTimeStr.split(':').map(Number) : [21, 0];
 
-      // Trigger daily warning summary if current time reaches or exceeds the daily threshold configured
-      const isTargetTime = (currentHours > shour) || (currentHours === shour && currentMinutes >= smin);
+      let targetHour = chour;
+      let targetMin = cmin - 10;
+      if (targetMin < 0) {
+        targetMin += 60;
+        targetHour -= 1;
+      }
+      if (targetHour < 0) {
+        targetHour += 24;
+      }
+
+      const targetTotalMinutes = targetHour * 60 + targetMin;
+      const closingTotalMinutes = chour * 60 + cmin;
+
+      const currentHours = now.getHours();
+      const currentMinutes = now.getMinutes();
+      const currentTotalMinutes = currentHours * 60 + currentMinutes;
+
+      // 3. Trigger condition: Current time is between (ClosingTime - 10mins) and ClosingTime
+      const isTargetTime = (currentTotalMinutes >= targetTotalMinutes) && (currentTotalMinutes <= closingTotalMinutes + 30);
 
       if (isTargetTime || forceTrigger) {
-        // Mark as sent IMMEDIATELY synchronously across all memory/storage channels to prevent repeat triggers
+        // Mark as sent IMMEDIATELY synchronously across all memory/storage/settings channels
         if (!forceTrigger) {
           this.lastDailySummarySentDate = todayDateKey;
           try {
@@ -518,7 +535,7 @@ export class NotificationService {
           }
         }
 
-        // Calculate today's sales and profits accurately using parseTimestamp
+        // Calculate today's sales and profits accurately
         const todayBills = (bills || []).filter(b => {
           if (!b?.timestamp) return false;
           return getNormalizedDateKey(b.timestamp) === todayDateKey;
@@ -532,10 +549,10 @@ export class NotificationService {
 
         const billCount = todayBills.length;
 
-        // Custom business summary
+        // Formulate 10-minute store closing business summary
         const rupeeSymbol = '₹';
-        const titleText = `📊 Business Daily Summary / दैनिक सारांश`;
-        const bodyText = `Today's Sales: ${rupeeSymbol}${totalSalesSum.toLocaleString(undefined, { minimumFractionDigits: 0 })} | Total Profit: ${rupeeSymbol}${Math.max(0, totalProfitSum).toLocaleString(undefined, { minimumFractionDigits: 0 })} | Invoice Transactions Count: ${billCount}. Click to examine analytics dashboard.`;
+        const titleText = `📊 Business Summary (10m Before Store Close) / दैनिक सारांश`;
+        const bodyText = `Store closes at ${closingTimeStr} in 10 minutes. Today's Sales: ${rupeeSymbol}${totalSalesSum.toLocaleString(undefined, { minimumFractionDigits: 0 })} | Total Profit: ${rupeeSymbol}${Math.max(0, totalProfitSum).toLocaleString(undefined, { minimumFractionDigits: 0 })} | Total Invoices: ${billCount}. Tap to review analytics.`;
 
         this.triggerNotification(userId, {
           title: titleText,

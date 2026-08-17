@@ -922,8 +922,8 @@ Average Bill : ₹${target.billsCount > 0 ? (target.sales / target.billsCount).t
               {lowStockItems.length === 0 ? (
                 <p className="text-[11px] text-emerald-500 py-4 text-center font-bold">✓ Catalog stocks are healthy for tomorrow!</p>
               ) : (
-                lowStockItems.map((item) => (
-                  <div key={item.id} className="flex justify-between items-center p-2.5 bg-rose-500/5 border border-rose-500/10 rounded-xl text-xs font-bold">
+                lowStockItems.map((item, lsIdx) => (
+                  <div key={`sccc-low-stock-${item.id || 'item'}-${lsIdx}`} className="flex justify-between items-center p-2.5 bg-rose-500/5 border border-rose-500/10 rounded-xl text-xs font-bold">
                     <span className="text-[var(--foreground)]">{item.name}</span>
                     <span className="text-xs text-rose-600 font-mono font-black">Only {item.quantity} {item.unit || 'units'} left!</span>
                   </div>

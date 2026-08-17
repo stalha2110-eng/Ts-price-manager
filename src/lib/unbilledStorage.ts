@@ -64,7 +64,7 @@ export function addUnbilledEntry(
   const updated = [newEntry, ...entries];
   saveUnbilledEntries(updated);
 
-  if (auth.currentUser?.uid) {
+  if (auth.currentUser?.uid && db) {
     try {
       setDoc(doc(db, 'users', auth.currentUser.uid, 'unbilledEntries', newEntry.id), newEntry)
         .catch(err => console.error('Firestore unbilled entry upload error:', err));
@@ -84,7 +84,7 @@ export function deleteUnbilledEntry(id: string): void {
   const updated = entries.filter(e => e.id !== id);
   saveUnbilledEntries(updated);
 
-  if (auth.currentUser?.uid) {
+  if (auth.currentUser?.uid && db) {
     try {
       deleteDoc(doc(db, 'users', auth.currentUser.uid, 'unbilledEntries', id))
         .catch(err => console.error('Firestore unbilled entry delete error:', err));
@@ -101,7 +101,7 @@ export function clearAllUnbilledEntries(): void {
   const currentEntries = getUnbilledEntries();
   saveUnbilledEntries([]);
 
-  if (auth.currentUser?.uid) {
+  if (auth.currentUser?.uid && db) {
     try {
       currentEntries.forEach(entry => {
         deleteDoc(doc(db, 'users', auth.currentUser!.uid, 'unbilledEntries', entry.id))

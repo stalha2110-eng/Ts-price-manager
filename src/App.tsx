@@ -2629,7 +2629,7 @@ export default function App() {
 
   // --- Real-time Firestore Sync ---
   useEffect(() => {
-    if (!state.user || state.user.uid === 'guest_user' || !state.settings.autoCloudSync) {
+    if (!state.user || !state.user.uid || state.user.uid === 'guest_user' || !state.settings.autoCloudSync || !db) {
       return;
     }
 
@@ -4898,7 +4898,7 @@ export default function App() {
                {/* Registry Grid */}
                <div className="space-y-6">
                  {/* Search at top of list */}
-                 <div id="tour-search" className="relative group">
+                 <div id="tour-search" className={`relative group transition-all ${isSearchFocused && searchQuery.trim().length > 0 ? 'z-50' : 'z-20'}`}>
                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--primary)] opacity-40 transition-opacity group-focus-within:opacity-100" size={20} />
                    <input 
                      type="text"
@@ -4947,10 +4947,10 @@ export default function App() {
                          animate={{ opacity: 1, y: 0, scale: 1 }}
                          exit={{ opacity: 0, y: 8, scale: 0.98 }}
                          transition={{ duration: 0.15 }}
-                         className={`absolute left-0 right-0 mt-2 z-[999] overflow-hidden bg-[var(--card)] border shadow-2xl ${
+                         className={`absolute left-0 right-0 top-full mt-1.5 z-[999] overflow-hidden bg-[var(--card)] border shadow-2xl ${
                            state.settings.theme === 'neo_brutalist' 
                              ? 'border-4 border-black rounded-none shadow-[8px_8px_0px_#000]' 
-                             : 'border-[var(--border)] rounded-2xl backdrop-blur-md'
+                             : 'border-[var(--border)] rounded-2xl backdrop-blur-md ring-1 ring-black/10 dark:ring-white/10'
                          }`}
                        >
                          <div className="p-2.5 border-b border-[var(--border)] bg-[var(--foreground)]/[0.04] flex items-center justify-between">
@@ -4975,7 +4975,7 @@ export default function App() {
                                
                                return (
                                  <div
-                                   key={item.id}
+                                   key={`pred-item-${item.id || 'item'}-${idx}`}
                                    onMouseDown={(e) => {
                                      e.preventDefault();
                                      setSearchQuery(displayName);
@@ -5047,7 +5047,7 @@ export default function App() {
                   {filteredItems.length > 0 ? (
                     filteredItems.map((item, index) => (
                       <motion.div
-                        key={item.id}
+                        key={`filtered-item-${item.id || 'item'}-${index}`}
                         layout
                         initial={{ opacity: 0, scale: 0.94, y: 12 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -5196,7 +5196,7 @@ export default function App() {
                       const cat = DEFAULT_CATEGORIES.find(c => c.id === it?.categoryId);
                       return (
                         <motion.div 
-                          key={id} 
+                          key={`sel-item-id-${id}-${index}`} 
                           initial={{ x: -20, opacity: 0 }}
                           animate={{ x: 0, opacity: 1 }}
                           transition={{ delay: index * 0.1 }}
@@ -6907,7 +6907,7 @@ export default function App() {
                           <div className="flex flex-wrap gap-1 items-center max-w-full">
                             {drawerSearchHistory.map((hQuery, idx) => (
                               <button
-                                key={idx}
+                                key={`drawer-hist-${hQuery}-${idx}`}
                                 onClick={() => setDrawerSearchQuery(hQuery)}
                                 className="px-2 py-0.5 rounded-md border border-[var(--border)] bg-[var(--foreground)]/[0.02] hover:bg-[var(--primary)]/10 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all cursor-pointer font-bold uppercase truncate max-w-[8rem]"
                               >
@@ -6927,7 +6927,7 @@ export default function App() {
                       {drawerSearchQuery && (
                         <div className="max-h-[14rem] overflow-y-auto divide-y divide-[var(--border)] pr-1 space-y-1 scrollbar-thin mt-1">
                           {filteredDrawerResults.length > 0 ? (
-                            filteredDrawerResults.map(item => {
+                            filteredDrawerResults.map((item, idx) => {
                               let CategoryIcon = SettingsIcon;
                               let iconColor = 'text-indigo-500 bg-indigo-500/10 border-indigo-500/20';
                               if (item.category === 'Navigation') {
@@ -6943,7 +6943,7 @@ export default function App() {
 
                               return (
                                 <button
-                                  key={item.id}
+                                  key={`drawer-res-${item.id}-${idx}`}
                                   onClick={() => {
                                     addToDrawerSearchHistory(drawerSearchQuery);
                                     item.onClick();
@@ -8035,11 +8035,11 @@ function ComparisonModal({ selectedItems, onClose, t, language, precision, hideB
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {selectedItems.map((item) => {
+          {selectedItems.map((item, sIdx) => {
             const cat = DEFAULT_CATEGORIES.find(c => c.id === item.categoryId);
             const name = (item.translations && (item.translations[language] || item.translations.en)) || item.name;
             return (
-              <div key={item.id} className="card p-6 bg-gradient-to-br from-[var(--card)] to-transparent border-white/5 space-y-6">
+              <div key={`sel-card-${item.id || 'item'}-${sIdx}`} className="card p-6 bg-gradient-to-br from-[var(--card)] to-transparent border-white/5 space-y-6">
                 <div className="flex items-center gap-4 border-b border-white/5 pb-4">
                   <div className="h-16 w-16 rounded-2xl bg-[var(--background)] border border-[var(--border)] flex items-center justify-center text-3xl shadow-inner">
                     {cat?.icon || '📦'}
@@ -8418,8 +8418,8 @@ function ItemFormModal({ onClose, onSave, categories, initialData, t, language }
              </div>
              
              <div className="grid grid-cols-4 gap-2">
-                {quickAmounts.map(amt => (
-                  <button key={amt} onClick={() => setFormData(prev => ({ ...prev, retailPrice: amt }))} className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">₹{amt}</button>
+                {quickAmounts.map((amt, idx) => (
+                  <button key={`amt-${amt}-${idx}`} onClick={() => setFormData(prev => ({ ...prev, retailPrice: amt }))} className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-[9px] font-black opacity-30 hover:opacity-100 hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all">₹{amt}</button>
                 ))}
              </div>
           </motion.div>
@@ -9410,7 +9410,7 @@ function RecentPriceChanges({ items, t, precision, renderHeaderAction }: { items
           <div className="flex gap-4 overflow-x-auto pb-2 no-scrollbar">
             {recentChanges.map((item, idx) => (
               <motion.div 
-                key={item.id} 
+                key={`recent-change-${item.id || 'item'}-${idx}`} 
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: idx * 0.08, type: "spring", stiffness: 200, damping: 20 }}
@@ -9569,9 +9569,9 @@ function NotesDashboard({
         isPreview ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
       )}>
         <AnimatePresence mode="popLayout">
-          {displayNotes.length > 0 ? displayNotes.map(note => (
+          {displayNotes.length > 0 ? displayNotes.map((note, nIdx) => (
             <NoteCard 
-               key={note.id} 
+               key={`note-${note.id || 'note'}-${nIdx}`} 
                note={note} 
                onUpdate={onUpdate} 
                onDelete={onDelete} 

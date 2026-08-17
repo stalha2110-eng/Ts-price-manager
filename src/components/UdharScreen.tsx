@@ -900,14 +900,14 @@ export default function UdharScreen({
                 <p className="text-[10px] max-w-[200px] mx-auto opacity-60">Click Open New Khata to add your first customer credit book!</p>
               </div>
             ) : (
-              filteredCustomers.map((cust) => {
+              filteredCustomers.map((cust, cIdx) => {
                 const isSelected = cust.id === selectedCustomerId;
                 const outstanding = cust.totalUdhar;
                 const isSettled = outstanding === 0;
                 
                 return (
                   <div 
-                    key={cust.id}
+                    key={`udhar-cust-${cust.id || 'cust'}-${cIdx}`}
                     onClick={() => setSelectedCustomerId(cust.id)}
                     className={`flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer relative overflow-hidden group ${
                       isSelected 
@@ -1074,10 +1074,10 @@ export default function UdharScreen({
                       No matching records found for "{ledgerSearchQuery}"
                     </div>
                   ) : (
-                    filteredLedger.map((tx) => {
+                    filteredLedger.map((tx, tIdx) => {
                       const isGiven = tx.type === 'given';
                       return (
-                        <div key={tx.id} className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0 font-medium">
+                        <div key={`udhar-tx-${tx.id || 'tx'}-${tIdx}`} className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0 font-medium">
                           <div className="flex items-center gap-3">
                             <div className={`h-8 w-8 rounded-lg flex items-center justify-center font-mono text-center shrink-0 ${
                               isGiven ? 'bg-rose-500/10 text-rose-500' : 'bg-green-500/10 text-green-500'

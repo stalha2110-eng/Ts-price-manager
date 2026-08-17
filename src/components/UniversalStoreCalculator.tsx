@@ -103,6 +103,7 @@ export default function UniversalStoreCalculator() {
 
   // Real-time Firestore Listener & 7-Day Auto-Migration Logic
   useEffect(() => {
+    if (!db) return;
     let unsubscribe: (() => void) | undefined;
     try {
       const q = query(collection(db, 'calcLedger'));
@@ -1050,11 +1051,11 @@ export default function UniversalStoreCalculator() {
                     No calculations available
                   </div>
                 ) : (
-                  calcHistory.map(item => {
+                  calcHistory.map((item, cIdx) => {
                     const isChecked = selectedIdsForClear.has(item.id);
                     return (
                       <div
-                        key={item.id}
+                        key={`univ-calc-item-${item.id || 'item'}-${cIdx}`}
                         onClick={() => handleToggleClearItem(item.id)}
                         className={cn(
                           "p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all",

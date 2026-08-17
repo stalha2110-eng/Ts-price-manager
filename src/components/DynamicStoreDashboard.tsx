@@ -837,8 +837,8 @@ export default function DynamicStoreDashboard({
                               <p className="text-xs text-green-500 font-bold">✨ No low stock items! All inventories are fully loaded.</p>
                             ) : (
                               <div className="space-y-1">
-                                {lowStockItems.slice(0, 3).map(item => (
-                                  <div key={item.id} className="p-2 bg-[var(--foreground)]/5 rounded-xl border border-[var(--border)] flex justify-between items-center">
+                                {lowStockItems.slice(0, 3).map((item, idx) => (
+                                  <div key={`low-stock-preview-${item.id || 'item'}-${idx}`} className="p-2 bg-[var(--foreground)]/5 rounded-xl border border-[var(--border)] flex justify-between items-center">
                                     <span className="text-[10px] font-black uppercase truncate max-w-[120px]">{item.name}</span>
                                     <span className="text-[10px] font-black font-mono text-amber-500">Qty: {item.quantity}</span>
                                   </div>
@@ -857,8 +857,8 @@ export default function DynamicStoreDashboard({
                               <p className="text-xs text-green-500 font-bold">✨ Great job! Every product catalog node is in stock.</p>
                             ) : (
                               <div className="space-y-1">
-                                {outOfStockItems.slice(0, 3).map(item => (
-                                  <div key={item.id} className="p-2 bg-red-500/5 rounded-xl border border-red-500/15 flex justify-between items-center">
+                                {outOfStockItems.slice(0, 3).map((item, idx) => (
+                                  <div key={`oos-preview-${item.id || 'item'}-${idx}`} className="p-2 bg-red-500/5 rounded-xl border border-red-500/15 flex justify-between items-center">
                                     <span className="text-[10px] font-black uppercase text-rose-500 truncate max-w-[120px]">{item.name}</span>
                                     <span className="text-[10px] font-black font-mono text-rose-500 uppercase bg-rose-500/10 px-2 py-0.5 rounded">0 Stock</span>
                                   </div>
@@ -875,8 +875,8 @@ export default function DynamicStoreDashboard({
                           <div className="space-y-2">
                             <p className="text-[10px] uppercase font-black opacity-50 tracking-wider">Top outstanding credit accounts:</p>
                             <div className="space-y-1">
-                              {(state.udharCustomers || []).slice(0, 2).map(c => (
-                                <div key={c.id} className="p-2 bg-rose-500/5 border border-rose-500/15 rounded-xl flex justify-between items-center">
+                              {(state.udharCustomers || []).slice(0, 2).map((c, idx) => (
+                                <div key={`udhar-preview-${c.id || 'cust'}-${idx}`} className="p-2 bg-rose-500/5 border border-rose-500/15 rounded-xl flex justify-between items-center">
                                   <span className="text-[10px] font-black uppercase truncate max-w-[120px]">{c.name}</span>
                                   <span className="text-[10px] font-black font-mono text-rose-500">₹{c.totalUdhar}</span>
                                 </div>
@@ -1170,8 +1170,8 @@ export default function DynamicStoreDashboard({
                   <div className="space-y-3">
                     <p className="text-xs opacity-70 uppercase font-black">All Critical stock alerts needing attention ({lowStockItems.length}):</p>
                     <div className="space-y-1.5 max-h-[180px] overflow-y-auto no-scrollbar">
-                      {lowStockItems.map(item => (
-                        <div key={item.id} className="p-3 bg-amber-500/5 rounded-2xl border border-amber-500/15 flex justify-between items-center">
+                      {lowStockItems.map((item, idx) => (
+                        <div key={`low-stock-modal-${item.id || 'item'}-${idx}`} className="p-3 bg-amber-500/5 rounded-2xl border border-amber-500/15 flex justify-between items-center">
                           <div>
                             <p className="text-xs font-black uppercase">{item.name}</p>
                             <p className="text-[8px] font-mono opacity-50">Unit Type: {item.unit || 'N/A'}</p>
@@ -1190,8 +1190,8 @@ export default function DynamicStoreDashboard({
                   <div className="space-y-3">
                     <p className="text-xs opacity-70 uppercase font-black">Active outstanding ledger debt accounts:</p>
                     <div className="space-y-1.5 max-h-[185px] overflow-y-auto no-scrollbar">
-                      {state.udharCustomers.map(cust => (
-                        <div key={cust.id} className="p-3 bg-rose-500/5 rounded-2xl border border-rose-500/15 flex justify-between items-center text-xs">
+                      {state.udharCustomers.map((cust, idx) => (
+                        <div key={`udhar-modal-${cust.id || 'cust'}-${idx}`} className="p-3 bg-rose-500/5 rounded-2xl border border-rose-500/15 flex justify-between items-center text-xs">
                           <div>
                             <span className="font-black uppercase">{cust.name}</span>
                             <p className="text-[8px] opacity-45">Phone No: {cust.phone || 'N/A'}</p>

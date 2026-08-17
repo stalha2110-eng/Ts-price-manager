@@ -1530,9 +1530,9 @@ export default function SmartCalculator() {
                       {favoriteOnlyFilter ? "No pinned calculation highlights recorded." : "No matching spreadsheet inputs in active sheet."}
                     </div>
                   ) : (
-                    filteredHistoryLogs.map((item) => (
+                    filteredHistoryLogs.map((item, hIdx) => (
                       <div 
-                        key={item.id} 
+                        key={`smart-calc-hist-${item.id || 'item'}-${hIdx}`} 
                         className="p-2 rounded-xl bg-white hover:bg-zinc-50 border border-zinc-150 hover:border-zinc-250 flex items-center justify-between group transition-all shadow-sm"
                       >
                         <div 

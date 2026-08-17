@@ -1,6 +1,23 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, initializeFirestore, doc, setDoc, onSnapshot, collection, query, orderBy, limit, addDoc, updateDoc, deleteDoc, Timestamp, getDocFromServer, enableIndexedDbPersistence } from 'firebase/firestore';
+import { 
+  getFirestore, 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager,
+  doc, 
+  setDoc, 
+  onSnapshot, 
+  collection, 
+  query, 
+  orderBy, 
+  limit, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  Timestamp, 
+  getDocFromServer 
+} from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Safely extract config properties supporting potential bundler default wrapper variations
@@ -21,42 +38,32 @@ export const getMessagingInstance = async () => {
   return null;
 };
 
-// Pre-initialize Firestore with robust settings suited for sandboxed iframes (long polling fallback)
+// Pre-initialize Firestore with robust settings suited for sandboxed iframes
 const initializeDb = () => {
   const databaseId = safeConfig?.firestoreDatabaseId || undefined;
 
   try {
     return initializeFirestore(app, {
       experimentalForceLongPolling: true,
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
+      })
     }, databaseId);
   } catch (e) {
-    console.warn('[Firebase Init] initializeFirestore failed, falling back to getFirestore:', e);
+    console.warn('[Firebase Init] initializeFirestore failed, attempting fallback getFirestore:', e);
     try {
-      return getFirestore(app, databaseId);
-    } catch (e2) {
-      console.error('[Firebase Init] getFirestore with databaseId failed, trying fallback default:', e2);
-      try {
-        return getFirestore(app);
-      } catch (e3) {
-        console.error('[Firebase Init] Critical Failure - Default getFirestore(app) failed:', e3);
-        throw e3;
+      if (databaseId) {
+        return getFirestore(app, databaseId);
       }
+      return getFirestore(app);
+    } catch (e2) {
+      console.error('[Firebase Init] Critical Failure - Default getFirestore(app) failed:', e2);
+      return getFirestore(app);
     }
   }
 };
 
 export const db = initializeDb();
-
-// Enable offline persistence only when NOT inside a sandboxed iframe to prevent IndexedDB lockups in iframe environments
-if (typeof window !== 'undefined' && window.self === window.top) {
-  enableIndexedDbPersistence(db).catch((err) => {
-    if (err.code === 'failed-precondition') {
-      console.warn('Firestore persistence failed: Multiple tabs open');
-    } else if (err.code === 'unimplemented') {
-      console.warn('Firestore persistence failed: Browser not supported');
-    }
-  });
-}
 
 export const googleProvider = new GoogleAuthProvider();
 

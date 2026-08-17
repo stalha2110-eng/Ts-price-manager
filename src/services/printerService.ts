@@ -192,12 +192,14 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     itemDetails: 'Item Details',
     amount: 'Amount',
     basketSubtotal: 'Basket Subtotal:',
-    promoSave: 'Promo Save',
+    promoSave: 'Discount',
     taxAppended: 'Tax Appended',
     grandTotal: 'Grand Total:',
     cashReceived: 'Cash Received:',
     scanPay: 'Scan to Pay via UPI',
-    poweredBy: 'Powered by TS Price Manager'
+    poweredBy: 'Powered by TS Price Manager',
+    youSaved: 'YOU SAVED',
+    totalSavings: 'TOTAL SAVINGS'
   },
   hi: {
     invoiceRef: 'संदेर्भ / बिल नं:',
@@ -208,12 +210,14 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     itemDetails: 'सामग्री विवरण',
     amount: 'राशि (₹)',
     basketSubtotal: 'कुल योग:',
-    promoSave: 'बचत छूट',
+    promoSave: 'छूट (Discount)',
     taxAppended: 'टैक्स हिस्सा',
     grandTotal: 'अंतिम देय राशि:',
     cashReceived: 'नकद प्राप्त:',
     scanPay: 'UPI द्वारा भुगतान स्कैन करें',
-    poweredBy: 'संचालित: TS Price Manager'
+    poweredBy: 'संचालित: TS Price Manager',
+    youSaved: 'आपने बचाए',
+    totalSavings: 'कुल बचत'
   },
   mr: {
     invoiceRef: 'बिल क्रमांक:',
@@ -224,12 +228,14 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     itemDetails: 'वस्तूंचा तपशील',
     amount: 'रक्कम (₹)',
     basketSubtotal: 'एकूण रक्कम:',
-    promoSave: 'बचत सूट',
+    promoSave: 'सूट (Discount)',
     taxAppended: 'टॅक्स भाग',
     grandTotal: 'एकूण देय रक्कम:',
     cashReceived: 'रोख प्राप्त:',
     scanPay: 'UPI द्वारे पेमेंट स्कॅन करा',
-    poweredBy: 'द्वारे संचालित: TS Price Manager'
+    poweredBy: 'द्वारे संचालित: TS Price Manager',
+    youSaved: 'तुम्ही वाचवले',
+    totalSavings: 'एकूण बचत'
   },
   'hi-en': {
     invoiceRef: 'Bill Number:',
@@ -245,7 +251,9 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     grandTotal: 'Net Total Amnt:',
     cashReceived: 'Cash Mila:',
     scanPay: 'Pay karne ke liye Scan karein',
-    poweredBy: 'Powered by TS Price Manager'
+    poweredBy: 'Powered by TS Price Manager',
+    youSaved: 'Aapne Bachaye',
+    totalSavings: 'TOTAL BACHAT'
   }
 };
 
@@ -875,8 +883,8 @@ class PrinterService {
             <span class="font-mono">₹${bill.subtotal.toFixed(2)}</span>
           </div>
           ${bill.discount > 0 ? `
-            <div class="flex justify-between text-red-600">
-              <span>${dict.promoSave} (${bill.discount}%):</span>
+            <div class="flex justify-between" style="color: #000;">
+              <span>${dict.promoSave} (${Number(Number(bill.discount).toFixed(2))}%):</span>
               <span class="font-mono">-₹${((bill.subtotal * bill.discount) / 100).toFixed(2)}</span>
             </div>
           ` : ''}
@@ -891,6 +899,28 @@ class PrinterService {
             <span class="font-mono">₹${bill.total.toFixed(2)}</span>
           </div>
         </div>
+
+        ${bill.discount > 0 ? `
+          <div style="
+            margin: 6px 0;
+            padding: 5px 8px;
+            background: #000000;
+            color: #ffffff;
+            border-radius: 4px;
+            text-align: center;
+            border: 1px solid #000000;
+          ">
+            <div style="font-size: 7.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9;">
+              ★ ${dict.totalSavings || 'TOTAL SAVINGS'} ★
+            </div>
+            <div style="font-size: 13px; font-weight: 900; font-family: monospace; color: #ffffff; margin: 1.5px 0;">
+              ${dict.youSaved || 'YOU SAVED'}: ₹${((bill.subtotal * bill.discount) / 100).toFixed(2)}
+            </div>
+            <div style="font-size: 7.5px; opacity: 0.85;">
+              (${Number(Number(bill.discount).toFixed(2))}% Discount on Total)
+            </div>
+          </div>
+        ` : ''}
 
          ${dividerHtml}
 

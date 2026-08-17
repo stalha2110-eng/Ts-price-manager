@@ -46,6 +46,7 @@ import {
   Printer
 } from 'lucide-react';
 import { AppState, Category, AppSettings } from '../types';
+import { CustomWeightChipsSettings } from './CustomWeightChipsSettings';
 import BusinessKnowledgeHub from './BusinessKnowledgeHub';
 import BusinessRecoveryCenter from './BusinessRecoveryCenter';
 import { RecoveryService } from '../services/recoveryService';
@@ -2298,6 +2299,14 @@ export default function BusinessSettingsScreen({
                 </button>
               );
             })}
+          </div>
+
+          {/* CUSTOM WEIGHT & QUANTITY CHIPS MANAGEMENT */}
+          <div className="pt-2">
+            <CustomWeightChipsSettings 
+              settings={state.settings} 
+              onUpdateSettings={onUpdateSettings} 
+            />
           </div>
         </div>
       )}

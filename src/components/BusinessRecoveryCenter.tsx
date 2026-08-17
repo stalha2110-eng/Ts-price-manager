@@ -811,7 +811,7 @@ export default function BusinessRecoveryCenter({
             </div>
 
             <div className="divide-y divide-slate-800 text-left">
-              {filteredRecords.map((rec) => {
+              {filteredRecords.map((rec, rIdx) => {
                 const isProd = rec.type === 'product';
                 const isCat = rec.type === 'category';
                 const isCust = rec.type === 'customer';
@@ -822,7 +822,7 @@ export default function BusinessRecoveryCenter({
                 const daysRemaining = Math.max(0, Math.ceil((new Date(rec.expiryAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
 
                 return (
-                  <div key={rec.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 group hover:bg-slate-850/20 transition-all">
+                  <div key={`rec-item-${rec.id || 'rec'}-${rIdx}`} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 group hover:bg-slate-850/20 transition-all">
                     <div className="flex items-start gap-3">
                       <div className="pt-1">
                         <input 
@@ -905,10 +905,10 @@ export default function BusinessRecoveryCenter({
           </div>
 
           <div className="bg-slate-900/40 border border-slate-800 rounded-3xl overflow-hidden divide-y divide-slate-800 text-left">
-            {filteredPriceStock.map((record) => {
+            {filteredPriceStock.map((record, psIdx) => {
               const isPrice = record.type === 'price';
               return (
-                <div key={record.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div key={`rec-ps-${record.id || 'ps'}-${psIdx}`} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-black text-white">{record.productName}</span>
@@ -955,13 +955,13 @@ export default function BusinessRecoveryCenter({
           </div>
 
           <div className="bg-slate-900/40 border border-slate-800 rounded-3xl divide-y divide-slate-800 text-left">
-            {filteredAuditLogs.map((log) => {
+            {filteredAuditLogs.map((log, lIdx) => {
               const isDelete = log.actionType === 'delete';
               const isRestore = log.actionType === 'restore';
               const isCreate = log.actionType === 'create';
 
               return (
-                <div key={log.id} className="p-4 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                <div key={`rec-audit-${log.id || 'audit'}-${lIdx}`} className="p-4 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                   <div className="space-y-1 w-full">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className={`text-[8.5px] font-black uppercase px-1.5 py-0.5 rounded-md ${

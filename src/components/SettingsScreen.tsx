@@ -761,14 +761,14 @@ export default function SettingsScreen({
                     </div>
 
                     {/* Custom Keys List */}
-                    {customKeysList.map((item) => {
+                    {customKeysList.map((item, index) => {
                       const isActive = activeKeyId === item.id || (!activeKeyId && customKeysList[0]?.id === item.id);
                       const isRevealed = !!keyVisibilityMap[item.id];
                       const testResult = keyTestResults[item.id];
                       const isTesting = testingKeyId === item.id;
 
                       return (
-                        <div key={item.id} className={cn(
+                        <div key={`custom-key-${item.id || 'key'}-${index}`} className={cn(
                           "p-4 rounded-2xl border transition-all space-y-3",
                           isActive 
                             ? "bg-amber-500/10 border-amber-500/40 ring-1 ring-amber-500/30" 

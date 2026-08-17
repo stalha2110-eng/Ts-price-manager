@@ -58,6 +58,12 @@ export interface Item {
   minStockLevel?: number;
 }
 
+export interface WeightPreset {
+  label: string;
+  qty: number;
+  shortLabel?: string;
+}
+
 export interface CustomApiKeyItem {
   id: string;
   name: string;
@@ -121,6 +127,9 @@ export interface AppSettings {
 
   // Custom Quick Actions (Up to 6)
   quickActions?: string[];
+
+  // Custom Weight & Quantity Chips Presets (Customizable in Quick Actions tab in Biz Settings)
+  customWeightPresets?: WeightPreset[];
 
   // Custom Dashboard Card Layout
   dashboardCards?: {
@@ -316,6 +325,7 @@ export interface Bill {
   customerPhone?: string;
   items: TransactionItem[];
   discount: number; // percentage
+  discountType?: 'percentage' | 'amount';
   tax: number; // percentage
   subtotal: number;
   total: number;
@@ -340,6 +350,7 @@ export interface DraftBill {
   customerName: string;
   customerPhone: string;
   discountPercent: number;
+  discountType?: 'percentage' | 'amount';
   taxPercent: number;
   paymentMethod: 'Cash' | 'UPI' | 'Credit';
   billingMode: 'retail' | 'wholesale' | 'auto';

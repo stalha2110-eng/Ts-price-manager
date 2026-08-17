@@ -460,9 +460,12 @@ export function UnbilledAuditAnalyticsSection({
             <h4 className="text-sm font-black uppercase tracking-wider text-[var(--foreground)] flex items-center gap-2">
               <Clock size={16} className="text-[var(--primary)]" />
               Itemized Unbilled Audit Log
+              <span className="ml-2 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[var(--primary)]/10 text-[var(--primary)] border border-[var(--primary)]/20">
+                {displayAuditEntries.length} Records
+              </span>
             </h4>
             <p className="text-[10px] font-bold text-[var(--foreground)]/50 uppercase tracking-wider">
-              Detailed transaction ledger with cashier and timestamp records
+              Detailed transaction ledger • Showing 15 records at a time (Scroll inside table to view all)
             </p>
           </div>
 
@@ -496,11 +499,11 @@ export function UnbilledAuditAnalyticsSection({
           </div>
         </div>
 
-        {/* Audit Log Table */}
-        <div className="overflow-x-auto">
+        {/* Audit Log Table Container with 15-record scrollable max-height */}
+        <div className="overflow-x-auto overflow-y-auto max-h-[520px] rounded-2xl border border-[var(--border)]/70 bg-[var(--background)]/30 custom-scrollbar">
           <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-[var(--border)] text-[10px] font-black uppercase tracking-wider text-[var(--foreground)]/50">
+            <thead className="sticky top-0 z-10 bg-[var(--card)] border-b border-[var(--border)] shadow-xs">
+              <tr className="text-[10px] font-black uppercase tracking-wider text-[var(--foreground)]/60">
                 <th className="py-2.5 px-3">Timestamp</th>
                 <th className="py-2.5 px-3">Category Tag</th>
                 <th className="py-2.5 px-3">Cashier Session</th>
@@ -517,7 +520,7 @@ export function UnbilledAuditAnalyticsSection({
                 </tr>
               ) : (
                 displayAuditEntries.map(entry => (
-                  <tr key={entry.id} className="hover:bg-[var(--foreground)]/[0.02] transition-colors">
+                  <tr key={entry.id} className="hover:bg-[var(--foreground)]/[0.03] transition-colors">
                     <td className="py-2.5 px-3 font-mono text-[11px] text-[var(--foreground)]/70">
                       {new Date(entry.timestamp || entry.dateStr).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                     </td>
@@ -547,6 +550,14 @@ export function UnbilledAuditAnalyticsSection({
             </tbody>
           </table>
         </div>
+
+        {/* Scroll helper footer */}
+        {displayAuditEntries.length > 0 && (
+          <div className="flex items-center justify-between text-[11px] font-bold text-[var(--foreground)]/50 pt-1 px-1">
+            <span>Showing {displayAuditEntries.length} total entries</span>
+            <span>{displayAuditEntries.length > 15 ? "↕️ Scroll table to view remaining records" : "All records visible"}</span>
+          </div>
+        )}
 
       </div>
 

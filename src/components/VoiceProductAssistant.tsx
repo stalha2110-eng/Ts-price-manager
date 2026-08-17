@@ -403,17 +403,43 @@ export function VoiceProductAssistant({
         })
       });
 
-      if (!response.ok) {
-        throw new Error(`AI processing service returned status ${response.status}`);
-      }
-
       const contentType = response.headers.get("content-type") || "";
-      if (!contentType.includes("application/json")) {
-        throw new Error("Server returned a non-JSON response. Please check network connection.");
+      const isJson = contentType.includes("application/json");
+      const responseData = isJson ? await response.json().catch(() => null) : null;
+
+      if (!response.ok) {
+        const errorCode = responseData?.code || (response.status === 429 ? "QUOTA_EXCEEDED" : response.status === 401 ? "INVALID_KEY" : response.status === 403 ? "MISSING_KEY" : "AI_SERVICE_ERROR");
+        const rawServerMsg = responseData?.message || responseData?.error || `AI Assistant unavailable (${response.status})`;
+
+        let toastNotice = rawServerMsg;
+        let bannerNotice = rawServerMsg;
+
+        if (errorCode === "QUOTA_EXCEEDED") {
+          toastNotice = "⚠️ AI Assistant Quota Reached: Daily limit hit across keys. Offline parser activated. Will retry in 1 hour or add key in Settings.";
+          bannerNotice = "AI Assistant Quota Reached: Daily Gemini quota exhausted across all rotation keys. Local offline parser activated.";
+        } else if (errorCode === "MISSING_KEY") {
+          toastNotice = "🔑 Gemini API Key Missing: Tap Settings -> Voice Assistant to configure your API key.";
+          bannerNotice = "Gemini API Key Missing: Configure server environment variable or enter key in Settings.";
+        } else if (errorCode === "INVALID_KEY") {
+          toastNotice = "❌ Invalid API Key: Custom key authentication failed. Please verify in Settings.";
+          bannerNotice = "Invalid Gemini API Key: Please verify your custom API key in Settings.";
+        }
+
+        // Emit top-level application toast
+        window.dispatchEvent(new CustomEvent('app-toast', {
+          detail: { message: toastNotice, type: errorCode === "QUOTA_EXCEEDED" ? "warning" : "error" }
+        }));
+
+        setRecognitionError(bannerNotice);
+
+        // Fallback gracefully to offline regex parser so user workflow is uninterrupted!
+        processRealtimeSpeech(cleanedText);
+        setAiDetectedLanguage("Local Offline Parser");
+        return;
       }
 
-      const data = await response.json();
-      if (data && Array.isArray(data.products)) {
+      if (responseData && Array.isArray(responseData.products)) {
+        const data = responseData;
         setAiDetectedLanguage(data.languageDetected || "Detected Language");
         
         // Multi-product or single-product array based on user setting

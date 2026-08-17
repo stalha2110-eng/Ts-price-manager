@@ -1463,6 +1463,17 @@ Do you want to permanently delete these ${group.bills.length} bills from history
                             <span className="uppercase tracking-wider">Net Amount :</span>
                             <span className="text-[var(--primary)] font-mono">₹{activeBillDetail.total.toFixed(2)}</span>
                           </div>
+
+                          {activeBillDetail.discount > 0 && (
+                            <div className="bg-emerald-500/10 border border-emerald-500/25 rounded-lg p-2 text-center text-emerald-700 dark:text-emerald-300 font-sans font-black text-[9px] flex items-center justify-between mt-1">
+                              <span className="flex items-center gap-1">
+                                <span>🎉</span> Customer Saved / बचत:
+                              </span>
+                              <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400">
+                                ₹{((activeBillDetail.subtotal * activeBillDetail.discount) / 100).toFixed(2)}
+                              </span>
+                            </div>
+                          )}
                         </div>
 
                       </div>
@@ -1628,13 +1639,13 @@ Do you want to permanently delete these ${group.bills.length} bills from history
           {/* 🔮 CUSTOM TOASTS STACK */}
           <div className="fixed bottom-6 right-6 z-[9999] flex flex-col gap-2 max-w-sm pointer-events-none">
             <AnimatePresence>
-              {toasts.map((toast) => (
+              {toasts.map((toast, tIdx) => (
                 <motion.div
                   layout
                   initial={{ opacity: 0, y: 15, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
-                  key={toast.id}
+                  key={`bhd-toast-${toast.id || 'toast'}-${tIdx}`}
                   className={cn(
                     "p-3.5 rounded-xl border flex items-center gap-3 shadow-lg pointer-events-auto",
                     toast.type === 'success' ? "bg-emerald-500 hover:bg-emerald-600 border-emerald-500/20 text-white text-[11px] font-black uppercase tracking-wide" :

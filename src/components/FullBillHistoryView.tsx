@@ -652,8 +652,8 @@ export default function FullBillHistoryView({ state, onUpdateState }: FullBillHi
     <div className="space-y-6 pb-20 max-w-7xl mx-auto">
       {/* Toast Notifications */}
       <div className="fixed top-20 right-6 z-[999] space-y-2 pointer-events-none">
-        {toasts.map(t => (
-          <div key={t.id} className={cn(
+        {toasts.map((t, tIdx) => (
+          <div key={`fbh-toast-${t.id || 'toast'}-${tIdx}`} className={cn(
             "px-4 py-2.5 rounded-xl text-xs font-bold text-white shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-2 pointer-events-auto",
             t.type === 'error' ? "bg-rose-600" :
             t.type === 'warning' ? "bg-amber-600" :
@@ -1106,6 +1106,17 @@ export default function FullBillHistoryView({ state, onUpdateState }: FullBillHi
                         <span>GRAND TOTAL</span>
                         <span className="font-mono">₹{activeBillDetail.total.toFixed(2)}</span>
                       </div>
+
+                      {activeBillDetail.discount > 0 && (
+                        <div className="bg-emerald-500/10 border border-emerald-500/25 rounded-xl p-2.5 text-center text-emerald-700 dark:text-emerald-300 font-sans font-black text-[10px] flex items-center justify-between mt-1">
+                          <span className="flex items-center gap-1">
+                            <span>🎉</span> Total Customer Savings / बचत:
+                          </span>
+                          <span className="font-mono text-sm font-black text-emerald-600 dark:text-emerald-400">
+                            ₹{((activeBillDetail.subtotal * activeBillDetail.discount) / 100).toFixed(2)}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </>
                 ) : (
@@ -1172,8 +1183,8 @@ export default function FullBillHistoryView({ state, onUpdateState }: FullBillHi
                     <div className="space-y-2">
                       <span className="text-[10px] font-black uppercase text-[var(--foreground)]/60">Edit Cart Items</span>
                       <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {editCart.map(ci => (
-                          <div key={ci.id} className="flex items-center justify-between p-2.5 bg-[var(--foreground)]/[0.02] border border-[var(--border)] rounded-xl text-xs">
+                        {editCart.map((ci, ciIdx) => (
+                          <div key={`fbh-edit-cart-${ci.id || 'ci'}-${ciIdx}`} className="flex items-center justify-between p-2.5 bg-[var(--foreground)]/[0.02] border border-[var(--border)] rounded-xl text-xs">
                             <span className="font-bold flex-1 truncate">{ci.name}</span>
                             <div className="flex items-center gap-2">
                               <input
