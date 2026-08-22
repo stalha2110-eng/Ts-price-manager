@@ -354,6 +354,7 @@ export default function BillingScreen({
     activeRateType: 'retail' | 'wholesale';
     isManual: boolean;
   } | null>(null);
+  const [unitSearchQuery, setUnitSearchQuery] = useState('');
   
   // Custom Multi-Window POS Draft Bills Storage with Local Storage hydration
   const [drafts, setDrafts] = useState<DraftBill[]>(() => {
@@ -4608,6 +4609,7 @@ export default function BillingScreen({
                                   activeRateType: isWholesale ? 'wholesale' : 'retail',
                                   isManual: !!ci.item.isManual
                                 });
+                                setUnitSearchQuery('');
                               }}
                               className="h-6 px-1.5 bg-[var(--foreground)]/5 border border-[var(--border)] rounded-md font-mono font-black text-[10px] tracking-tight hover:border-[var(--primary)]/30 hover:bg-[var(--foreground)]/10 transition-all cursor-pointer text-right w-full truncate"
                               title="Click to edit wholesale/retail rate & unit"
@@ -4633,6 +4635,7 @@ export default function BillingScreen({
                                   activeRateType: isWholesale ? 'wholesale' : 'retail',
                                   isManual: !!ci.item.isManual
                                 });
+                                setUnitSearchQuery('');
                               }}
                               className="text-[7.5px] font-black opacity-60 hover:opacity-100 hover:text-[var(--primary)] lowercase mt-0.5 truncate max-w-full leading-none transition-opacity cursor-pointer flex items-center gap-0.5"
                               style={{ fontSize: '7px' }}
@@ -6834,6 +6837,116 @@ export default function BillingScreen({
                 </div>
               </div>
 
+              {/* Unit Search & Quick Selection Section */}
+              <div className="space-y-1.5 pt-1 border-t border-[var(--border)]">
+                <div className="flex items-center justify-between">
+                  <label className="text-[9px] uppercase font-black opacity-75 flex items-center gap-1 text-[var(--foreground)]">
+                    <Scale size={12} className="text-[var(--primary)]" />
+                    <span>Search & Choose Unit / इकाई खोजें व चुनें</span>
+                  </label>
+                  <span className="text-[8px] font-bold opacity-65 uppercase">
+                    Applying to:{' '}
+                    <strong className={cn(
+                      "font-black",
+                      editingRateItem.activeRateType === 'retail' ? "text-sky-600 dark:text-sky-400" : "text-amber-600 dark:text-amber-400"
+                    )}>
+                      {editingRateItem.activeRateType === 'retail' ? 'Retail (फुटकर)' : 'Wholesale (थोक)'}
+                    </strong>
+                  </span>
+                </div>
+
+                {/* Unit Search Bar */}
+                <div className="relative">
+                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-50 text-[var(--foreground)]" />
+                  <input
+                    type="text"
+                    value={unitSearchQuery}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setUnitSearchQuery(val);
+                      if (editingRateItem.activeRateType === 'retail') {
+                        setEditingRateItem({ ...editingRateItem, retailPriceUnit: val });
+                      } else {
+                        setEditingRateItem({ ...editingRateItem, wholesalePriceUnit: val });
+                      }
+                    }}
+                    placeholder={`Search unit (e.g. kg, gram, pcs, packet, box, carton, litre...)`}
+                    className="w-full bg-[var(--foreground)]/[0.03] border border-[var(--border)] rounded-xl py-1.5 pl-7 pr-7 text-xs font-medium text-[var(--foreground)] outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/20"
+                  />
+                  {unitSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setUnitSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-50 hover:opacity-100 p-0.5 cursor-pointer text-[var(--foreground)]"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Filtered Unit Preset Chips */}
+                {(() => {
+                  const standardUnitsList = [
+                    'Pcs', 'KG', 'Gram', '250gm', '500gm', 'Packet', 'Box', 'Litre', 'ML', 'Dozen', 
+                    'Carton', 'Sack', 'Bag', 'Bottle', 'Strip', 'Quintal', 'Ton', 'Bundle', 'Set', 
+                    'Roll', 'Metre', 'Pair', 'Plate', 'Tablet', 'Capsule', 'Can', 'Tin', 'Jar', 'Pouch'
+                  ];
+                  const q = unitSearchQuery.toLowerCase().trim();
+                  const filteredUnits = standardUnitsList.filter(u => !q || u.toLowerCase().includes(q));
+                  const isExactMatch = filteredUnits.some(u => u.toLowerCase() === q);
+                  const currentUnitVal = editingRateItem.activeRateType === 'retail'
+                    ? editingRateItem.retailPriceUnit
+                    : editingRateItem.wholesalePriceUnit;
+
+                  return (
+                    <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-1.5 bg-[var(--foreground)]/[0.02] border border-[var(--border)] rounded-xl">
+                      {q && !isExactMatch && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (navigator.vibrate) navigator.vibrate(8);
+                            const clean = unitSearchQuery.trim();
+                            if (editingRateItem.activeRateType === 'retail') {
+                              setEditingRateItem({ ...editingRateItem, retailPriceUnit: clean });
+                            } else {
+                              setEditingRateItem({ ...editingRateItem, wholesalePriceUnit: clean });
+                            }
+                          }}
+                          className="px-2 py-0.5 rounded-lg text-[8.5px] font-black uppercase tracking-wider bg-[var(--primary)]/15 text-[var(--primary)] border border-[var(--primary)]/30 hover:bg-[var(--primary)]/25 cursor-pointer active:scale-95 transition-all"
+                        >
+                          + Use "{unitSearchQuery.trim()}"
+                        </button>
+                      )}
+                      {filteredUnits.map((u) => {
+                        const isSelected = currentUnitVal?.toLowerCase() === u.toLowerCase();
+                        return (
+                          <button
+                            key={u}
+                            type="button"
+                            onClick={() => {
+                              if (navigator.vibrate) navigator.vibrate(8);
+                              if (editingRateItem.activeRateType === 'retail') {
+                                setEditingRateItem({ ...editingRateItem, retailPriceUnit: u });
+                              } else {
+                                setEditingRateItem({ ...editingRateItem, wholesalePriceUnit: u });
+                              }
+                            }}
+                            className={cn(
+                              "px-2 py-0.5 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all cursor-pointer border active:scale-95",
+                              isSelected
+                                ? "bg-[var(--primary)] text-white border-[var(--primary)] shadow-xs"
+                                : "bg-[var(--foreground)]/5 border-[var(--border)] text-[var(--foreground)]/80 hover:bg-[var(--foreground)]/10 hover:border-[var(--primary)]/40"
+                            )}
+                          >
+                            {u}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+
               {/* Effective Selected Rate Summary Bar */}
               {(() => {
                 const isWholesale = editingRateItem.activeRateType === 'wholesale';
@@ -6841,7 +6954,7 @@ export default function BillingScreen({
                 const activeUnit = (isWholesale ? editingRateItem.wholesalePriceUnit : editingRateItem.retailPriceUnit)?.trim() || 'pcs';
 
                 return (
-                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between">
+                  <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between">
                     <div>
                       <p className="text-[8px] font-black uppercase text-emerald-800 dark:text-emerald-300">
                         Selected for this line ({isWholesale ? 'Wholesale / थोक' : 'Retail / फुटकर'}):
@@ -6897,7 +7010,7 @@ export default function BillingScreen({
                   }}
                   className="py-2.5 px-3 bg-[var(--foreground)]/5 border border-[var(--border)] rounded-xl text-[9px] font-black uppercase tracking-wider hover:bg-[var(--foreground)]/10 text-[var(--foreground)] active:scale-95 transition-all cursor-pointer text-center"
                 >
-                  This Bill Only / केवल इस बिल में
+                  Temporary / अस्थायी
                 </button>
 
                 {/* Permanent / Inventory + Invoice */}
@@ -6948,7 +7061,7 @@ export default function BillingScreen({
                   }}
                   className="py-2.5 px-3 bg-[var(--primary)] hover:bg-[var(--primary)]/90 text-white rounded-xl text-[9px] font-black uppercase tracking-wider shadow-lg active:scale-95 transition-all cursor-pointer text-center"
                 >
-                  Save & Update / स्थायी सेव करें
+                  Permanent / स्थायी
                 </button>
               </div>
             </motion.div>

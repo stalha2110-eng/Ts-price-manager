@@ -1,10 +1,7 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
 import { 
   getFirestore, 
-  initializeFirestore, 
-  persistentLocalCache, 
-  persistentMultipleTabManager,
   doc, 
   setDoc, 
   onSnapshot, 
@@ -30,7 +27,7 @@ const getFirebaseConfig = () => {
 };
 
 const safeConfig = getFirebaseConfig();
-const app = initializeApp(safeConfig);
+const app = getApps().length === 0 ? initializeApp(safeConfig) : getApp();
 export const auth = getAuth(app);
 
 // Safe messaging helper (permanently disabled for robust iframe operations)
@@ -38,32 +35,10 @@ export const getMessagingInstance = async () => {
   return null;
 };
 
-// Pre-initialize Firestore with robust settings suited for sandboxed iframes
-const initializeDb = () => {
-  const databaseId = safeConfig?.firestoreDatabaseId || undefined;
-
-  try {
-    return initializeFirestore(app, {
-      experimentalForceLongPolling: true,
-      localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager()
-      })
-    }, databaseId);
-  } catch (e) {
-    console.warn('[Firebase Init] initializeFirestore failed, attempting fallback getFirestore:', e);
-    try {
-      if (databaseId) {
-        return getFirestore(app, databaseId);
-      }
-      return getFirestore(app);
-    } catch (e2) {
-      console.error('[Firebase Init] Critical Failure - Default getFirestore(app) failed:', e2);
-      return getFirestore(app);
-    }
-  }
-};
-
-export const db = initializeDb();
+// Initialize Firestore with configured database ID
+export const db = safeConfig?.firestoreDatabaseId 
+  ? getFirestore(app, safeConfig.firestoreDatabaseId)
+  : getFirestore(app);
 
 export const googleProvider = new GoogleAuthProvider();
 

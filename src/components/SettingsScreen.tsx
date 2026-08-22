@@ -29,7 +29,11 @@ import {
   Check,
   Sparkles,
   Cpu,
-  Zap
+  Zap,
+  ChevronDown,
+  ChevronUp,
+  Globe,
+  Settings2
 } from 'lucide-react';
 import { AppState, AppSettings, ThemeType, LanguageType, CustomApiKeyItem } from '../types';
 import { 
@@ -64,6 +68,9 @@ export default function SettingsScreen({
   const [localActiveSubTab, setLocalActiveSubTab] = useState<'interface' | 'security' | 'sound' | 'data'>('interface');
   const activeSubTab = externalActiveSubTab || localActiveSubTab;
   const setActiveSubTab = onChangeSubTab || setLocalActiveSubTab;
+
+  // Collapsible state for Advanced Language Engine Configuration
+  const [isAdvancedLanguageOpen, setIsAdvancedLanguageOpen] = useState(false);
 
   // Custom API Key Management State
   const [showAddKeyModal, setShowAddKeyModal] = useState(false);
@@ -307,140 +314,198 @@ export default function SettingsScreen({
                     </div>
                   </div>
 
-                  {/* Advanced Professional Language Engine Controls */}
-                  <div className="space-y-4 rounded-3xl border border-[var(--border)] p-6 bg-[var(--card)]/50">
-                    <p className="text-xs font-bold opacity-85 text-[var(--primary)] uppercase tracking-wider ml-1">Advanced Language Engine Configuration</p>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Strict Language Mode Toggle */}
-                      <div className="flex items-center justify-between p-4 rounded-2xl bg-[var(--background)]/40 border border-[var(--border)]/60">
-                        <div>
-                          <p className="text-xs font-bold text-[var(--foreground)]">Strict Language Mode</p>
-                          <p className="text-[10px] opacity-50 mt-0.5">Enforces only the selected language in all UI components</p>
+                  {/* Advanced Professional Language Engine Collapsible Panel */}
+                  <div className="rounded-3xl border border-[var(--border)] bg-[var(--card)]/50 overflow-hidden transition-all shadow-xs">
+                    {/* Collapsible Trigger Card / Header Button */}
+                    <button
+                      id="toggle-advanced-language-config-btn"
+                      type="button"
+                      onClick={() => setIsAdvancedLanguageOpen(!isAdvancedLanguageOpen)}
+                      className="w-full flex items-center justify-between p-5 sm:p-6 text-left cursor-pointer hover:bg-[var(--foreground)]/[0.02] active:bg-[var(--foreground)]/[0.04] transition-colors group"
+                      aria-expanded={isAdvancedLanguageOpen}
+                    >
+                      <div className="flex items-center gap-3.5 sm:gap-4">
+                        <div className="p-2.5 sm:p-3 rounded-2xl bg-[var(--primary)]/10 text-[var(--primary)] border border-[var(--primary)]/20 shadow-xs group-hover:scale-105 transition-transform shrink-0">
+                          <Globe size={18} className="stroke-[2.2]" />
                         </div>
-                        <button 
-                          onClick={() => onUpdate({ enableStrictLanguageMode: !state.settings.enableStrictLanguageMode })}
-                          className={cn(
-                            "h-7 w-14 rounded-full transition-all relative overflow-hidden ring-1 ring-white/10 cursor-pointer shrink-0",
-                            state.settings.enableStrictLanguageMode !== false ? "bg-emerald-500" : "bg-slate-800"
-                          )}
-                        >
-                          <div className={cn("absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-md transition-all", state.settings.enableStrictLanguageMode !== false ? "translate-x-7" : "")} />
-                        </button>
-                      </div>
-
-                      {/* Allow Mixed Language Toggle */}
-                      <div className="flex items-center justify-between p-4 rounded-2xl bg-[var(--background)]/40 border border-[var(--border)]/60">
-                        <div>
-                          <p className="text-xs font-bold text-[var(--foreground)]">Allow Mixed Language</p>
-                          <p className="text-[10px] opacity-50 mt-0.5">Displays translation helpers alongside terms (not recommended)</p>
-                        </div>
-                        <button 
-                          onClick={() => onUpdate({ allowMixedLanguage: !state.settings.allowMixedLanguage })}
-                          className={cn(
-                            "h-7 w-14 rounded-full transition-all relative overflow-hidden ring-1 ring-white/10 cursor-pointer shrink-0",
-                            state.settings.allowMixedLanguage ? "bg-emerald-500" : "bg-slate-800"
-                          )}
-                        >
-                          <div className={cn("absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-md transition-all", state.settings.allowMixedLanguage ? "translate-x-7" : "")} />
-                        </button>
-                      </div>
-
-                      {/* Enable Translation Validation */}
-                      <div className="flex items-center justify-between p-4 rounded-2xl bg-[var(--background)]/40 border border-[var(--border)]/60">
-                        <div>
-                          <p className="text-xs font-bold text-[var(--foreground)]">Translation Validation</p>
-                          <p className="text-[10px] opacity-50 mt-0.5">Scans & auto-corrects mismatched strings on the fly</p>
-                        </div>
-                        <button 
-                          onClick={() => onUpdate({ enableTranslationValidation: !state.settings.enableTranslationValidation })}
-                          className={cn(
-                            "h-7 w-14 rounded-full transition-all relative overflow-hidden ring-1 ring-white/10 cursor-pointer shrink-0",
-                            state.settings.enableTranslationValidation !== false ? "bg-emerald-500" : "bg-slate-800"
-                          )}
-                        >
-                          <div className={cn("absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-md transition-all", state.settings.enableTranslationValidation !== false ? "translate-x-7" : "")} />
-                        </button>
-                      </div>
-
-                      {/* Enable Instant Language Refresh */}
-                      <div className="flex items-center justify-between p-4 rounded-2xl bg-[var(--background)]/40 border border-[var(--border)]/60">
-                        <div>
-                          <p className="text-xs font-bold text-[var(--foreground)]">Instant Language Refresh</p>
-                          <p className="text-[10px] opacity-50 mt-0.5">Applies system-wide linguistic reload instantly on select</p>
-                        </div>
-                        <button 
-                          onClick={() => onUpdate({ enableInstantLanguageRefresh: !state.settings.enableInstantLanguageRefresh })}
-                          className={cn(
-                            "h-7 w-14 rounded-full transition-all relative overflow-hidden ring-1 ring-white/10 cursor-pointer shrink-0",
-                            state.settings.enableInstantLanguageRefresh !== false ? "bg-emerald-500" : "bg-slate-800"
-                          )}
-                        >
-                          <div className={cn("absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-md transition-all", state.settings.enableInstantLanguageRefresh !== false ? "translate-x-7" : "")} />
-                        </button>
-                      </div>
-
-                      {/* Show Language Preview Option */}
-                      <div className="flex items-center justify-between p-4 rounded-2xl bg-[var(--background)]/40 border border-[var(--border)]/60 md:col-span-2">
-                        <div>
-                          <p className="text-xs font-bold text-[var(--foreground)]">Interactive Language Preview Panel</p>
-                          <p className="text-[10px] opacity-50 mt-0.5">Displays a real-time translation card for the selected mode below</p>
-                        </div>
-                        <button 
-                          onClick={() => onUpdate({ showLanguagePreview: !state.settings.showLanguagePreview })}
-                          className={cn(
-                            "h-7 w-14 rounded-full transition-all relative overflow-hidden ring-1 ring-white/10 cursor-pointer shrink-0",
-                            state.settings.showLanguagePreview !== false ? "bg-emerald-500" : "bg-slate-800"
-                          )}
-                        >
-                          <div className={cn("absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-md transition-all", state.settings.showLanguagePreview !== false ? "translate-x-7" : "")} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Interactive Preview Panel */}
-                    {state.settings.showLanguagePreview !== false && (
-                      <div className="mt-4 p-5 rounded-2xl bg-gradient-to-br from-[var(--primary)]/5 to-[var(--primary)]/10 border border-[var(--primary)]/20 shadow-inner">
-                        <div className="flex items-center justify-between mb-4 border-b border-[var(--primary)]/15 pb-2">
-                          <p className="text-xs font-black uppercase tracking-wider text-[var(--primary)]">
-                            Live Linguistic Preview: {LANGUAGES.find(l => l.id === state.settings.language)?.name || state.settings.language} Mode
+                        <div className="space-y-1 text-left">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-xs sm:text-sm font-black uppercase tracking-wider text-[var(--foreground)]">
+                              Advanced Language Engine Configuration
+                            </p>
+                            {state.settings.enableStrictLanguageMode !== false && (
+                              <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                Strict Active
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] sm:text-[11px] opacity-60 font-medium leading-relaxed">
+                            {isAdvancedLanguageOpen 
+                              ? "Click to collapse fine-grained linguistic rules & validation sandbox"
+                              : "Click to configure strict translation modes, validation rules & preview tools"}
                           </p>
-                          <span className="text-[10px] bg-[var(--primary)]/15 text-[var(--primary)] px-2 py-0.5 rounded-full font-bold">
-                            Strict Mode Active
-                          </span>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-3 text-xs">
-                          <div className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)]/40">
-                            <p className="text-[9px] opacity-40 font-bold uppercase tracking-widest">Add Product</p>
-                            <p className="font-bold text-[var(--foreground)] mt-0.5">
-                              {state.settings.language === 'en' ? 'Add Product' : state.settings.language === 'hi-en' ? 'Saman Add Karo' : state.settings.language === 'hi' ? 'सामान जोड़ें' : 'सामान जोडा'}
-                            </p>
-                          </div>
-                          
-                          <div className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)]/40">
-                            <p className="text-[9px] opacity-40 font-bold uppercase tracking-widest">Create Bill</p>
-                            <p className="font-bold text-[var(--foreground)] mt-0.5">
-                              {state.settings.language === 'en' ? 'Create Bill' : state.settings.language === 'hi-en' ? 'Bill Banao' : state.settings.language === 'hi' ? 'बिल बनाएं' : 'बिल तयार करा'}
-                            </p>
-                          </div>
-                          
-                          <div className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)]/40">
-                            <p className="text-[9px] opacity-40 font-bold uppercase tracking-widest">Customer Info</p>
-                            <p className="font-bold text-[var(--foreground)] mt-0.5">
-                              {state.settings.language === 'en' ? 'Customer Info' : state.settings.language === 'hi-en' ? 'Customer Info' : state.settings.language === 'hi' ? 'ग्राहक की जानकारी' : 'ग्राहक माहिती'}
-                            </p>
-                          </div>
-                          
-                          <div className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)]/40">
-                            <p className="text-[9px] opacity-40 font-bold uppercase tracking-widest">Stock</p>
-                            <p className="font-bold text-[var(--foreground)] mt-0.5">
-                              {state.settings.language === 'en' ? 'Stock' : state.settings.language === 'hi-en' ? 'Stock' : state.settings.language === 'hi' ? 'स्टॉक' : 'स्टॉक'}
-                            </p>
-                          </div>
                         </div>
                       </div>
-                    )}
+
+                      <div className="flex items-center gap-2.5 shrink-0 ml-3">
+                        <span className="hidden sm:inline-block text-[10px] font-bold uppercase tracking-wider opacity-50 group-hover:opacity-80 transition-opacity">
+                          {isAdvancedLanguageOpen ? "Hide" : "Configure"}
+                        </span>
+                        <div className={cn(
+                          "h-8 w-8 rounded-xl flex items-center justify-center border border-[var(--border)] bg-[var(--background)] transition-transform duration-300",
+                          isAdvancedLanguageOpen ? "rotate-180 bg-[var(--primary)]/10 border-[var(--primary)]/30 text-[var(--primary)]" : "text-[var(--foreground)]/60 group-hover:text-[var(--foreground)]"
+                        )}>
+                          <ChevronDown size={16} />
+                        </div>
+                      </div>
+                    </button>
+
+                    {/* Expandable Content Section with smooth Animation */}
+                    <AnimatePresence initial={false}>
+                      {isAdvancedLanguageOpen && (
+                        <motion.div
+                          key="advanced-language-content"
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.25, ease: 'easeInOut' }}
+                          className="overflow-hidden border-t border-[var(--border)]/60 bg-[var(--background)]/30"
+                        >
+                          <div className="p-5 sm:p-6 space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {/* Strict Language Mode Toggle */}
+                              <div className="flex items-center justify-between p-4 rounded-2xl bg-[var(--card)] border border-[var(--border)]/60 shadow-xs">
+                                <div>
+                                  <p className="text-xs font-bold text-[var(--foreground)]">Strict Language Mode</p>
+                                  <p className="text-[10px] opacity-50 mt-0.5">Enforces only the selected language in all UI components</p>
+                                </div>
+                                <button 
+                                  onClick={() => onUpdate({ enableStrictLanguageMode: !state.settings.enableStrictLanguageMode })}
+                                  className={cn(
+                                    "h-7 w-14 rounded-full transition-all relative overflow-hidden ring-1 ring-white/10 cursor-pointer shrink-0",
+                                    state.settings.enableStrictLanguageMode !== false ? "bg-emerald-500" : "bg-slate-800"
+                                  )}
+                                >
+                                  <div className={cn("absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-md transition-all", state.settings.enableStrictLanguageMode !== false ? "translate-x-7" : "")} />
+                                </button>
+                              </div>
+
+                              {/* Allow Mixed Language Toggle */}
+                              <div className="flex items-center justify-between p-4 rounded-2xl bg-[var(--card)] border border-[var(--border)]/60 shadow-xs">
+                                <div>
+                                  <p className="text-xs font-bold text-[var(--foreground)]">Allow Mixed Language</p>
+                                  <p className="text-[10px] opacity-50 mt-0.5">Displays translation helpers alongside terms (not recommended)</p>
+                                </div>
+                                <button 
+                                  onClick={() => onUpdate({ allowMixedLanguage: !state.settings.allowMixedLanguage })}
+                                  className={cn(
+                                    "h-7 w-14 rounded-full transition-all relative overflow-hidden ring-1 ring-white/10 cursor-pointer shrink-0",
+                                    state.settings.allowMixedLanguage ? "bg-emerald-500" : "bg-slate-800"
+                                  )}
+                                >
+                                  <div className={cn("absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-md transition-all", state.settings.allowMixedLanguage ? "translate-x-7" : "")} />
+                                </button>
+                              </div>
+
+                              {/* Enable Translation Validation */}
+                              <div className="flex items-center justify-between p-4 rounded-2xl bg-[var(--card)] border border-[var(--border)]/60 shadow-xs">
+                                <div>
+                                  <p className="text-xs font-bold text-[var(--foreground)]">Translation Validation</p>
+                                  <p className="text-[10px] opacity-50 mt-0.5">Scans & auto-corrects mismatched strings on the fly</p>
+                                </div>
+                                <button 
+                                  onClick={() => onUpdate({ enableTranslationValidation: !state.settings.enableTranslationValidation })}
+                                  className={cn(
+                                    "h-7 w-14 rounded-full transition-all relative overflow-hidden ring-1 ring-white/10 cursor-pointer shrink-0",
+                                    state.settings.enableTranslationValidation !== false ? "bg-emerald-500" : "bg-slate-800"
+                                  )}
+                                >
+                                  <div className={cn("absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-md transition-all", state.settings.enableTranslationValidation !== false ? "translate-x-7" : "")} />
+                                </button>
+                              </div>
+
+                              {/* Enable Instant Language Refresh */}
+                              <div className="flex items-center justify-between p-4 rounded-2xl bg-[var(--card)] border border-[var(--border)]/60 shadow-xs">
+                                <div>
+                                  <p className="text-xs font-bold text-[var(--foreground)]">Instant Language Refresh</p>
+                                  <p className="text-[10px] opacity-50 mt-0.5">Applies system-wide linguistic reload instantly on select</p>
+                                </div>
+                                <button 
+                                  onClick={() => onUpdate({ enableInstantLanguageRefresh: !state.settings.enableInstantLanguageRefresh })}
+                                  className={cn(
+                                    "h-7 w-14 rounded-full transition-all relative overflow-hidden ring-1 ring-white/10 cursor-pointer shrink-0",
+                                    state.settings.enableInstantLanguageRefresh !== false ? "bg-emerald-500" : "bg-slate-800"
+                                  )}
+                                >
+                                  <div className={cn("absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-md transition-all", state.settings.enableInstantLanguageRefresh !== false ? "translate-x-7" : "")} />
+                                </button>
+                              </div>
+
+                              {/* Show Language Preview Option */}
+                              <div className="flex items-center justify-between p-4 rounded-2xl bg-[var(--card)] border border-[var(--border)]/60 shadow-xs md:col-span-2">
+                                <div>
+                                  <p className="text-xs font-bold text-[var(--foreground)]">Interactive Language Preview Panel</p>
+                                  <p className="text-[10px] opacity-50 mt-0.5">Displays a real-time translation card for the selected mode below</p>
+                                </div>
+                                <button 
+                                  onClick={() => onUpdate({ showLanguagePreview: !state.settings.showLanguagePreview })}
+                                  className={cn(
+                                    "h-7 w-14 rounded-full transition-all relative overflow-hidden ring-1 ring-white/10 cursor-pointer shrink-0",
+                                    state.settings.showLanguagePreview !== false ? "bg-emerald-500" : "bg-slate-800"
+                                  )}
+                                >
+                                  <div className={cn("absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow-md transition-all", state.settings.showLanguagePreview !== false ? "translate-x-7" : "")} />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Interactive Preview Panel */}
+                            {state.settings.showLanguagePreview !== false && (
+                              <div className="mt-4 p-5 rounded-2xl bg-gradient-to-br from-[var(--primary)]/5 to-[var(--primary)]/10 border border-[var(--primary)]/20 shadow-inner">
+                                <div className="flex items-center justify-between mb-4 border-b border-[var(--primary)]/15 pb-2">
+                                  <p className="text-xs font-black uppercase tracking-wider text-[var(--primary)]">
+                                    Live Linguistic Preview: {LANGUAGES.find(l => l.id === state.settings.language)?.name || state.settings.language} Mode
+                                  </p>
+                                  <span className="text-[10px] bg-[var(--primary)]/15 text-[var(--primary)] px-2 py-0.5 rounded-full font-bold">
+                                    Strict Mode Active
+                                  </span>
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-3 text-xs">
+                                  <div className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)]/40">
+                                    <p className="text-[9px] opacity-40 font-bold uppercase tracking-widest">Add Product</p>
+                                    <p className="font-bold text-[var(--foreground)] mt-0.5">
+                                      {state.settings.language === 'en' ? 'Add Product' : state.settings.language === 'hi-en' ? 'Saman Add Karo' : state.settings.language === 'hi' ? 'सामान जोड़ें' : 'सामान जोडा'}
+                                    </p>
+                                  </div>
+                                  
+                                  <div className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)]/40">
+                                    <p className="text-[9px] opacity-40 font-bold uppercase tracking-widest">Create Bill</p>
+                                    <p className="font-bold text-[var(--foreground)] mt-0.5">
+                                      {state.settings.language === 'en' ? 'Create Bill' : state.settings.language === 'hi-en' ? 'Bill Banao' : state.settings.language === 'hi' ? 'बिल बनाएं' : 'बिल तयार करा'}
+                                    </p>
+                                  </div>
+                                  
+                                  <div className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)]/40">
+                                    <p className="text-[9px] opacity-40 font-bold uppercase tracking-widest">Customer Info</p>
+                                    <p className="font-bold text-[var(--foreground)] mt-0.5">
+                                      {state.settings.language === 'en' ? 'Customer Info' : state.settings.language === 'hi-en' ? 'Customer Info' : state.settings.language === 'hi' ? 'ग्राहक की जानकारी' : 'ग्राहक माहिती'}
+                                    </p>
+                                  </div>
+                                  
+                                  <div className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)]/40">
+                                    <p className="text-[9px] opacity-40 font-bold uppercase tracking-widest">Stock</p>
+                                    <p className="font-bold text-[var(--foreground)] mt-0.5">
+                                      {state.settings.language === 'en' ? 'Stock' : state.settings.language === 'hi-en' ? 'Stock' : state.settings.language === 'hi' ? 'स्टॉक' : 'स्टॉक'}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
 
                   {/* Visual Deck Section */}

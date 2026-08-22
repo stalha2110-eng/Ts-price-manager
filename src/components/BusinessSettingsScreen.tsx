@@ -43,7 +43,13 @@ import {
   Save,
   FileText,
   Activity,
-  Printer
+  Printer,
+  Key,
+  GripVertical,
+  RotateCcw,
+  ArrowLeft,
+  ArrowRight,
+  CheckCheck
 } from 'lucide-react';
 import { AppState, Category, AppSettings } from '../types';
 import { CustomWeightChipsSettings } from './CustomWeightChipsSettings';
@@ -93,8 +99,8 @@ interface BusinessSettingsScreenProps {
   t: any;
   onUpdateSettings: (updates: Partial<AppSettings>) => void;
   onUpdateState: (updates: Partial<AppState>, actionLabel?: string) => void;
-  activeSubTab?: 'journey' | 'profile' | 'features' | 'categories' | 'dashboard' | 'actions' | 'knowledge' | 'recovery';
-  onChangeSubTab?: (tab: 'journey' | 'profile' | 'features' | 'categories' | 'dashboard' | 'actions' | 'knowledge' | 'recovery') => void;
+  activeSubTab?: 'overview' | 'journey' | 'profile' | 'features' | 'categories' | 'dashboard' | 'actions' | 'knowledge' | 'recovery';
+  onChangeSubTab?: (tab: 'overview' | 'journey' | 'profile' | 'features' | 'categories' | 'dashboard' | 'actions' | 'knowledge' | 'recovery') => void;
 }
 
 export default function BusinessSettingsScreen({ 
@@ -117,9 +123,20 @@ export default function BusinessSettingsScreen({
   const [showCatForm, setShowCatForm] = useState(false);
 
   // Active sub-section under Business Settings Drawer
-  const [localActiveSubTab, setLocalActiveSubTab] = useState<'journey' | 'profile' | 'features' | 'categories' | 'dashboard' | 'actions' | 'knowledge' | 'recovery'>('journey');
+  const [localActiveSubTab, setLocalActiveSubTab] = useState<'overview' | 'journey' | 'profile' | 'features' | 'categories' | 'dashboard' | 'actions' | 'knowledge' | 'recovery'>('overview');
   const activeSubTab = externalActiveSubTab || localActiveSubTab;
   const setActiveSubTab = onChangeSubTab || setLocalActiveSubTab;
+
+  // Local search filter for Biz Settings Hub
+  const [hubSearchQuery, setHubSearchQuery] = useState('');
+  // Advanced tools toggle for collapsible power section
+  const [isAdvancedToolsOpen, setIsAdvancedToolsOpen] = useState(false);
+
+  // Drag-and-drop & Card Prioritization State
+  const [isReorderingMode, setIsReorderingMode] = useState(false);
+  const [draggedCardId, setDraggedCardId] = useState<string | null>(null);
+  const [dragOverCardId, setDragOverCardId] = useState<string | null>(null);
+  const touchTimerRef = React.useRef<any>(null);
 
   // Active journey view section under Journey Subtab
   const [activeJourneySection, setActiveJourneySection] = useState<'guidance' | 'profile_status' | 'roadmap' | 'ledger_anniversary'>('guidance');
@@ -310,6 +327,86 @@ export default function BusinessSettingsScreen({
     onUpdateSettings({ dashboardCards: updated });
   };
 
+  // --- Default Order & Reorder Handlers for the 8 Biz Hub Cards ---
+  const DEFAULT_BIZ_HUB_ORDER = useMemo(() => [
+    'journey', 'profile', 'features', 'categories', 'dashboard', 'actions', 'knowledge', 'recovery'
+  ], []);
+
+  const currentCardsOrder = useMemo(() => {
+    const saved = state.settings.bizHubCardsOrder;
+    if (!saved || !Array.isArray(saved) || saved.length === 0) {
+      return DEFAULT_BIZ_HUB_ORDER;
+    }
+    const validSaved = saved.filter(id => DEFAULT_BIZ_HUB_ORDER.includes(id));
+    const missing = DEFAULT_BIZ_HUB_ORDER.filter(id => !validSaved.includes(id));
+    return [...validSaved, ...missing];
+  }, [state.settings.bizHubCardsOrder, DEFAULT_BIZ_HUB_ORDER]);
+
+  const handleMoveBizCard = (id: string, direction: 'prev' | 'next') => {
+    const list = [...currentCardsOrder];
+    const idx = list.indexOf(id);
+    if (idx === -1) return;
+    const targetIdx = direction === 'prev' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= list.length) return;
+    const temp = list[idx];
+    list[idx] = list[targetIdx];
+    list[targetIdx] = temp;
+    onUpdateSettings({ bizHubCardsOrder: list });
+  };
+
+  const handleBizCardDragStart = (e: React.DragEvent, id: string) => {
+    setDraggedCardId(id);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+  };
+
+  const handleBizCardDragOver = (e: React.DragEvent, id: string) => {
+    e.preventDefault();
+    if (dragOverCardId !== id) {
+      setDragOverCardId(id);
+    }
+  };
+
+  const handleBizCardDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    const sourceId = draggedCardId || e.dataTransfer.getData('text/plain');
+    if (!sourceId || sourceId === targetId) {
+      setDraggedCardId(null);
+      setDragOverCardId(null);
+      return;
+    }
+    const list = [...currentCardsOrder];
+    const fromIdx = list.indexOf(sourceId);
+    const toIdx = list.indexOf(targetId);
+    if (fromIdx !== -1 && toIdx !== -1) {
+      list.splice(fromIdx, 1);
+      list.splice(toIdx, 0, sourceId);
+      onUpdateSettings({ bizHubCardsOrder: list });
+    }
+    setDraggedCardId(null);
+    setDragOverCardId(null);
+  };
+
+  const handleTouchStartCard = () => {
+    touchTimerRef.current = setTimeout(() => {
+      setIsReorderingMode(true);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(50);
+      }
+    }, 450);
+  };
+
+  const handleTouchEndCard = () => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+  };
+
+  const handleResetCardsOrder = () => {
+    onUpdateSettings({ bizHubCardsOrder: DEFAULT_BIZ_HUB_ORDER });
+  };
+
   // Choose to switch a business mode
   const initiateModeSwitch = (mode: BusinessModeDef) => {
     setSelectedModeForPreview(mode);
@@ -411,6 +508,114 @@ export default function BusinessSettingsScreen({
     if (readinessPercentage < 90) return "Advanced Setup";
     return "Excellent Setup";
   }, [readinessPercentage]);
+
+  // Card Definition Mapping for Hub Buttons
+  const BIZ_CARDS_MAP = useMemo(() => ({
+    journey: {
+      id: 'journey',
+      title: 'Journey & Setup',
+      emoji: '🌱',
+      badge: `${readinessPercentage}% Ready`,
+      subtab: 'journey' as const,
+      hoverBorder: 'hover:border-purple-500/60',
+      hoverBg: 'hover:bg-purple-500/[0.03]',
+      iconBg: 'bg-purple-500/10',
+      iconText: 'text-purple-500',
+      badgeStyle: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
+      searchTerms: 'journey setup checklist milestones readiness growth'
+    },
+    profile: {
+      id: 'profile',
+      title: 'Business Stats',
+      emoji: '🏪',
+      badge: currentMode.name,
+      subtab: 'profile' as const,
+      hoverBorder: 'hover:border-emerald-500/60',
+      hoverBg: 'hover:bg-emerald-500/[0.03]',
+      iconBg: 'bg-emerald-500/10',
+      iconText: 'text-emerald-500',
+      badgeStyle: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+      searchTerms: 'business stats profile store name phone upi qr address mode'
+    },
+    features: {
+      id: 'features',
+      title: 'Workflow Toggle',
+      emoji: '⚙️',
+      badge: 'Rules & Sync',
+      subtab: 'features' as const,
+      hoverBorder: 'hover:border-slate-500/60',
+      hoverBg: 'hover:bg-slate-500/[0.03]',
+      iconBg: 'bg-slate-500/10',
+      iconText: 'text-slate-500',
+      badgeStyle: 'bg-slate-500/10 text-slate-600 dark:text-slate-400',
+      searchTerms: 'workflow toggle features switches rules thermal print udhar'
+    },
+    categories: {
+      id: 'categories',
+      title: 'Categories',
+      emoji: '📦',
+      badge: `${categoriesList.length} Active`,
+      subtab: 'categories' as const,
+      hoverBorder: 'hover:border-blue-500/60',
+      hoverBg: 'hover:bg-blue-500/[0.03]',
+      iconBg: 'bg-blue-500/10',
+      iconText: 'text-blue-500',
+      badgeStyle: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+      searchTerms: 'categories products items stock weights units packaging'
+    },
+    dashboard: {
+      id: 'dashboard',
+      title: 'Dashboard Cards',
+      emoji: '📊',
+      badge: 'Home Layout',
+      subtab: 'dashboard' as const,
+      hoverBorder: 'hover:border-cyan-500/60',
+      hoverBg: 'hover:bg-cyan-500/[0.03]',
+      iconBg: 'bg-cyan-500/10',
+      iconText: 'text-cyan-500',
+      badgeStyle: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400',
+      searchTerms: 'dashboard cards home screen widgets charts summary'
+    },
+    actions: {
+      id: 'actions',
+      title: 'Quick Actions',
+      emoji: '⚡',
+      badge: `${state.settings.quickActions?.length || 6} Shortcuts`,
+      subtab: 'actions' as const,
+      hoverBorder: 'hover:border-amber-500/60',
+      hoverBg: 'hover:bg-amber-500/[0.03]',
+      iconBg: 'bg-amber-500/10',
+      iconText: 'text-amber-500',
+      badgeStyle: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+      searchTerms: 'quick actions shortcuts cashier buttons fast actions'
+    },
+    knowledge: {
+      id: 'knowledge',
+      title: 'Knowledge Hub',
+      emoji: '🧠',
+      badge: 'Video Guides',
+      subtab: 'knowledge' as const,
+      hoverBorder: 'hover:border-indigo-500/60',
+      hoverBg: 'hover:bg-indigo-500/[0.03]',
+      iconBg: 'bg-indigo-500/10',
+      iconText: 'text-indigo-500',
+      badgeStyle: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400',
+      searchTerms: 'knowledge hub help guides faq tutorials video'
+    },
+    recovery: {
+      id: 'recovery',
+      title: 'Recovery Center',
+      emoji: '🛡️',
+      badge: 'Restore Data',
+      subtab: 'recovery' as const,
+      hoverBorder: 'hover:border-rose-500/60',
+      hoverBg: 'hover:bg-rose-500/[0.03]',
+      iconBg: 'bg-rose-500/10',
+      iconText: 'text-rose-500',
+      badgeStyle: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+      searchTerms: 'recovery center restore deleted trash undo backup'
+    }
+  }), [readinessPercentage, currentMode.name, categoriesList.length, state.settings.quickActions]);
 
   const roadmapSteps = useMemo(() => {
     return [
@@ -985,81 +1190,424 @@ export default function BusinessSettingsScreen({
 
   return (
     <div className="space-y-6 pb-24 max-w-2xl mx-auto text-[var(--foreground)]">
-      {/* 🧭 Business Switcher Sub-Tabs */}
-      <div className="flex bg-[var(--background)] p-1.5 rounded-2xl gap-1 overflow-x-auto scrollbar-none border border-[var(--border)]">
-        <button
-          onClick={() => setActiveSubTab('journey')}
-          className={cn(
-            "flex-1 py-2 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
-            activeSubTab === 'journey' ? "bg-[var(--primary)] text-white shadow-md" : "opacity-50 hover:bg-[var(--foreground)]/5"
+      {/* 🧭 Top Navigation: Sub-Screen Header or Overview Bar */}
+      {activeSubTab !== 'overview' ? (
+        <div className="space-y-3">
+          {/* Back to Hub Header */}
+          <div className="flex items-center justify-between gap-3 bg-[var(--card)] p-3 rounded-2xl border border-[var(--border)] shadow-xs">
+            <button
+              onClick={() => setActiveSubTab('overview')}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--foreground)]/5 hover:bg-[var(--foreground)]/10 text-xs font-black uppercase tracking-wider text-[var(--foreground)] transition-all cursor-pointer"
+            >
+              <span>←</span>
+              <span>Back to Biz Hub</span>
+            </button>
+
+            <div className="text-right">
+              <span className="text-[10px] font-black uppercase tracking-wider text-[var(--primary)] block">
+                {activeSubTab === 'categories' && '📦 Products & Categories'}
+                {activeSubTab === 'profile' && '🏪 Store Details & Stats'}
+                {activeSubTab === 'actions' && '⚡ Cashier Shortcuts'}
+                {activeSubTab === 'dashboard' && '📊 Home Screen Cards'}
+                {activeSubTab === 'journey' && '🌱 Setup Checklist & Growth'}
+                {activeSubTab === 'knowledge' && '📖 Help & How-To Guides'}
+                {activeSubTab === 'recovery' && '🛡️ Restore Deleted Data'}
+                {activeSubTab === 'features' && '⚙️ Advanced Feature Switches'}
+              </span>
+              <span className="text-xs font-bold text-[var(--foreground)]/60">
+                {state.settings.storeName || 'My Store'}
+              </span>
+            </div>
+          </div>
+
+          {/* Quick Sub-Tab Selector Pills */}
+          <div className="flex bg-[var(--background)] p-1 rounded-2xl gap-1 overflow-x-auto scrollbar-none border border-[var(--border)]">
+            <button
+              onClick={() => setActiveSubTab('categories')}
+              className={cn(
+                "py-1.5 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
+                activeSubTab === 'categories' ? "bg-[var(--primary)] text-white shadow-xs" : "opacity-60 hover:opacity-100"
+              )}
+            >
+              📦 Categories
+            </button>
+            <button
+              onClick={() => setActiveSubTab('profile')}
+              className={cn(
+                "py-1.5 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
+                activeSubTab === 'profile' ? "bg-[var(--primary)] text-white shadow-xs" : "opacity-60 hover:opacity-100"
+              )}
+            >
+              🏪 Profile
+            </button>
+            <button
+              onClick={() => setActiveSubTab('actions')}
+              className={cn(
+                "py-1.5 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
+                activeSubTab === 'actions' ? "bg-[var(--primary)] text-white shadow-xs" : "opacity-60 hover:opacity-100"
+              )}
+            >
+              ⚡ Shortcuts
+            </button>
+            <button
+              onClick={() => setActiveSubTab('dashboard')}
+              className={cn(
+                "py-1.5 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
+                activeSubTab === 'dashboard' ? "bg-[var(--primary)] text-white shadow-xs" : "opacity-60 hover:opacity-100"
+              )}
+            >
+              📊 Home Cards
+            </button>
+            <button
+              onClick={() => setActiveSubTab('journey')}
+              className={cn(
+                "py-1.5 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
+                activeSubTab === 'journey' ? "bg-[var(--primary)] text-white shadow-xs" : "opacity-60 hover:opacity-100"
+              )}
+            >
+              🌱 Setup
+            </button>
+            <button
+              onClick={() => setActiveSubTab('knowledge')}
+              className={cn(
+                "py-1.5 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
+                activeSubTab === 'knowledge' ? "bg-[var(--primary)] text-white shadow-xs" : "opacity-60 hover:opacity-100"
+              )}
+            >
+              📖 Help
+            </button>
+            <button
+              onClick={() => setActiveSubTab('recovery')}
+              className={cn(
+                "py-1.5 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
+                activeSubTab === 'recovery' ? "bg-[var(--primary)] text-white shadow-xs" : "opacity-60 hover:opacity-100"
+              )}
+            >
+              🛡️ Recovery
+            </button>
+            <button
+              onClick={() => setActiveSubTab('features')}
+              className={cn(
+                "py-1.5 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
+                activeSubTab === 'features' ? "bg-[var(--primary)] text-white shadow-xs" : "opacity-60 hover:opacity-100"
+              )}
+            >
+              ⚙️ Toggles
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ==================== OVERVIEW HUB (Shopkeeper-Friendly Hybrid View) ==================== */}
+      {activeSubTab === 'overview' && (
+        <div className="space-y-6">
+          {/* 🏪 Store Overview & Health Banner */}
+          <div className="bg-[var(--card)] border border-[var(--border)] rounded-[2rem] p-5 sm:p-6 space-y-4 shadow-sm relative overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-13 h-13 rounded-2xl bg-[var(--primary)]/10 border border-[var(--primary)]/20 flex items-center justify-center text-2xl shadow-xs shrink-0">
+                  {profileLogoPreset || '🏪'}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-lg sm:text-xl font-black text-[var(--foreground)] tracking-tight">
+                      {state.settings.storeName || "My Store"}
+                    </h2>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-[var(--primary)]/10 text-[var(--primary)] border border-[var(--primary)]/20">
+                      {currentMode.emoji} {currentMode.name}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[var(--foreground)]/60 font-semibold mt-0.5">
+                    {state.settings.storeOwnerName ? `Owner: ${state.settings.storeOwnerName}` : "Store Proprietor"} • {state.settings.storePhone || "No Phone Configured"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <button
+                  onClick={() => setActiveSubTab('profile')}
+                  className="px-3.5 py-2 rounded-xl bg-[var(--primary)] text-white text-xs font-black uppercase tracking-wider hover:opacity-90 transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  Edit Profile
+                </button>
+                <button
+                  onClick={() => setActiveSubTab('journey')}
+                  className="px-3 py-2 rounded-xl bg-[var(--foreground)]/5 hover:bg-[var(--foreground)]/10 text-[var(--foreground)] text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <Trophy className="w-3.5 h-3.5 text-amber-500" />
+                  {readinessPercentage}% Setup
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Readiness Progress Bar */}
+            <div className="pt-2 border-t border-[var(--border)]/60 space-y-1.5">
+              <div className="flex justify-between items-center text-[11px] font-bold text-[var(--foreground)]/70">
+                <span className="flex items-center gap-1.5">
+                  <Check className="w-3.5 h-3.5 text-emerald-500" />
+                  {completedCount} of {readinessFactors.length} Store Setup Items Completed
+                </span>
+                <span className="text-[var(--primary)] font-black">{readinessTitle}</span>
+              </div>
+              <div className="w-full bg-[var(--foreground)]/[0.08] h-2 rounded-full overflow-hidden">
+                <div 
+                  className="bg-gradient-to-r from-amber-500 to-emerald-500 h-full rounded-full transition-all duration-500" 
+                  style={{ width: `${readinessPercentage}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* 🔍 Search & Reorder Action Bar */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={hubSearchQuery}
+                onChange={(e) => setHubSearchQuery(e.target.value)}
+                placeholder="Search store settings (e.g. categories, shortcuts, UPI QR, backup, printer)..."
+                className="w-full bg-[var(--card)] border border-[var(--border)] rounded-2xl px-4 py-3 pl-11 text-xs font-semibold text-[var(--foreground)] placeholder:text-[var(--foreground)]/40 focus:outline-none focus:border-[var(--primary)] shadow-xs transition-all"
+              />
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--foreground)]/40 text-sm">🔍</span>
+              {hubSearchQuery && (
+                <button
+                  onClick={() => setHubSearchQuery('')}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--foreground)]/40 hover:text-[var(--foreground)] cursor-pointer"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setIsReorderingMode(!isReorderingMode)}
+                className={cn(
+                  "px-3.5 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 shadow-xs",
+                  isReorderingMode 
+                    ? "bg-amber-500 text-white shadow-md animate-pulse" 
+                    : "bg-[var(--card)] border border-[var(--border)] text-[var(--foreground)]/70 hover:text-[var(--foreground)] hover:border-[var(--primary)]/40"
+                )}
+                title="Hold or toggle to prioritize buttons"
+              >
+                {isReorderingMode ? <CheckCheck className="w-3.5 h-3.5" /> : <GripVertical className="w-3.5 h-3.5 text-amber-500" />}
+                <span>{isReorderingMode ? "Done Moving" : "Reorder"}</span>
+              </button>
+
+              {JSON.stringify(currentCardsOrder) !== JSON.stringify(DEFAULT_BIZ_HUB_ORDER) && (
+                <button
+                  onClick={handleResetCardsOrder}
+                  className="px-3 py-2.5 rounded-2xl bg-[var(--card)] border border-[var(--border)] text-[var(--foreground)]/60 hover:text-[var(--foreground)] text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1"
+                  title="Reset to default layout order"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Reset</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Reordering Active Banner */}
+          {isReorderingMode && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 flex items-center justify-between gap-3 text-amber-600 dark:text-amber-400 text-xs font-bold">
+              <div className="flex items-center gap-2">
+                <span className="text-base">🖐️</span>
+                <span>Drag cards or tap the arrows (◀ ▶) on each card to prioritize your shop buttons.</span>
+              </div>
+              <button
+                onClick={() => setIsReorderingMode(false)}
+                className="px-2.5 py-1 rounded-xl bg-amber-500 text-white text-[10px] font-black uppercase tracking-wider hover:opacity-90 shrink-0 cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
           )}
-        >
-          Journey & Setup
-        </button>
-        <button
-          onClick={() => setActiveSubTab('profile')}
-          className={cn(
-            "flex-1 py-2 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
-            activeSubTab === 'profile' ? "bg-[var(--primary)] text-white shadow-md" : "opacity-50 hover:bg-[var(--foreground)]/5"
-          )}
-        >
-          Business Stats
-        </button>
-        <button
-          onClick={() => setActiveSubTab('features')}
-          className={cn(
-            "flex-1 py-2 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
-            activeSubTab === 'features' ? "bg-[var(--primary)] text-white shadow-md" : "opacity-50 hover:bg-[var(--foreground)]/5"
-          )}
-        >
-          Workflow Toggles
-        </button>
-        <button
-          onClick={() => setActiveSubTab('categories')}
-          className={cn(
-            "flex-1 py-2 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
-            activeSubTab === 'categories' ? "bg-[var(--primary)] text-white shadow-md" : "opacity-50 hover:bg-[var(--foreground)]/5"
-          )}
-        >
-          Categories
-        </button>
-        <button
-          onClick={() => setActiveSubTab('dashboard')}
-          className={cn(
-            "flex-1 py-2 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
-            activeSubTab === 'dashboard' ? "bg-[var(--primary)] text-white shadow-md" : "opacity-50 hover:bg-[var(--foreground)]/5"
-          )}
-        >
-          Dashboard Cards
-        </button>
-        <button
-          onClick={() => setActiveSubTab('actions')}
-          className={cn(
-            "flex-1 py-2 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
-            activeSubTab === 'actions' ? "bg-[var(--primary)] text-white shadow-md" : "opacity-50 hover:bg-[var(--foreground)]/5"
-          )}
-        >
-          Quick Actions
-        </button>
-        <button
-          onClick={() => setActiveSubTab('knowledge')}
-          className={cn(
-            "flex-1 py-2 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
-            activeSubTab === 'knowledge' ? "bg-[var(--primary)] text-white shadow-md font-black" : "opacity-50 hover:bg-[var(--foreground)]/5"
-          )}
-        >
-          🧠 Knowledge Hub
-        </button>
-        <button
-          onClick={() => setActiveSubTab('recovery')}
-          className={cn(
-            "flex-1 py-2 px-3 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer whitespace-nowrap",
-            activeSubTab === 'recovery' ? "bg-[var(--primary)] text-white shadow-md font-black" : "opacity-50 hover:bg-[var(--foreground)]/5"
-          )}
-        >
-          🛡️ Recovery Center
-        </button>
-      </div>
+
+          {/* 🎯 8 Large Action Buttons (3 per line, draggable & reorderable) */}
+          <div className="grid grid-cols-3 gap-3 sm:gap-4">
+            {currentCardsOrder.map((cardId, index) => {
+              const card = (BIZ_CARDS_MAP as any)[cardId];
+              if (!card) return null;
+
+              // Filter check
+              if (hubSearchQuery && !card.searchTerms.includes(hubSearchQuery.toLowerCase()) && !card.title.toLowerCase().includes(hubSearchQuery.toLowerCase())) {
+                return null;
+              }
+
+              const isBeingDragged = draggedCardId === cardId;
+              const isDragTarget = dragOverCardId === cardId;
+
+              return (
+                <div
+                  key={card.id}
+                  draggable={true}
+                  onDragStart={(e) => handleBizCardDragStart(e, card.id)}
+                  onDragOver={(e) => handleBizCardDragOver(e, card.id)}
+                  onDrop={(e) => handleBizCardDrop(e, card.id)}
+                  onDragEnd={() => {
+                    setDraggedCardId(null);
+                    setDragOverCardId(null);
+                  }}
+                  onTouchStart={handleTouchStartCard}
+                  onTouchEnd={handleTouchEndCard}
+                  onClick={() => {
+                    if (!isReorderingMode) {
+                      setActiveSubTab(card.subtab);
+                    }
+                  }}
+                  className={cn(
+                    "group relative flex flex-col items-center justify-between p-3 sm:p-4.5 rounded-2xl sm:rounded-[1.75rem] bg-[var(--card)] border-2 transition-all select-none min-h-[135px] sm:min-h-[165px] text-center",
+                    isBeingDragged ? "opacity-40 scale-95 border-dashed border-amber-500 shadow-lg" : "",
+                    isDragTarget ? "border-amber-500 bg-amber-500/10 scale-102" : "border-[var(--border)]",
+                    isReorderingMode ? "border-amber-500/40 ring-2 ring-amber-500/20 cursor-grab active:cursor-grabbing" : `${card.hoverBorder} ${card.hoverBg} active:scale-95 cursor-pointer shadow-xs hover:shadow-md`
+                  )}
+                >
+                  {/* Reorder Handle Indicator */}
+                  {isReorderingMode && (
+                    <div className="w-full flex items-center justify-end pointer-events-none mb-0.5">
+                      <span className="text-xs text-amber-500 font-bold">
+                        ⠿
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Icon & Title */}
+                  <div className="flex flex-col items-center my-auto">
+                    <div className={cn(
+                      "w-11 h-11 sm:w-13 sm:h-13 rounded-2xl flex items-center justify-center text-2xl sm:text-3xl mb-1.5 group-hover:scale-110 transition-transform shadow-xs",
+                      card.iconBg,
+                      card.iconText
+                    )}>
+                      {card.emoji}
+                    </div>
+                    <h3 className="text-xs sm:text-sm font-black text-[var(--foreground)] tracking-tight leading-snug">
+                      {card.title}
+                    </h3>
+                  </div>
+
+                  {/* Bottom: Badge in normal mode, or Left/Right shift arrows in Reorder mode */}
+                  <div className="w-full pt-1">
+                    {isReorderingMode ? (
+                      <div 
+                        className="flex items-center justify-center gap-1.5 mt-1" 
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          disabled={index === 0}
+                          onClick={() => handleMoveBizCard(card.id, 'prev')}
+                          className="w-7 h-7 rounded-lg bg-[var(--foreground)]/10 hover:bg-amber-500 hover:text-white disabled:opacity-20 flex items-center justify-center text-xs font-black transition-colors cursor-pointer"
+                          title="Move earlier"
+                        >
+                          ◀
+                        </button>
+                        <button
+                          disabled={index === currentCardsOrder.length - 1}
+                          onClick={() => handleMoveBizCard(card.id, 'next')}
+                          className="w-7 h-7 rounded-lg bg-[var(--foreground)]/10 hover:bg-amber-500 hover:text-white disabled:opacity-20 flex items-center justify-center text-xs font-black transition-colors cursor-pointer"
+                          title="Move later"
+                        >
+                          ▶
+                        </button>
+                      </div>
+                    ) : (
+                      <span className={cn(
+                        "inline-block px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-wider truncate max-w-full",
+                        card.badgeStyle
+                      )}>
+                        {card.badge}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 🛠️ Collapsible Advanced Workflow & Health Tools */}
+          <div className="bg-[var(--card)] border border-[var(--border)] rounded-[2rem] overflow-hidden shadow-xs">
+            <button
+              onClick={() => setIsAdvancedToolsOpen(!isAdvancedToolsOpen)}
+              className="w-full p-5 flex items-center justify-between text-left hover:bg-[var(--foreground)]/[0.02] transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-[var(--foreground)]/5 flex items-center justify-center text-base">
+                  ⚙️
+                </div>
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-[var(--foreground)]">
+                    Advanced Store Diagnostics & Workflow Tools
+                  </h4>
+                  <p className="text-[11px] text-[var(--foreground)]/50 font-semibold mt-0.5">
+                    Cloud sync, printer health, feature switches & store audit export
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg bg-[var(--foreground)]/5 text-[var(--foreground)]/60">
+                  {isAdvancedToolsOpen ? "Hide" : "Expand"}
+                </span>
+                {isAdvancedToolsOpen ? <ChevronUp className="w-4 h-4 text-[var(--foreground)]/60" /> : <ChevronDown className="w-4 h-4 text-[var(--foreground)]/60" />}
+              </div>
+            </button>
+
+            <AnimatePresence>
+              {isAdvancedToolsOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.25, ease: "easeInOut" }}
+                  className="overflow-hidden border-t border-[var(--border)] bg-[var(--background)]/40 p-5 space-y-5"
+                >
+                  {/* System Health Diagnostic Status Grid */}
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-[var(--primary)] block">
+                      Live System Health Status
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="bg-[var(--card)] p-3 rounded-xl border border-[var(--border)] flex items-center justify-between">
+                        <span className="text-xs font-bold text-[var(--foreground)]/70">Receipt Printing</span>
+                        {getStatusBadge(healthCheckResults.printer)}
+                      </div>
+                      <div className="bg-[var(--card)] p-3 rounded-xl border border-[var(--border)] flex items-center justify-between">
+                        <span className="text-xs font-bold text-[var(--foreground)]/70">Real-Time Cloud Sync</span>
+                        {getStatusBadge(healthCheckResults.sync)}
+                      </div>
+                      <div className="bg-[var(--card)] p-3 rounded-xl border border-[var(--border)] flex items-center justify-between">
+                        <span className="text-xs font-bold text-[var(--foreground)]/70">Data Backup Vault</span>
+                        {getStatusBadge(healthCheckResults.backup)}
+                      </div>
+                      <div className="bg-[var(--card)] p-3 rounded-xl border border-[var(--border)] flex items-center justify-between">
+                        <span className="text-xs font-bold text-[var(--foreground)]/70">Stock Restock Alert</span>
+                        {getStatusBadge(healthCheckResults.inventory)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions inside Advanced Section */}
+                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[var(--border)]/60">
+                    <button
+                      onClick={() => setActiveSubTab('features')}
+                      className="px-3.5 py-2 rounded-xl bg-[var(--primary)] text-white text-xs font-black uppercase tracking-wider hover:opacity-90 transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Sliders className="w-3.5 h-3.5" />
+                      Configure Workflow Toggles
+                    </button>
+                    <button
+                      onClick={exportBusinessJourneyPDF}
+                      className="px-3.5 py-2 rounded-xl bg-[var(--foreground)]/5 hover:bg-[var(--foreground)]/10 text-[var(--foreground)] text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Export Store Setup PDF
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      )}
 
       {/* ==================== SUBTAB: BUSINESS JOURNEY & SETUP CENTER ==================== */}
       {activeSubTab === 'journey' && (
@@ -1999,6 +2547,48 @@ export default function BusinessSettingsScreen({
                 <span className="text-[8px] font-black uppercase opacity-45 block">Business Age</span>
                 <span className="text-[11px] font-extrabold text-amber-500">{stats.ageInDays} Days Active</span>
               </div>
+            </div>
+          </div>
+
+          {/* 🔑 AI ASSISTANT BYOK (BRING YOUR OWN KEY) CONFIGURATION */}
+          <div className="bg-[var(--card)] border border-[var(--border)] rounded-[2rem] p-6 space-y-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[9px] font-black uppercase text-amber-500 tracking-[0.2em] block">BYOK Engine</span>
+                <h3 className="text-sm font-black uppercase tracking-tight flex items-center gap-2 mt-0.5">
+                  <Key size={16} className="text-amber-500" />
+                  Gemini AI API Key Configuration
+                </h3>
+              </div>
+              <span className="text-[9px] font-black px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20 uppercase tracking-wider">
+                {state.settings.customApiKey ? 'Custom Key Active' : 'Default Global Pool'}
+              </span>
+            </div>
+
+            <p className="text-xs text-[var(--foreground)]/60 font-semibold leading-relaxed">
+              Provide your personal Gemini API Key to bypass public quota constraints. When specified, voice recognition and smart product catalog features will prioritize your dedicated quota.
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-2 pt-1">
+              <input
+                type="password"
+                value={state.settings.customApiKey || ''}
+                onChange={(e) => {
+                  const val = e.target.value.trim();
+                  onUpdateSettings({ customApiKey: val || undefined });
+                }}
+                placeholder="AIzaSy... (Paste Gemini API key to override global pool)"
+                className="flex-1 bg-[var(--background)] border border-[var(--border)] rounded-xl px-3 py-2.5 text-xs font-mono font-bold focus:outline-none focus:border-amber-500"
+              />
+              {state.settings.customApiKey && (
+                <button
+                  type="button"
+                  onClick={() => onUpdateSettings({ customApiKey: undefined })}
+                  className="px-4 py-2 text-xs font-black uppercase tracking-wider rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-all cursor-pointer"
+                >
+                  Clear Key
+                </button>
+              )}
             </div>
           </div>
         </div>

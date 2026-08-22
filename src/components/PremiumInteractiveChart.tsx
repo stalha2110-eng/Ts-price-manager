@@ -1,127 +1,41 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { 
-  ZoomIn, ZoomOut, Maximize2, Minimize2, Move, Sparkles, 
-  TrendingUp, TrendingDown, RefreshCw, Flame, Info, ChevronRight, HelpCircle
+  TrendingUp, TrendingDown, DollarSign, Receipt, 
+  Package, Check, Calendar, ArrowUpRight, ArrowDownRight, 
+  RotateCcw, Sparkles, Percent
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppState, Bill, UnbilledEntry } from '../types';
-import { ThemeVisualEffects } from './ThemeVisualEffects';
 import { calculateBillProfit, parseTimestamp } from '../lib/utils';
+
+export type TimeRangeType = 'today' | 'week' | 'month' | 'year' | 'custom';
 
 interface PremiumInteractiveChartProps {
   state: AppState;
-  timePeriod: 'today' | 'week' | 'month' | 'year' | 'all';
+  timePeriod?: 'today' | 'week' | 'month' | 'year' | 'all';
+  onTimePeriodChange?: (period: 'today' | 'week' | 'month' | 'year' | 'all') => void;
   currentBills: Bill[];
   currentUnbilled?: UnbilledEntry[];
-  themeChartColors: any;
+  themeChartColors?: any;
 }
 
 export interface DataPoint {
   label: string;
+  subLabel?: string;
   fullLabel: string;
   sales: number;
   profit: number;
   bills: number;
+  units: number;
   timestamp: string;
 }
 
-// Helper to calculate profit of a single bill
+// Calculate cost of goods and profit of a single bill
 const getBillProfit = (bill: Bill, itemsCatalog?: any[]) => {
   return calculateBillProfit(bill, itemsCatalog);
 };
 
-// Generates highly realistic and stylish demo data when no transactions occur
-const getSimulatedData = (period: 'today' | 'week' | 'month' | 'year' | 'all'): DataPoint[] => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const monthIdx = now.getMonth();
-  
-  if (period === 'today') {
-    return Array.from({ length: 24 }, (_, h) => {
-      const isPostMeridiem = h >= 12;
-      const formattedHour = h === 0 ? 12 : h > 12 ? h - 12 : h;
-      const hourStr = `${formattedHour} ${isPostMeridiem ? 'PM' : 'AM'}`;
-      
-      // Typical retail traffic curve: peak in afternoon/evening
-      let sales = 350 + Math.random() * 250;
-      if (h >= 16 && h <= 18) { // Peak 4 PM - 6 PM
-        sales += 8200 + Math.random() * 3500;
-      } else if (h >= 12 && h < 16) { // Midday rush
-        sales += 4200 + Math.random() * 2000;
-      } else if (h >= 19 && h <= 21) { // Late night checkout
-        sales += 5100 + Math.random() * 1900;
-      } else if (h < 8) { // Midnight to morning
-        sales = h < 6 ? 0 : 200 + Math.random() * 150;
-      }
-      const profit = sales * (0.22 + Math.random() * 0.12);
-      return {
-        label: hourStr,
-        fullLabel: `Today at ${hourStr} (Demonstration Data)`,
-        sales: Math.round(sales),
-        profit: Math.round(profit),
-        bills: sales > 0 ? Math.ceil(sales / (300 + Math.random() * 200)) : 0,
-        timestamp: new Date(new Date().setHours(h, 0, 0, 0)).toISOString()
-      };
-    });
-  } else if (period === 'week') {
-    const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    return dayNames.map((day, idx) => {
-      let multiplier = 1.0;
-      if (idx === 4) multiplier = 2.45; // Friday is highest revenue day!
-      else if (idx === 5) multiplier = 1.95; // Saturday
-      else if (idx === 6) multiplier = 1.45; // Sunday
-      else multiplier = 0.85 + Math.random() * 0.35;
-
-      const sales = Math.round((9500 + Math.random() * 4000) * multiplier);
-      const profit = Math.round(sales * (0.23 + Math.random() * 0.1));
-      return {
-        label: day,
-        fullLabel: `${day}day Performance (Demonstration Data)`,
-        sales,
-        profit,
-        bills: Math.ceil(sales / 520),
-        timestamp: new Date(Date.now() - (6 - idx) * 24 * 3600 * 1000).toISOString()
-      };
-    });
-  } else if (period === 'month') {
-    const days = new Date(year, monthIdx + 1, 0).getDate();
-    const mNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    return Array.from({ length: days }, (_, i) => {
-      const dateNum = i + 1;
-      const isWeekend = (dateNum - 1) % 7 === 4 || (dateNum - 1) % 7 === 5;
-      const base = isWeekend ? 11800 : 5800;
-      const sales = Math.round(base + Math.random() * 4500);
-      const profit = Math.round(sales * (0.24 + Math.random() * 0.08));
-      return {
-        label: `${dateNum}`,
-        fullLabel: `${mNames[monthIdx]} ${dateNum}, ${year} (Demonstration Data)`,
-        sales,
-        profit,
-        bills: Math.ceil(sales / 460),
-        timestamp: new Date(year, monthIdx, dateNum).toISOString()
-      };
-    });
-  } else {
-    const mNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    return mNames.map((m, idx) => {
-      let base = 140000;
-      if (idx === 11 || idx === 0) base = 260000; // Holiday seasons
-      else if (idx === 5 || idx === 6) base = 195000; // Summer bump
-      const sales = Math.round(base + Math.random() * 65000);
-      const profit = Math.round(sales * (0.24 + Math.random() * 0.06));
-      return {
-        label: m,
-        fullLabel: `${m} ${year} Business Review (Demonstration Data)`,
-        sales,
-        profit,
-        bills: Math.ceil(sales / 480),
-        timestamp: new Date(year, idx, 1).toISOString()
-      };
-    });
-  }
-};
-
-// Generates smooth Bezier curve splines in SVG format
+// Generate smooth Bezier curve path from coordinates
 function getBezierCurvePath(points: { x: number; y: number }[]): string {
   if (points.length === 0) return '';
   if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
@@ -130,1214 +44,1294 @@ function getBezierCurvePath(points: { x: number; y: number }[]): string {
   for (let i = 0; i < points.length - 1; i++) {
     const curr = points[i];
     const next = points[i + 1];
-    
-    // Control points: 1/3 and 2/3 distance horizontally, matching vertical trends
     const cp1x = curr.x + (next.x - curr.x) / 3;
     const cp1y = curr.y;
     const cp2x = curr.x + (2 * (next.x - curr.x)) / 3;
     const cp2y = next.y;
-    
     path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${next.x} ${next.y}`;
   }
   return path;
 }
 
-export default function PremiumInteractiveChart({ 
-  state, 
-  timePeriod, 
-  currentBills,
+export default function PremiumInteractiveChart({
+  state,
+  timePeriod: parentTimePeriod,
+  onTimePeriodChange,
+  currentBills = [],
   currentUnbilled = [],
-  themeChartColors 
+  themeChartColors
 }: PremiumInteractiveChartProps) {
-  const [dataMode, setDataMode] = useState<'live' | 'demo'>('live');
-  const [chartType, setChartType] = useState<'line' | 'column'>('line');
-  const [zoomScale, setZoomScale] = useState(1);
-  const [panOffset, setPanOffset] = useState(0);
-  const [isPanning, setIsPanning] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const [heightMode, setHeightMode] = useState<'standard' | 'tall' | 'ultra'>('tall');
-  const [layoutMode, setLayoutMode] = useState<'fit' | 'panorama'>('fit');
+  // 1. Time Range State: today, week, month, year, custom
+  const [timeRange, setTimeRange] = useState<TimeRangeType>(() => {
+    if (parentTimePeriod === 'today') return 'today';
+    if (parentTimePeriod === 'week') return 'week';
+    if (parentTimePeriod === 'month') return 'month';
+    if (parentTimePeriod === 'year') return 'year';
+    return 'today';
+  });
 
-  // Auto-adapt layout mode based on time period density density
+  // Custom date range state (defaults to past 14 days)
+  const [customStart, setCustomStart] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 14);
+    return d.toISOString().split('T')[0];
+  });
+  const [customEnd, setCustomEnd] = useState<string>(() => {
+    return new Date().toISOString().split('T')[0];
+  });
+  const [showCustomPicker, setShowCustomPicker] = useState(false);
+
+  // Sync with parent time period if parent changes
   useEffect(() => {
-    if (timePeriod === 'month' || timePeriod === 'today') {
-      setLayoutMode('panorama');
+    if (parentTimePeriod === 'today') setTimeRange('today');
+    else if (parentTimePeriod === 'week') setTimeRange('week');
+    else if (parentTimePeriod === 'month') setTimeRange('month');
+    else if (parentTimePeriod === 'year') setTimeRange('year');
+  }, [parentTimePeriod]);
+
+  // Notify parent on change if provided
+  const handleTimeRangeChange = (newRange: TimeRangeType) => {
+    setTimeRange(newRange);
+    if (newRange === 'custom') {
+      setShowCustomPicker(true);
     } else {
-      setLayoutMode('fit');
+      setShowCustomPicker(false);
+      if (onTimePeriodChange) {
+        if (newRange === 'today' || newRange === 'week' || newRange === 'month' || newRange === 'year') {
+          onTimePeriodChange(newRange);
+        }
+      }
     }
-  }, [timePeriod]);
+  };
 
-  // Drag interaction refs
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const dragStartRef = useRef({ x: 0, pan: 0 });
-  
-  // Touch gestures info
-  const touchStartDist = useRef<number | null>(null);
-  const touchStartScale = useRef(1);
+  // 2. Touch / Scrub state
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [isInteracting, setIsInteracting] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto fallback logic if live data is empty
-  const hasLiveBills = currentBills.length > 0 || currentUnbilled.length > 0;
+  // Raw bills & unbilled records from app state
+  const allBills = useMemo(() => state.bills || [], [state.bills]);
+  const allUnbilled = useMemo(() => {
+    const fromState = state.unbilledEntries || [];
+    const map = new Map<string, UnbilledEntry>();
+    [...currentUnbilled, ...fromState].forEach(e => {
+      if (e && e.id) map.set(e.id, e);
+    });
+    return Array.from(map.values());
+  }, [state.unbilledEntries, currentUnbilled]);
+
+  // Clear activeIndex when switching timeRange
   useEffect(() => {
-    if (!hasLiveBills) {
-      setDataMode('demo');
-    } else {
-      setDataMode('live');
-    }
-  }, [hasLiveBills, timePeriod]);
+    setActiveIndex(null);
+  }, [timeRange, customStart, customEnd]);
 
-  // Reset zoom configuration when timePeriod or fullscreen flag changes
-  useEffect(() => {
-    setZoomScale(1);
-    setPanOffset(0);
-    setHoverIndex(null);
-  }, [timePeriod, isFullscreen]);
-
-  // Translate bills and unbilled micro-sales entries to proper time-indexed buckets
-  const realChartData = useMemo(() => {
+  // 3. Generate both Sales & Profit data points & comparison metrics
+  const { dataPoints, totals, prevTotals, hasAnyData } = useMemo(() => {
     const now = new Date();
     const year = now.getFullYear();
-    const monthIdx = now.getMonth();
+    const month = now.getMonth();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    if (timePeriod === 'today') {
-      const buckets: DataPoint[] = Array.from({ length: 24 }, (_, h) => {
-        const isPostMeridiem = h >= 12;
+    let points: DataPoint[] = [];
+    let prevSalesTotal = 0;
+    let prevProfitTotal = 0;
+    let prevBillsTotal = 0;
+    let prevUnitsTotal = 0;
+
+    let currSalesTotal = 0;
+    let currProfitTotal = 0;
+    let currBillsTotal = 0;
+    let currUnitsTotal = 0;
+
+    if (timeRange === 'today') {
+      // 24 hourly buckets for Today (00:00 to 23:00)
+      points = Array.from({ length: 24 }, (_, h) => {
+        const isPM = h >= 12;
         const formattedHour = h === 0 ? 12 : h > 12 ? h - 12 : h;
-        const hourStr = `${formattedHour} ${isPostMeridiem ? 'PM' : 'AM'}`;
+        const label = `${formattedHour}${isPM ? 'PM' : 'AM'}`;
+        const fullLabel = `Today · ${formattedHour}:00 ${isPM ? 'PM' : 'AM'}`;
         return {
-          label: hourStr,
-          fullLabel: `Today at ${hourStr}`,
+          label,
+          fullLabel,
           sales: 0,
           profit: 0,
           bills: 0,
-          timestamp: new Date(new Date().setHours(h, 0, 0, 0)).toISOString()
+          units: 0,
+          timestamp: new Date(year, month, now.getDate(), h, 0, 0).toISOString()
         };
       });
 
-      currentBills.forEach(bill => {
+      // Populate current today's bills
+      allBills.forEach(bill => {
         const d = parseTimestamp(bill.timestamp);
-        const hour = d.getHours();
-        if (hour >= 0 && hour < 24) {
-          buckets[hour].sales += Number(bill.total) || 0;
-          buckets[hour].profit += getBillProfit(bill, state.items);
-          buckets[hour].bills += 1;
-        }
-      });
+        if (d >= midnight && d < new Date(midnight.getTime() + 24 * 3600 * 1000)) {
+          const h = d.getHours();
+          if (h >= 0 && h < 24) {
+            const billSales = Number(bill.total) || 0;
+            const billProfit = getBillProfit(bill, state.items);
+            let billUnits = 0;
+            if (Array.isArray(bill.items)) {
+              bill.items.forEach(item => {
+                const q = Number(item.quantity);
+                billUnits += (!isNaN(q) && q > 0) ? q : 1;
+              });
+            } else {
+              billUnits = 1;
+            }
 
-      currentUnbilled.forEach(entry => {
-        const d = parseTimestamp(entry.timestamp || entry.dateStr);
-        const hour = d.getHours();
-        if (hour >= 0 && hour < 24) {
-          const amt = Number(entry.amount) || 0;
-          buckets[hour].sales += amt;
-          buckets[hour].profit += amt;
-          buckets[hour].bills += 1;
-        }
-      });
-
-      return buckets;
-    } else if (timePeriod === 'week') {
-      const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-      const buckets: DataPoint[] = dayNames.map((day, idx) => ({
-        label: day,
-        fullLabel: `${day}day Performance`,
-        sales: 0,
-        profit: 0,
-        bills: 0,
-        timestamp: new Date(Date.now() - (6 - idx) * 24 * 3600 * 1050).toISOString()
-      }));
-
-      currentBills.forEach(bill => {
-        const d = parseTimestamp(bill.timestamp);
-        let dayIndex = d.getDay() - 1; // getDay(): 0 = Sun
-        if (dayIndex === -1) dayIndex = 6; // Sun
-        if (dayIndex >= 0 && dayIndex < 7) {
-          buckets[dayIndex].sales += Number(bill.total) || 0;
-          buckets[dayIndex].profit += getBillProfit(bill, state.items);
-          buckets[dayIndex].bills += 1;
-        }
-      });
-
-      currentUnbilled.forEach(entry => {
-        const d = parseTimestamp(entry.timestamp || entry.dateStr);
-        let dayIndex = d.getDay() - 1;
-        if (dayIndex === -1) dayIndex = 6;
-        if (dayIndex >= 0 && dayIndex < 7) {
-          const amt = Number(entry.amount) || 0;
-          buckets[dayIndex].sales += amt;
-          buckets[dayIndex].profit += amt;
-          buckets[dayIndex].bills += 1;
-        }
-      });
-
-      return buckets;
-    } else if (timePeriod === 'month') {
-      const days = new Date(year, monthIdx + 1, 0).getDate();
-      const mNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const buckets: DataPoint[] = Array.from({ length: days }, (_, i) => ({
-        label: `${i + 1}`,
-        fullLabel: `${mNames[monthIdx]} ${i + 1}, ${year}`,
-        sales: 0,
-        profit: 0,
-        bills: 0,
-        timestamp: new Date(year, monthIdx, i + 1).toISOString()
-      }));
-
-      currentBills.forEach(bill => {
-        const d = parseTimestamp(bill.timestamp);
-        if (d.getFullYear() === year && d.getMonth() === monthIdx) {
-          const dateNum = d.getDate();
-          if (dateNum >= 1 && dateNum <= days) {
-            buckets[dateNum - 1].sales += Number(bill.total) || 0;
-            buckets[dateNum - 1].profit += getBillProfit(bill, state.items);
-            buckets[dateNum - 1].bills += 1;
+            points[h].sales += billSales;
+            points[h].profit += billProfit;
+            points[h].bills += 1;
+            points[h].units += billUnits;
           }
         }
       });
 
-      currentUnbilled.forEach(entry => {
+      // Populate current today's unbilled
+      allUnbilled.forEach(entry => {
         const d = parseTimestamp(entry.timestamp || entry.dateStr);
-        if (d.getFullYear() === year && d.getMonth() === monthIdx) {
-          const dateNum = d.getDate();
-          if (dateNum >= 1 && dateNum <= days) {
+        if (d >= midnight && d < new Date(midnight.getTime() + 24 * 3600 * 1000)) {
+          const h = d.getHours();
+          if (h >= 0 && h < 24) {
             const amt = Number(entry.amount) || 0;
-            buckets[dateNum - 1].sales += amt;
-            buckets[dateNum - 1].profit += amt;
-            buckets[dateNum - 1].bills += 1;
+            points[h].sales += amt;
+            points[h].profit += amt;
+            points[h].bills += 1;
+            points[h].units += 1;
           }
         }
       });
 
-      return buckets;
-    } else {
-      const mNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const buckets: DataPoint[] = mNames.map((m, idx) => ({
-        label: m,
-        fullLabel: `${m} ${year} Business Review`,
-        sales: 0,
-        profit: 0,
-        bills: 0,
-        timestamp: new Date(year, idx, 1).toISOString()
-      }));
+      // Previous period for Today = Yesterday
+      const yesterdayStart = new Date(midnight.getTime() - 24 * 3600 * 1000);
+      const yesterdayEnd = midnight;
 
-      currentBills.forEach(bill => {
+      allBills.forEach(bill => {
         const d = parseTimestamp(bill.timestamp);
-        const mIdx = d.getMonth();
-        if (mIdx >= 0 && mIdx < 12) {
-          if (timePeriod === 'all' || d.getFullYear() === year) {
-            buckets[mIdx].sales += Number(bill.total) || 0;
-            buckets[mIdx].profit += getBillProfit(bill, state.items);
-            buckets[mIdx].bills += 1;
+        if (d >= yesterdayStart && d < yesterdayEnd) {
+          prevSalesTotal += Number(bill.total) || 0;
+          prevProfitTotal += getBillProfit(bill, state.items);
+          prevBillsTotal += 1;
+          if (Array.isArray(bill.items)) {
+            bill.items.forEach(item => {
+              const q = Number(item.quantity);
+              prevUnitsTotal += (!isNaN(q) && q > 0) ? q : 1;
+            });
+          } else {
+            prevUnitsTotal += 1;
           }
         }
       });
 
-      currentUnbilled.forEach(entry => {
+      allUnbilled.forEach(entry => {
         const d = parseTimestamp(entry.timestamp || entry.dateStr);
-        const mIdx = d.getMonth();
-        if (mIdx >= 0 && mIdx < 12) {
-          if (timePeriod === 'all' || d.getFullYear() === year) {
-            const amt = Number(entry.amount) || 0;
-            buckets[mIdx].sales += amt;
-            buckets[mIdx].profit += amt;
-            buckets[mIdx].bills += 1;
+        if (d >= yesterdayStart && d < yesterdayEnd) {
+          const amt = Number(entry.amount) || 0;
+          prevSalesTotal += amt;
+          prevProfitTotal += amt;
+          prevBillsTotal += 1;
+          prevUnitsTotal += 1;
+        }
+      });
+
+    } else if (timeRange === 'week') {
+      // 7 Daily buckets for the past 7 days (today - 6d ... today)
+      const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const startDate = new Date(midnight.getTime() - 6 * 24 * 3600 * 1000);
+
+      points = Array.from({ length: 7 }, (_, i) => {
+        const bucketDate = new Date(startDate.getTime() + i * 24 * 3600 * 1000);
+        const dayStr = dayNames[bucketDate.getDay()];
+        const dateNum = bucketDate.getDate();
+        const monthShort = bucketDate.toLocaleDateString(undefined, { month: 'short' });
+        return {
+          label: `${dayStr} ${dateNum}`,
+          subLabel: monthShort,
+          fullLabel: `${dayStr}, ${monthShort} ${dateNum}`,
+          sales: 0,
+          profit: 0,
+          bills: 0,
+          units: 0,
+          timestamp: bucketDate.toISOString()
+        };
+      });
+
+      const periodEnd = new Date(midnight.getTime() + 24 * 3600 * 1000);
+
+      allBills.forEach(bill => {
+        const d = parseTimestamp(bill.timestamp);
+        if (d >= startDate && d < periodEnd) {
+          const diffDays = Math.floor((d.getTime() - startDate.getTime()) / (24 * 3600 * 1000));
+          if (diffDays >= 0 && diffDays < 7) {
+            const billSales = Number(bill.total) || 0;
+            const billProfit = getBillProfit(bill, state.items);
+            let billUnits = 0;
+            if (Array.isArray(bill.items)) {
+              bill.items.forEach(item => {
+                const q = Number(item.quantity);
+                billUnits += (!isNaN(q) && q > 0) ? q : 1;
+              });
+            } else {
+              billUnits = 1;
+            }
+
+            points[diffDays].sales += billSales;
+            points[diffDays].profit += billProfit;
+            points[diffDays].bills += 1;
+            points[diffDays].units += billUnits;
           }
         }
       });
 
-      return buckets;
+      allUnbilled.forEach(entry => {
+        const d = parseTimestamp(entry.timestamp || entry.dateStr);
+        if (d >= startDate && d < periodEnd) {
+          const diffDays = Math.floor((d.getTime() - startDate.getTime()) / (24 * 3600 * 1000));
+          if (diffDays >= 0 && diffDays < 7) {
+            const amt = Number(entry.amount) || 0;
+            points[diffDays].sales += amt;
+            points[diffDays].profit += amt;
+            points[diffDays].bills += 1;
+            points[diffDays].units += 1;
+          }
+        }
+      });
+
+      // Previous 7 days: startDate - 7 days to startDate
+      const prevStart = new Date(startDate.getTime() - 7 * 24 * 3600 * 1000);
+      const prevEnd = startDate;
+
+      allBills.forEach(bill => {
+        const d = parseTimestamp(bill.timestamp);
+        if (d >= prevStart && d < prevEnd) {
+          prevSalesTotal += Number(bill.total) || 0;
+          prevProfitTotal += getBillProfit(bill, state.items);
+          prevBillsTotal += 1;
+          if (Array.isArray(bill.items)) {
+            bill.items.forEach(item => {
+              const q = Number(item.quantity);
+              prevUnitsTotal += (!isNaN(q) && q > 0) ? q : 1;
+            });
+          } else {
+            prevUnitsTotal += 1;
+          }
+        }
+      });
+
+      allUnbilled.forEach(entry => {
+        const d = parseTimestamp(entry.timestamp || entry.dateStr);
+        if (d >= prevStart && d < prevEnd) {
+          const amt = Number(entry.amount) || 0;
+          prevSalesTotal += amt;
+          prevProfitTotal += amt;
+          prevBillsTotal += 1;
+          prevUnitsTotal += 1;
+        }
+      });
+
+    } else if (timeRange === 'month') {
+      // Days in current calendar month
+      const totalDays = new Date(year, month + 1, 0).getDate();
+      const monthName = now.toLocaleDateString(undefined, { month: 'short' });
+
+      points = Array.from({ length: totalDays }, (_, i) => {
+        const dayNum = i + 1;
+        return {
+          label: `${dayNum}`,
+          subLabel: monthName,
+          fullLabel: `${monthName} ${dayNum}, ${year}`,
+          sales: 0,
+          profit: 0,
+          bills: 0,
+          units: 0,
+          timestamp: new Date(year, month, dayNum).toISOString()
+        };
+      });
+
+      allBills.forEach(bill => {
+        const d = parseTimestamp(bill.timestamp);
+        if (d.getFullYear() === year && d.getMonth() === month) {
+          const dayNum = d.getDate();
+          if (dayNum >= 1 && dayNum <= totalDays) {
+            const idx = dayNum - 1;
+            const billSales = Number(bill.total) || 0;
+            const billProfit = getBillProfit(bill, state.items);
+            let billUnits = 0;
+            if (Array.isArray(bill.items)) {
+              bill.items.forEach(item => {
+                const q = Number(item.quantity);
+                billUnits += (!isNaN(q) && q > 0) ? q : 1;
+              });
+            } else {
+              billUnits = 1;
+            }
+
+            points[idx].sales += billSales;
+            points[idx].profit += billProfit;
+            points[idx].bills += 1;
+            points[idx].units += billUnits;
+          }
+        }
+      });
+
+      allUnbilled.forEach(entry => {
+        const d = parseTimestamp(entry.timestamp || entry.dateStr);
+        if (d.getFullYear() === year && d.getMonth() === month) {
+          const dayNum = d.getDate();
+          if (dayNum >= 1 && dayNum <= totalDays) {
+            const idx = dayNum - 1;
+            const amt = Number(entry.amount) || 0;
+            points[idx].sales += amt;
+            points[idx].profit += amt;
+            points[idx].bills += 1;
+            points[idx].units += 1;
+          }
+        }
+      });
+
+      // Previous calendar month
+      const prevMonthYear = month === 0 ? year - 1 : year;
+      const prevMonthIdx = month === 0 ? 11 : month - 1;
+
+      allBills.forEach(bill => {
+        const d = parseTimestamp(bill.timestamp);
+        if (d.getFullYear() === prevMonthYear && d.getMonth() === prevMonthIdx) {
+          prevSalesTotal += Number(bill.total) || 0;
+          prevProfitTotal += getBillProfit(bill, state.items);
+          prevBillsTotal += 1;
+          if (Array.isArray(bill.items)) {
+            bill.items.forEach(item => {
+              const q = Number(item.quantity);
+              prevUnitsTotal += (!isNaN(q) && q > 0) ? q : 1;
+            });
+          } else {
+            prevUnitsTotal += 1;
+          }
+        }
+      });
+
+      allUnbilled.forEach(entry => {
+        const d = parseTimestamp(entry.timestamp || entry.dateStr);
+        if (d.getFullYear() === prevMonthYear && d.getMonth() === prevMonthIdx) {
+          const amt = Number(entry.amount) || 0;
+          prevSalesTotal += amt;
+          prevProfitTotal += amt;
+          prevBillsTotal += 1;
+          prevUnitsTotal += 1;
+        }
+      });
+
+    } else if (timeRange === 'year') {
+      // 12 Monthly buckets for the current calendar year
+      const monthNamesShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const monthNamesFull = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+      points = Array.from({ length: 12 }, (_, m) => {
+        return {
+          label: monthNamesShort[m],
+          subLabel: String(year),
+          fullLabel: `${monthNamesFull[m]} ${year}`,
+          sales: 0,
+          profit: 0,
+          bills: 0,
+          units: 0,
+          timestamp: new Date(year, m, 1).toISOString()
+        };
+      });
+
+      allBills.forEach(bill => {
+        const d = parseTimestamp(bill.timestamp);
+        if (d.getFullYear() === year) {
+          const m = d.getMonth();
+          if (m >= 0 && m < 12) {
+            const billSales = Number(bill.total) || 0;
+            const billProfit = getBillProfit(bill, state.items);
+            let billUnits = 0;
+            if (Array.isArray(bill.items)) {
+              bill.items.forEach(item => {
+                const q = Number(item.quantity);
+                billUnits += (!isNaN(q) && q > 0) ? q : 1;
+              });
+            } else {
+              billUnits = 1;
+            }
+
+            points[m].sales += billSales;
+            points[m].profit += billProfit;
+            points[m].bills += 1;
+            points[m].units += billUnits;
+          }
+        }
+      });
+
+      allUnbilled.forEach(entry => {
+        const d = parseTimestamp(entry.timestamp || entry.dateStr);
+        if (d.getFullYear() === year) {
+          const m = d.getMonth();
+          if (m >= 0 && m < 12) {
+            const amt = Number(entry.amount) || 0;
+            points[m].sales += amt;
+            points[m].profit += amt;
+            points[m].bills += 1;
+            points[m].units += 1;
+          }
+        }
+      });
+
+      // Previous Calendar Year (year - 1)
+      const prevYear = year - 1;
+      allBills.forEach(bill => {
+        const d = parseTimestamp(bill.timestamp);
+        if (d.getFullYear() === prevYear) {
+          prevSalesTotal += Number(bill.total) || 0;
+          prevProfitTotal += getBillProfit(bill, state.items);
+          prevBillsTotal += 1;
+          if (Array.isArray(bill.items)) {
+            bill.items.forEach(item => {
+              const q = Number(item.quantity);
+              prevUnitsTotal += (!isNaN(q) && q > 0) ? q : 1;
+            });
+          } else {
+            prevUnitsTotal += 1;
+          }
+        }
+      });
+
+      allUnbilled.forEach(entry => {
+        const d = parseTimestamp(entry.timestamp || entry.dateStr);
+        if (d.getFullYear() === prevYear) {
+          const amt = Number(entry.amount) || 0;
+          prevSalesTotal += amt;
+          prevProfitTotal += amt;
+          prevBillsTotal += 1;
+          prevUnitsTotal += 1;
+        }
+      });
+
+    } else if (timeRange === 'custom') {
+      // Custom Range
+      const start = new Date(customStart + 'T00:00:00');
+      const end = new Date(customEnd + 'T23:59:59');
+      const diffMs = Math.max(0, end.getTime() - start.getTime());
+      const diffDays = Math.min(60, Math.max(1, Math.ceil(diffMs / (24 * 3600 * 1000))));
+
+      points = Array.from({ length: diffDays }, (_, i) => {
+        const bucketDate = new Date(start.getTime() + i * 24 * 3600 * 1000);
+        const dayNum = bucketDate.getDate();
+        const monthShort = bucketDate.toLocaleDateString(undefined, { month: 'short' });
+        return {
+          label: `${dayNum} ${monthShort}`,
+          subLabel: monthShort,
+          fullLabel: `${monthShort} ${dayNum}, ${bucketDate.getFullYear()}`,
+          sales: 0,
+          profit: 0,
+          bills: 0,
+          units: 0,
+          timestamp: bucketDate.toISOString()
+        };
+      });
+
+      allBills.forEach(bill => {
+        const d = parseTimestamp(bill.timestamp);
+        if (d >= start && d <= end) {
+          const dayIdx = Math.floor((d.getTime() - start.getTime()) / (24 * 3600 * 1000));
+          if (dayIdx >= 0 && dayIdx < diffDays) {
+            const billSales = Number(bill.total) || 0;
+            const billProfit = getBillProfit(bill, state.items);
+            let billUnits = 0;
+            if (Array.isArray(bill.items)) {
+              bill.items.forEach(item => {
+                const q = Number(item.quantity);
+                billUnits += (!isNaN(q) && q > 0) ? q : 1;
+              });
+            } else {
+              billUnits = 1;
+            }
+
+            points[dayIdx].sales += billSales;
+            points[dayIdx].profit += billProfit;
+            points[dayIdx].bills += 1;
+            points[dayIdx].units += billUnits;
+          }
+        }
+      });
+
+      allUnbilled.forEach(entry => {
+        const d = parseTimestamp(entry.timestamp || entry.dateStr);
+        if (d >= start && d <= end) {
+          const dayIdx = Math.floor((d.getTime() - start.getTime()) / (24 * 3600 * 1000));
+          if (dayIdx >= 0 && dayIdx < diffDays) {
+            const amt = Number(entry.amount) || 0;
+            points[dayIdx].sales += amt;
+            points[dayIdx].profit += amt;
+            points[dayIdx].bills += 1;
+            points[dayIdx].units += 1;
+          }
+        }
+      });
+
+      // Prior period of same length
+      const prevStart = new Date(start.getTime() - diffMs);
+      const prevEnd = start;
+
+      allBills.forEach(bill => {
+        const d = parseTimestamp(bill.timestamp);
+        if (d >= prevStart && d < prevEnd) {
+          prevSalesTotal += Number(bill.total) || 0;
+          prevProfitTotal += getBillProfit(bill, state.items);
+          prevBillsTotal += 1;
+          if (Array.isArray(bill.items)) {
+            bill.items.forEach(item => {
+              const q = Number(item.quantity);
+              prevUnitsTotal += (!isNaN(q) && q > 0) ? q : 1;
+            });
+          } else {
+            prevUnitsTotal += 1;
+          }
+        }
+      });
     }
-  }, [currentBills, currentUnbilled, timePeriod, state.items]);
 
-  // Pick active dataset based on state toggle
-  const activeDataset = useMemo(() => {
-    if (dataMode === 'demo') {
-      return getSimulatedData(timePeriod);
-    }
-    return realChartData;
-  }, [dataMode, realChartData, timePeriod]);
-
-  // Compute Peak/Low indices for auto annotations
-  const annotations = useMemo(() => {
-    let maxSalesIdx = -1, minSalesIdx = -1;
-    let maxProfitIdx = -1, minProfitIdx = -1;
-    let maxSales = -Infinity, minSales = Infinity;
-    let maxProfit = -Infinity, minProfit = Infinity;
-
-    activeDataset.forEach((pt, idx) => {
-      // Find Max Sales
-      if (pt.sales > maxSales) {
-        maxSales = pt.sales;
-        maxSalesIdx = idx;
-      }
-      // Find Min Sales (ignoring 0 if possible, otherwise accept)
-      if (pt.sales < minSales && pt.sales > 0) {
-        minSales = pt.sales;
-        minSalesIdx = idx;
-      }
-      // Find Max Profit
-      if (pt.profit > maxProfit) {
-        maxProfit = pt.profit;
-        maxProfitIdx = idx;
-      }
-      // Find Min Profit
-      if (pt.profit < minProfit && pt.profit > 0) {
-        minProfit = pt.profit;
-        minProfitIdx = idx;
-      }
+    // Compute current totals
+    points.forEach(p => {
+      currSalesTotal += p.sales;
+      currProfitTotal += p.profit;
+      currBillsTotal += p.bills;
+      currUnitsTotal += p.units;
     });
 
-    // Make sure we have fallbacks if nothing is non-zero
-    if (minSalesIdx === -1) minSalesIdx = 0;
-    if (minProfitIdx === -1) minProfitIdx = 0;
-
-    return { maxSalesIdx, minSalesIdx, maxProfitIdx, minProfitIdx };
-  }, [activeDataset]);
-
-  // Core metrics calculated based on data selection
-  const aggregatedValues = useMemo(() => {
-    let totalSales = 0;
-    let totalProfit = 0;
-    let avgBasketValue = 0;
-    let totalBillsCount = 0;
-
-    activeDataset.forEach(pt => {
-      totalSales += pt.sales;
-      totalProfit += pt.profit;
-      totalBillsCount += pt.bills;
-    });
-
-    avgBasketValue = totalBillsCount > 0 ? (totalSales / totalBillsCount) : 0;
-    const margin = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
-
-    // Identify Peak Day/Time period
-    const sortedBySales = [...activeDataset].sort((a, b) => b.sales - a.sales);
-    const peakIntervalLabel = sortedBySales[0]?.label || 'N/A';
+    const hasData = currSalesTotal > 0 || currBillsTotal > 0 || currProfitTotal > 0;
 
     return {
-      totalSales,
-      totalProfit,
-      avgBasketValue,
-      totalBillsCount,
-      margin,
-      peakIntervalLabel
+      dataPoints: points,
+      totals: {
+        sales: currSalesTotal,
+        profit: currProfitTotal,
+        bills: currBillsTotal,
+        units: currUnitsTotal
+      },
+      prevTotals: {
+        sales: prevSalesTotal,
+        profit: prevProfitTotal,
+        bills: prevBillsTotal,
+        units: prevUnitsTotal
+      },
+      hasAnyData: hasData
     };
-  }, [activeDataset]);
+  }, [allBills, allUnbilled, timeRange, customStart, customEnd, state.items]);
 
-  // Render specifications inside virtual coordinate space
+  // 4. Growth calculations vs prior period
+  const salesGrowth = useMemo(() => {
+    if (prevTotals.sales === 0) {
+      return totals.sales > 0 ? 100 : 0;
+    }
+    return ((totals.sales - prevTotals.sales) / prevTotals.sales) * 100;
+  }, [totals.sales, prevTotals.sales]);
+
+  const profitGrowth = useMemo(() => {
+    if (prevTotals.profit === 0) {
+      return totals.profit > 0 ? 100 : 0;
+    }
+    return ((totals.profit - prevTotals.profit) / prevTotals.profit) * 100;
+  }, [totals.profit, prevTotals.profit]);
+
+  const profitMargin = useMemo(() => {
+    if (totals.sales <= 0) return 0;
+    return (totals.profit / totals.sales) * 100;
+  }, [totals.sales, totals.profit]);
+
+  const comparisonLabel = useMemo(() => {
+    switch (timeRange) {
+      case 'today': return 'vs yesterday';
+      case 'week': return 'vs previous week';
+      case 'month': return 'vs last month';
+      case 'year': return 'vs last year';
+      case 'custom': return 'vs prior period';
+      default: return 'vs previous';
+    }
+  }, [timeRange]);
+
+  // 5. Visual Colors for Sales and Profit
+  const salesColor = themeChartColors?.sales?.stroke || '#3b82f6';
+  const profitColor = themeChartColors?.profit?.stroke || '#10b981';
+
+  // 6. Graph Coordinate Calculations for Virtual SVG Space
   const svgWidth = 1000;
-  const svgHeight = isFullscreen 
-    ? 680 
-    : heightMode === 'ultra' 
-      ? 580 
-      : heightMode === 'tall' 
-        ? 480 
-        : 385;
-  const paddingLeft = 105;
-  const paddingRight = 45;
-  const paddingTop = 60;
-  const paddingBottom = 60;
+  const svgHeight = 280;
+  const paddingLeft = 55;
+  const paddingRight = 25;
+  const paddingTop = 24;
+  const paddingBottom = 40;
 
   const drawableWidth = svgWidth - paddingLeft - paddingRight;
   const drawableHeight = svgHeight - paddingTop - paddingBottom;
 
-  // Compute scale boundaries for coordinates
-  const maxDataVal = useMemo(() => {
-    let largest = 2000;
-    activeDataset.forEach(pt => {
-      if (pt.sales > largest) largest = pt.sales;
-      if (pt.profit > largest) largest = pt.profit;
+  // Max value spanning BOTH Sales and Profit
+  const maxVal = useMemo(() => {
+    let peak = 1;
+    dataPoints.forEach(p => {
+      if (p.sales > peak) peak = p.sales;
+      if (p.profit > peak) peak = p.profit;
     });
-    return largest * 1.15; // 15% clear top margin
-  }, [activeDataset]);
+    return peak * 1.18; // 18% breathing ceiling
+  }, [dataPoints]);
 
-  // Scale data-index onto coordinate space
-  const getCoordinates = (index: number, salesVal: number, profitVal: number) => {
-    const totalPoints = activeDataset.length;
-    // Calculate index spacing in virtual horizontal window
-    const scaleWidth = drawableWidth * zoomScale;
-    const spacing = totalPoints > 1 ? scaleWidth / (totalPoints - 1) : scaleWidth;
-    
-    // Virtual X with spacing and panOffset offset
-    const xVirtual = paddingLeft + index * spacing + panOffset;
-    
-    const ySales = paddingTop + drawableHeight - (salesVal / maxDataVal) * drawableHeight;
-    const yProfit = paddingTop + drawableHeight - (profitVal / maxDataVal) * drawableHeight;
-
-    return { x: xVirtual, ySales, yProfit };
-  };
-
-  // Precompile point coordinates for rapid drafting
+  // Compute dual coordinate points for both sales and profit
   const coordPoints = useMemo(() => {
-    return activeDataset.map((pt, idx) => {
-      const { x, ySales, yProfit } = getCoordinates(idx, pt.sales, pt.profit);
-      return { x, ySales, yProfit, original: pt };
+    const total = dataPoints.length;
+    if (total === 0) return [];
+    return dataPoints.map((pt, i) => {
+      const x = total === 1 
+        ? paddingLeft + drawableWidth / 2 
+        : paddingLeft + (i / (total - 1)) * drawableWidth;
+      const ySales = paddingTop + drawableHeight - (pt.sales / maxVal) * drawableHeight;
+      const yProfit = paddingTop + drawableHeight - (pt.profit / maxVal) * drawableHeight;
+      return { x, ySales, yProfit, original: pt, index: i };
     });
-  }, [activeDataset, zoomScale, panOffset, maxDataVal, drawableWidth, drawableHeight]);
+  }, [dataPoints, maxVal, drawableWidth, drawableHeight]);
 
-  // Generate paths for standard viewport drawing
-  const salesLinesPath = useMemo(() => {
-    const points = coordPoints.map(p => ({ x: p.x, y: p.ySales }));
-    return getBezierCurvePath(points);
+  // Smooth Bezier Curve Path for Sales
+  const salesLinePath = useMemo(() => {
+    const pts = coordPoints.map(p => ({ x: p.x, y: p.ySales }));
+    return getBezierCurvePath(pts);
   }, [coordPoints]);
 
-  const profitLinesPath = useMemo(() => {
-    const points = coordPoints.map(p => ({ x: p.x, y: p.yProfit }));
-    return getBezierCurvePath(points);
-  }, [coordPoints]);
-
+  // Area Fill Path for Sales
   const salesFillPath = useMemo(() => {
     if (coordPoints.length === 0) return '';
-    const bottomLineY = paddingTop + drawableHeight;
-    return `${salesLinesPath} L ${coordPoints[coordPoints.length - 1].x} ${bottomLineY} L ${coordPoints[0].x} ${bottomLineY} Z`;
-  }, [coordPoints, salesLinesPath]);
+    const bottomY = paddingTop + drawableHeight;
+    const firstX = coordPoints[0].x;
+    const lastX = coordPoints[coordPoints.length - 1].x;
+    return `${salesLinePath} L ${lastX} ${bottomY} L ${firstX} ${bottomY} Z`;
+  }, [coordPoints, salesLinePath, paddingTop, drawableHeight]);
 
+  // Smooth Bezier Curve Path for Profit
+  const profitLinePath = useMemo(() => {
+    const pts = coordPoints.map(p => ({ x: p.x, y: p.yProfit }));
+    return getBezierCurvePath(pts);
+  }, [coordPoints]);
+
+  // Area Fill Path for Profit
   const profitFillPath = useMemo(() => {
     if (coordPoints.length === 0) return '';
-    const bottomLineY = paddingTop + drawableHeight;
-    return `${profitLinesPath} L ${coordPoints[coordPoints.length - 1].x} ${bottomLineY} L ${coordPoints[0].x} ${bottomLineY} Z`;
-  }, [coordPoints, profitLinesPath]);
+    const bottomY = paddingTop + drawableHeight;
+    const firstX = coordPoints[0].x;
+    const lastX = coordPoints[coordPoints.length - 1].x;
+    return `${profitLinePath} L ${lastX} ${bottomY} L ${firstX} ${bottomY} Z`;
+  }, [coordPoints, profitLinePath, paddingTop, drawableHeight]);
 
-  // Click & touch event handlers for panning inside boundary limits
-  const minPan = drawableWidth - drawableWidth * zoomScale;
-  const maxPan = 0;
+  // 7. Pointer / Touch-to-Scrub Engine (Seamless Touch & Mouse support on mobile)
+  const handlePointerCoords = useCallback((clientX: number) => {
+    if (!containerRef.current || coordPoints.length === 0) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    if (rect.width <= 0) return;
 
-  const handlePointerDown = (e: React.MouseEvent<SVGSVGElement> | React.TouchEvent<SVGSVGElement>) => {
-    const isTouchEvent = 'touches' in e;
-    
-    if (isTouchEvent && e.touches.length === 2) {
-      // Pinch to Zoom start
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-      touchStartDist.current = dist;
-      touchStartScale.current = zoomScale;
-      return;
-    }
+    // Calculate scale factor from screen pixels to virtual SVG coordinates
+    const scaleX = svgWidth / rect.width;
+    const virtualX = (clientX - rect.left) * scaleX;
 
-    const clientX = isTouchEvent ? e.touches[0].clientX : e.clientX;
-    setIsPanning(true);
-    dragStartRef.current = { x: clientX, pan: panOffset };
-  };
+    // Find nearest point index
+    let closestIdx = 0;
+    let minDiff = Infinity;
 
-  const handlePointerMove = (e: React.MouseEvent<SVGSVGElement> | React.TouchEvent<SVGSVGElement>) => {
-    const isTouchEvent = 'touches' in e;
-    
-    // Pinch gesture checking
-    if (isTouchEvent && e.touches.length === 2 && touchStartDist.current !== null) {
-      e.preventDefault();
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-      
-      const rawScale = touchStartScale.current * (dist / touchStartDist.current);
-      const nextScale = Math.max(1, Math.min(5, parseFloat(rawScale.toFixed(2))));
-      
-      setZoomScale(nextScale);
-      return;
-    }
-
-    // Hover or Drag panning logic
-    const clientX = isTouchEvent ? e.touches[0].clientX : e.clientX;
-    const rect = svgRef.current?.getBoundingClientRect();
-    
-    if (rect) {
-      const scaleFactorX = svgWidth / rect.width;
-      const xCoordRelative = (clientX - rect.left) * scaleFactorX;
-
-      // Update hover highlights state
-      let closestIdx = -1;
-      let minDistance = Infinity;
-
-      coordPoints.forEach((pt, idx) => {
-        // Find absolute horizontal spacing distance
-        const dist = Math.abs(pt.x - xCoordRelative);
-        if (dist < minDistance) {
-          minDistance = dist;
-          closestIdx = idx;
-        }
-      });
-
-      // Strict limit threshold check to avoid selecting points far out of range
-      if (minDistance < (drawableWidth * zoomScale) / (activeDataset.length || 1) * 0.8) {
-        setHoverIndex(closestIdx);
-      } else {
-        setHoverIndex(null);
+    coordPoints.forEach((pt, idx) => {
+      const diff = Math.abs(pt.x - virtualX);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIdx = idx;
       }
+    });
+
+    setActiveIndex(closestIdx);
+  }, [coordPoints, svgWidth]);
+
+  // Event Handlers for Pointer
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    setIsInteracting(true);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch (err) {}
+    handlePointerCoords(e.clientX);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isInteracting || e.pointerType === 'mouse') {
+      handlePointerCoords(e.clientX);
     }
-
-    if (!isPanning) return;
-    
-    e.preventDefault();
-    const deltaX = clientX - dragStartRef.current.x;
-    const nextPan = dragStartRef.current.pan + deltaX * (svgWidth / (rect?.width || 1));
-    
-    // Clamp panning offsets strictly
-    setPanOffset(Math.max(minPan, Math.min(maxPan, nextPan)));
   };
 
-  const handlePointerUp = () => {
-    setIsPanning(false);
-    touchStartDist.current = null;
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch (err) {}
+    setIsInteracting(false);
   };
 
-  // Zoom manipulation controllers
-  const triggerZoom = (direction: 'in' | 'out') => {
-    let nextScale = zoomScale;
-    if (direction === 'in') {
-      nextScale = Math.min(5, zoomScale + 0.5);
+  const handlePointerCancel = () => {
+    setIsInteracting(false);
+  };
+
+  // Touch Handlers for 100% Android/iOS Webview Compatibility
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length > 0) {
+      setIsInteracting(true);
+      handlePointerCoords(e.touches[0].clientX);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length > 0) {
+      handlePointerCoords(e.touches[0].clientX);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setIsInteracting(false);
+  };
+
+  // Active Point currently scrubbed/tapped
+  const activePoint = activeIndex !== null && coordPoints[activeIndex] ? coordPoints[activeIndex] : null;
+
+  // Active Point dynamic profit margin
+  const activeMargin = useMemo(() => {
+    if (!activePoint || activePoint.original.sales <= 0) return 0;
+    return (activePoint.original.profit / activePoint.original.sales) * 100;
+  }, [activePoint]);
+
+  // Smart X-axis label strides to avoid overlapping on mobile
+  const visibleLabelIndices = useMemo(() => {
+    const total = dataPoints.length;
+    const indices = new Set<number>();
+    if (total <= 7) {
+      // Week (7 days) - show all
+      for (let i = 0; i < total; i++) indices.add(i);
+    } else if (total <= 12) {
+      // Year (12 months) - show all
+      for (let i = 0; i < total; i++) indices.add(i);
+    } else if (total <= 25) {
+      // Today 24h: show 0, 4, 8, 12, 16, 20, 23
+      for (let i = 0; i < total; i += 4) indices.add(i);
+      indices.add(total - 1);
     } else {
-      nextScale = Math.max(1, zoomScale - 0.5);
+      // Month: show every 5th or 6th
+      for (let i = 0; i < total; i += 5) indices.add(i);
+      indices.add(total - 1);
     }
-
-    setZoomScale(nextScale);
-    
-    // Automatically clamp panning offset based on new parameters
-    const nextMinPan = drawableWidth - drawableWidth * nextScale;
-    setPanOffset(prev => Math.max(nextMinPan, Math.min(maxPan, prev)));
-  };
-
-  const triggerZoomReset = () => {
-    setZoomScale(1);
-    setPanOffset(0);
-    setHoverIndex(null);
-  };
-
-  // Handle manual mouse scroll zoom interaction inside region bounds
-  const handleScrollWheel = (e: React.WheelEvent<SVGSVGElement>) => {
-    if (Math.abs(e.deltaY) > 0) {
-      e.preventDefault();
-      const zoomFactor = e.deltaY < 0 ? 0.15 : -0.15;
-      const nextScale = Math.max(1, Math.min(5, zoomScale + zoomFactor));
-      
-      setZoomScale(nextScale);
-      
-      const nextMinPan = drawableWidth - drawableWidth * nextScale;
-      setPanOffset(prev => Math.max(nextMinPan, Math.min(maxPan, prev)));
-    }
-  };
-
-  // Dynamic Horizontal Grid division levels
-  const yGridLinesCount = 5;
-  const grids = Array.from({ length: yGridLinesCount }, (_, idx) => {
-    const fraction = idx / (yGridLinesCount - 1);
-    const value = maxDataVal * fraction;
-    const y = paddingTop + drawableHeight - fraction * drawableHeight;
-    return { y, value };
-  });
-
-  // Theme support config checks to preserve readable grids and high readability contrast
-  const chartSalesStroke = themeChartColors.sales?.stroke || '#3b82f6';
-  const chartProfitStroke = themeChartColors.profit?.stroke || '#10b981';
+    return indices;
+  }, [dataPoints.length]);
 
   return (
-    <div 
-      className={`relative rounded-[2.5rem] flex flex-col justify-between transition-all duration-300 shadow-2xl p-6 md:p-8 select-none border border-[var(--border)] overflow-visible ${
-        isFullscreen 
-          ? 'fixed inset-0 z-50 bg-[#060a13] text-slate-100 overflow-y-auto w-screen h-screen' 
-          : 'bg-[var(--card)]'
-      }`}
-    >
-      <ThemeVisualEffects theme={state.settings.theme} disableMovement={true} />
-      {/* Background ambient light effects */}
-      <div className="absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-[var(--primary)]/5 to-transparent blur-3xl pointer-events-none rounded-[2.5rem]" />
+    <div className="bg-[var(--card)] border border-[var(--border)] rounded-[2.5rem] p-4 sm:p-6 shadow-xl relative overflow-hidden text-[var(--foreground)] space-y-5 select-none">
       
-      {/* Visual Header indicators */}
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between border-b border-[var(--border)] pb-5 z-10 gap-5">
-        <div className="space-y-2">
+      {/* 1. TOP HEADER & DUAL SALES + PROFIT KPI DISPLAY */}
+      <div className="space-y-4">
+        {/* Top Control Bar: Time Range Selector */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--border)] pb-4">
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-[var(--primary)] animate-ping shrink-0" />
-            <span className="text-[10px] uppercase tracking-[0.3em] font-black opacity-60">Corporate Intelligence Portal</span>
+            <span className="h-2 w-2 rounded-full animate-pulse bg-blue-500" />
+            <span className="h-2 w-2 rounded-full animate-pulse bg-emerald-500" />
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[var(--foreground)]/60">
+              Sales & Profit Stream
+            </span>
           </div>
-          <h3 className="text-xl md:text-2xl font-black tracking-tight text-[var(--foreground)] uppercase mt-1">
-            Revenues & Profit <span className="text-[var(--primary)] font-extrabold">Spectrum</span>
-          </h3>
-          <p className="text-[10px] leading-relaxed text-[var(--foreground)]/50 uppercase tracking-widest font-bold">
-            Interactive, zooming visualizer mapping sales trends against margins
-          </p>
 
-          {/* Fully Legible Chart Legend & Aggregated Values */}
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-4 pt-2 border-t border-[var(--border)]/40">
-            <div className="flex items-center gap-2.5">
-              <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: chartSalesStroke }} />
-              <div className="flex flex-col">
-                <span className="text-[9px] uppercase tracking-wider opacity-60 font-black">Sales Trend</span>
-                <span className="text-sm font-extrabold font-mono text-[var(--foreground)]">
-                  ₹{aggregatedValues.totalSales.toLocaleString()}
-                </span>
-              </div>
+          {/* Time Range Tabs: today, week, month, year, custom */}
+          <div className="flex items-center bg-[var(--foreground)]/[0.04] p-1 rounded-2xl border border-[var(--border)] self-start sm:self-auto overflow-x-auto max-w-full">
+            {([
+              { id: 'today', label: 'Today' },
+              { id: 'week', label: 'Week' },
+              { id: 'month', label: 'Month' },
+              { id: 'year', label: 'Year' },
+              { id: 'custom', label: 'Custom' }
+            ] as const).map(tab => {
+              const isSelected = timeRange === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => handleTimeRangeChange(tab.id)}
+                  className={`relative px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-200 cursor-pointer min-w-[52px] text-center ${
+                    isSelected 
+                      ? 'bg-[var(--foreground)] text-[var(--background)] shadow-sm' 
+                      : 'text-[var(--foreground)]/60 hover:text-[var(--foreground)]'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Custom Date Range Picker expander if 'custom' is active */}
+        {timeRange === 'custom' && showCustomPicker && (
+          <motion.div 
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="p-3.5 bg-[var(--foreground)]/[0.02] border border-[var(--border)] rounded-2xl flex flex-wrap items-center gap-3"
+          >
+            <div className="flex items-center gap-2 text-xs font-bold">
+              <span className="text-[10px] font-black text-[var(--foreground)]/60 uppercase">From:</span>
+              <input
+                type="date"
+                value={customStart}
+                onChange={(e) => setCustomStart(e.target.value)}
+                className="bg-[var(--background)] border border-[var(--border)] rounded-xl px-2.5 py-1 text-xs font-mono font-bold focus:outline-none focus:border-[var(--primary)]"
+              />
             </div>
-            <div className="flex items-center gap-2.5">
-              <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: chartProfitStroke }} />
-              <div className="flex flex-col">
-                <span className="text-[9px] uppercase tracking-wider opacity-60 font-black">Net Profit</span>
-                <span className="text-sm font-extrabold font-mono text-emerald-500">
-                  ₹{aggregatedValues.totalProfit.toLocaleString()}
-                </span>
-              </div>
+            <div className="flex items-center gap-2 text-xs font-bold">
+              <span className="text-[10px] font-black text-[var(--foreground)]/60 uppercase">To:</span>
+              <input
+                type="date"
+                value={customEnd}
+                onChange={(e) => setCustomEnd(e.target.value)}
+                className="bg-[var(--background)] border border-[var(--border)] rounded-xl px-2.5 py-1 text-xs font-mono font-bold focus:outline-none focus:border-[var(--primary)]"
+              />
             </div>
-            <div className="flex items-center gap-2.5">
-              <div className="flex flex-col">
-                <span className="text-[9px] uppercase tracking-wider opacity-60 font-black">Average Margin</span>
-                <span className="text-sm font-extrabold font-mono text-amber-500">
-                  {aggregatedValues.margin.toFixed(1)}%
+            <button
+              type="button"
+              onClick={() => setShowCustomPicker(false)}
+              className="px-3 py-1 bg-[var(--primary)] text-white text-[10px] font-black uppercase tracking-wider rounded-xl cursor-pointer shadow-sm hover:opacity-90 ml-auto"
+            >
+              Apply Range
+            </button>
+          </motion.div>
+        )}
+
+        {/* Dual KPI Header Section: Side-by-side Sales & Profit with Scrub Sync */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          {/* Sales Card */}
+          <div className="p-3.5 rounded-2xl bg-blue-500/[0.06] border border-blue-500/20 relative overflow-hidden flex flex-col justify-between">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-blue-500 shadow-sm" />
+                <span className="text-[11px] font-black uppercase tracking-wider text-blue-400">
+                  {activePoint ? `${activePoint.original.label} Sales` : 'Total Sales'}
                 </span>
               </div>
+              {!activePoint ? (
+                <span className={`inline-flex items-center gap-0.5 text-[9px] font-black px-1.5 py-0.5 rounded-md border ${
+                  salesGrowth >= 0 
+                    ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' 
+                    : 'bg-rose-500/10 text-rose-500 border-rose-500/20'
+                }`}>
+                  {salesGrowth >= 0 ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
+                  {salesGrowth >= 0 ? '+' : ''}{salesGrowth.toFixed(1)}% {comparisonLabel}
+                </span>
+              ) : (
+                <span className="text-[9px] font-mono font-bold text-blue-400/80 uppercase">
+                  {activePoint.original.bills} Invoices
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-[var(--foreground)]">
+                ₹{Math.round(activePoint ? activePoint.original.sales : totals.sales).toLocaleString()}
+              </span>
+            </div>
+          </div>
+
+          {/* Profit Card */}
+          <div className="p-3.5 rounded-2xl bg-emerald-500/[0.06] border border-emerald-500/20 relative overflow-hidden flex flex-col justify-between">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-sm" />
+                <span className="text-[11px] font-black uppercase tracking-wider text-emerald-400">
+                  {activePoint ? `${activePoint.original.label} Net Profit` : 'Net Profit'}
+                </span>
+              </div>
+              <span className="inline-flex items-center gap-1 text-[9px] font-black px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-mono">
+                <Percent size={10} />
+                {(activePoint ? activeMargin : profitMargin).toFixed(1)}% Margin
+              </span>
+            </div>
+
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-emerald-400">
+                ₹{Math.round(activePoint ? activePoint.original.profit : totals.profit).toLocaleString()}
+              </span>
+              
+              {activePoint && (
+                <button
+                  type="button"
+                  onClick={() => setActiveIndex(null)}
+                  title="Reset to total view"
+                  className="px-2 py-1 rounded-xl bg-[var(--foreground)]/[0.08] hover:bg-[var(--foreground)]/15 text-[var(--foreground)]/70 transition-all cursor-pointer flex items-center gap-1 text-[9px] font-black uppercase tracking-wider"
+                >
+                  <RotateCcw size={10} />
+                  Reset
+                </button>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Action button rails */}
-        <div className="flex flex-wrap items-center gap-3 z-20">
-          {/* Chart Style choice toggle */}
-          <div className="flex items-center bg-zinc-100/90 dark:bg-zinc-950/40 backdrop-blur p-0.5 rounded-xl border border-[var(--border)] shadow-xs">
-            <span className="text-[9.5px] font-black uppercase text-[var(--foreground)]/60 px-2.5 tracking-wider hidden sm:inline">Chart Style:</span>
-            <button 
-              onClick={() => setChartType('line')}
-              className={`px-3 py-1.5 rounded-lg text-[9.5px] uppercase font-black tracking-wider transition-all duration-150 cursor-pointer ${
-                chartType === 'line' 
-                  ? 'bg-[var(--primary)] text-white dark:text-white shadow-sm font-black' 
-                  : 'text-[var(--foreground)]/60 dark:text-[var(--foreground)]/65 hover:text-[var(--foreground)] dark:hover:text-[var(--foreground)] hover:bg-[var(--foreground)]/[0.04] dark:hover:bg-[var(--foreground)]/[0.08]'
-              }`}
-            >
-              Line Chart
-            </button>
-            <button 
-              onClick={() => setChartType('column')}
-              className={`px-3 py-1.5 rounded-lg text-[9.5px] uppercase font-black tracking-wider transition-all duration-150 cursor-pointer ${
-                chartType === 'column' 
-                  ? 'bg-[var(--primary)] text-white dark:text-white shadow-sm font-black' 
-                  : 'text-[var(--foreground)]/60 dark:text-[var(--foreground)]/65 hover:text-[var(--foreground)] dark:hover:text-[var(--foreground)] hover:bg-[var(--foreground)]/[0.04] dark:hover:bg-[var(--foreground)]/[0.08]'
-              }`}
-            >
-              Column Chart
-            </button>
+        {/* Legend Indicator bar */}
+        <div className="flex items-center justify-between px-1 text-[10px] font-extrabold uppercase tracking-wider text-[var(--foreground)]/60 flex-wrap gap-2">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1.5">
+              <div className="h-2.5 w-6 rounded-full bg-blue-500/80" />
+              <span className="text-blue-400">Sales Curve</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="h-2.5 w-6 rounded-full bg-emerald-500/80" />
+              <span className="text-emerald-400">Profit Curve</span>
+            </div>
           </div>
-
-          {/* Layout presentation mode container controls */}
-          <div className="flex items-center bg-zinc-100/90 dark:bg-zinc-950/40 backdrop-blur p-0.5 rounded-xl border border-[var(--border)] shadow-xs">
-            <span className="text-[9.5px] font-black uppercase text-[var(--foreground)]/60 px-2.5 tracking-wider hidden sm:inline">Presentation:</span>
-            <button 
-              onClick={() => setLayoutMode('fit')}
-              className={`px-3 py-1.5 rounded-lg text-[9.5px] uppercase font-black tracking-wider transition-all duration-150 cursor-pointer ${
-                layoutMode === 'fit' 
-                  ? 'bg-[var(--primary)] text-white dark:text-white shadow-sm font-black' 
-                  : 'text-[var(--foreground)]/60 dark:text-[var(--foreground)]/65 hover:text-[var(--foreground)] dark:hover:text-[var(--foreground)] hover:bg-[var(--foreground)]/[0.04] dark:hover:bg-[var(--foreground)]/[0.08]'
-              }`}
-            >
-              Fit
-            </button>
-            <button 
-              onClick={() => setLayoutMode('panorama')}
-              className={`px-3 py-1.5 rounded-lg text-[9.5px] uppercase font-black tracking-wider transition-all duration-150 cursor-pointer ${
-                layoutMode === 'panorama' 
-                  ? 'bg-[var(--primary)] text-white dark:text-white shadow-sm font-black' 
-                  : 'text-[var(--foreground)]/60 dark:text-[var(--foreground)]/65 hover:text-[var(--foreground)] dark:hover:text-[var(--foreground)] hover:bg-[var(--foreground)]/[0.04] dark:hover:bg-[var(--foreground)]/[0.08]'
-              }`}
-            >
-              Panorama
-            </button>
-          </div>
-
-          {/* Chart Height selector control for premium high legibility customization */}
-          <div className="flex items-center bg-zinc-100/90 dark:bg-zinc-950/40 backdrop-blur p-0.5 rounded-xl border border-[var(--border)] shadow-xs">
-            <span className="text-[9.5px] font-black uppercase text-[var(--foreground)]/60 px-2.5 tracking-wider hidden sm:inline">Graph Height:</span>
-            <button 
-              onClick={() => setHeightMode('standard')}
-              className={`px-3 py-1.5 rounded-lg text-[9.5px] uppercase font-black tracking-wider transition-all duration-150 cursor-pointer ${
-                heightMode === 'standard' 
-                  ? 'bg-[var(--primary)] text-white dark:text-white shadow-sm font-black' 
-                  : 'text-[var(--foreground)]/60 dark:text-[var(--foreground)]/65 hover:text-[var(--foreground)] dark:hover:text-[var(--foreground)] hover:bg-[var(--foreground)]/[0.04] dark:hover:bg-[var(--foreground)]/[0.08]'
-              }`}
-            >
-              Standard
-            </button>
-            <button 
-              onClick={() => setHeightMode('tall')}
-              className={`px-3 py-1.5 rounded-lg text-[9.5px] uppercase font-black tracking-wider transition-all duration-150 cursor-pointer ${
-                heightMode === 'tall' 
-                  ? 'bg-[var(--primary)] text-white dark:text-white shadow-sm font-black' 
-                  : 'text-[var(--foreground)]/60 dark:text-[var(--foreground)]/65 hover:text-[var(--foreground)] dark:hover:text-[var(--foreground)] hover:bg-[var(--foreground)]/[0.04] dark:hover:bg-[var(--foreground)]/[0.08]'
-              }`}
-            >
-              Tall
-            </button>
-            <button 
-              onClick={() => setHeightMode('ultra')}
-              className={`px-3 py-1.5 rounded-lg text-[9.5px] uppercase font-black tracking-wider transition-all duration-150 cursor-pointer ${
-                heightMode === 'ultra' 
-                  ? 'bg-[var(--primary)] text-white dark:text-white shadow-sm font-black' 
-                  : 'text-[var(--foreground)]/60 dark:text-[var(--foreground)]/65 hover:text-[var(--foreground)] dark:hover:text-[var(--foreground)] hover:bg-[var(--foreground)]/[0.04] dark:hover:bg-[var(--foreground)]/[0.08]'
-              }`}
-            >
-              Ultra Tall
-            </button>
-          </div>
-
-          {/* Quick interactive zoom controls panel */}
-          <div className="flex items-center bg-zinc-100/90 dark:bg-zinc-900/90 backdrop-blur p-0.5 rounded-xl border border-[var(--border)] shadow-xs">
-            <button 
-              onClick={() => triggerZoom('in')}
-              title="Zoom In"
-              className="p-1.5 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg text-[var(--foreground)] transition cursor-pointer"
-            >
-              <ZoomIn size={14} />
-            </button>
-            <button 
-              onClick={() => triggerZoom('out')}
-              title="Zoom Out"
-              className="p-1.5 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg text-[var(--foreground)] transition cursor-pointer"
-              disabled={zoomScale === 1}
-            >
-              <ZoomOut size={14} className={zoomScale === 1 ? 'opacity-30' : ''} />
-            </button>
-            {(zoomScale > 1 || panOffset !== 0) && (
-              <button 
-                onClick={triggerZoomReset}
-                title="Reset View"
-                className="text-[9px] font-black uppercase px-2 py-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-350 dark:hover:bg-zinc-700 text-[var(--foreground)] rounded-lg transition ml-1 cursor-pointer"
-              >
-                Reset
-              </button>
-            )}
-          </div>
-
-          {/* Fullscreen Expand action */}
-          <button 
-            onClick={() => setIsFullscreen(!isFullscreen)}
-            className="p-2 bg-zinc-100/90 dark:bg-zinc-900/90 backdrop-blur border border-[var(--border)] hover:bg-zinc-200 dark:hover:bg-zinc-800 text-[var(--foreground)] transition rounded-xl cursor-pointer"
-            title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Focus Mode"}
-          >
-            {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-          </button>
+          <span className="text-[9px] text-[var(--foreground)]/40 font-mono">
+            {activePoint ? activePoint.original.fullLabel : 'Touch and scrub to inspect interval values'}
+          </span>
         </div>
       </div>
 
-      {/* Primary SVG interactive graphics coordinate pane */}
-      <div className="relative mt-6 z-10 w-full overflow-visible">
-        {/* Swipe helper banner if scrollable panorama is selected */}
-        {layoutMode === 'panorama' && (
-          <div className="flex items-center justify-between mb-3 px-1">
-            <span className="text-[10px] uppercase tracking-widest text-[var(--foreground)]/50 font-black">
-              Time Axis Panorama View
-            </span>
-            <span className="text-[9px] bg-indigo-500/10 text-indigo-400 font-extrabold px-2 py-0.5 rounded border border-indigo-500/15 uppercase tracking-wider animate-pulse flex items-center gap-1">
-              <span>← Swipe sideways to navigate dates →</span>
-            </span>
+      {/* 2. GRAPH CANVAS WITH BOTH CURVES (SALES & PROFIT) */}
+      <div className="relative pt-1">
+        {/* Empty state if no data */}
+        {!hasAnyData ? (
+          <div className="h-64 rounded-3xl border border-dashed border-[var(--border)] bg-[var(--foreground)]/[0.01] flex flex-col items-center justify-center p-6 text-center space-y-3">
+            <div className="h-12 w-12 rounded-2xl bg-[var(--foreground)]/[0.04] border border-[var(--border)] text-[var(--foreground)]/40 flex items-center justify-center">
+              <Receipt size={22} />
+            </div>
+            <div className="space-y-1 max-w-sm">
+              <h4 className="text-xs font-black uppercase tracking-tight text-[var(--foreground)]">
+                No Sales or Profit records for this period
+              </h4>
+              <p className="text-[10px] text-[var(--foreground)]/50 leading-relaxed font-semibold uppercase tracking-wider">
+                Select Week, Month, Year or Custom to explore invoice records and sales trends.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => handleTimeRangeChange('week')}
+                className="px-3 py-1.5 rounded-xl bg-[var(--foreground)]/[0.05] hover:bg-[var(--foreground)]/10 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer"
+              >
+                This Week
+              </button>
+              <button
+                type="button"
+                onClick={() => handleTimeRangeChange('month')}
+                className="px-3 py-1.5 rounded-xl bg-[var(--foreground)]/[0.05] hover:bg-[var(--foreground)]/10 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer"
+              >
+                This Month
+              </button>
+              <button
+                type="button"
+                onClick={() => handleTimeRangeChange('year')}
+                className="px-3 py-1.5 rounded-xl bg-[var(--primary)] text-white text-[10px] font-black uppercase tracking-wider transition-all shadow-sm cursor-pointer"
+              >
+                This Year
+              </button>
+            </div>
           </div>
-        )}
-
-        <div className="w-full overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-[rgba(255,255,255,0.15)] scrollbar-track-transparent">
-          <div className="relative overflow-visible" style={{ width: layoutMode === 'panorama' ? '980px' : '100%' }}>
-            {/* Helper Drag cursor notice if user zoomed */}
-            {zoomScale > 1 && (
-              <div className="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1 bg-[var(--foreground)]/5 rounded-full border border-[var(--border)] text-[8.5px] font-bold uppercase tracking-widest text-[var(--foreground)]/70 pointer-events-none animate-pulse z-20">
-                <Move size={10} />
-                <span>Drag panning mode active (Scale: {zoomScale}x)</span>
-              </div>
-            )}
-
+        ) : (
+          <div
+            ref={containerRef}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerCancel}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            style={{ touchAction: 'pan-y' }}
+            className="relative w-full h-[260px] sm:h-[290px] cursor-crosshair select-none touch-pan-y"
+          >
+            {/* SVG Graph Viewport */}
             <svg
-              ref={svgRef}
               viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-              className="w-full h-auto overflow-visible cursor-crosshair select-none"
-              onMouseDown={handlePointerDown}
-              onMouseMove={handlePointerMove}
-              onMouseUp={handlePointerUp}
-              onMouseLeave={handlePointerUp}
-              onTouchStart={handlePointerDown}
-              onTouchMove={handlePointerMove}
-              onTouchEnd={handlePointerUp}
-              onWheel={handleScrollWheel}
-              style={{ touchAction: layoutMode === 'panorama' ? 'pan-x' : 'none' }}
+              className="w-full h-full overflow-visible pointer-events-none"
+              preserveAspectRatio="none"
             >
-          {/* Custom SVG Gradient definitions */}
-          <defs>
-            <linearGradient id="gradientSales" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={chartSalesStroke} stopOpacity="0.32" />
-              <stop offset="100%" stopColor={chartSalesStroke} stopOpacity="0.00" />
-            </linearGradient>
-            <linearGradient id="gradientProfit" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={chartProfitStroke} stopOpacity="0.25" />
-              <stop offset="100%" stopColor={chartProfitStroke} stopOpacity="0.00" />
-            </linearGradient>
-            
-            {/* Premium Column Gradients */}
-            <linearGradient id="barSalesGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={chartSalesStroke} stopOpacity="0.85" />
-              <stop offset="100%" stopColor={chartSalesStroke} stopOpacity="0.15" />
-            </linearGradient>
-            <linearGradient id="barProfitGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={chartProfitStroke} stopOpacity="0.85" />
-              <stop offset="100%" stopColor={chartProfitStroke} stopOpacity="0.15" />
-            </linearGradient>
+              <defs>
+                {/* Area Gradient Fill for Sales */}
+                <linearGradient id="dualSalesGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={salesColor} stopOpacity="0.28" />
+                  <stop offset="60%" stopColor={salesColor} stopOpacity="0.05" />
+                  <stop offset="100%" stopColor={salesColor} stopOpacity="0" />
+                </linearGradient>
 
-            {/* SVG glowing filters for path strokes */}
-            <filter id="glowFilterSales" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="0" dy="8" stdDeviation="12" floodColor={chartSalesStroke} floodOpacity="0.45" />
-            </filter>
-            <filter id="glowFilterProfit" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="0" dy="6" stdDeviation="10" floodColor={chartProfitStroke} floodOpacity="0.35" />
-            </filter>
-          </defs>
+                {/* Area Gradient Fill for Profit */}
+                <linearGradient id="dualProfitGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={profitColor} stopOpacity="0.32" />
+                  <stop offset="60%" stopColor={profitColor} stopOpacity="0.06" />
+                  <stop offset="100%" stopColor={profitColor} stopOpacity="0" />
+                </linearGradient>
 
-          {/* Grids and backgrounds */}
-          <g className="grid-lines">
-            {grids.map((g, idx) => (
-              <g key={idx}>
-                {/* Horizontal gridline path */}
-                <line 
-                  x1={paddingLeft}
-                  y1={g.y}
-                  x2={svgWidth - paddingRight}
-                  y2={g.y}
-                  stroke="var(--foreground)"
-                  strokeWidth="1.2"
-                  className="opacity-[0.24] dark:opacity-[0.28]"
-                  strokeDasharray="5,5"
-                />
-                {/* Currency grid labels */}
-                <text
-                  x={paddingLeft - 18}
-                  y={g.y + 5}
-                  textAnchor="end"
-                  className="fill-[var(--foreground)] font-mono text-[12px] md:text-[13px] font-black opacity-95 uppercase tracking-wider"
-                >
-                  ₹{Math.round(g.value).toLocaleString()}
-                </text>
-              </g>
-            ))}
-          </g>
+                {/* Subtle vertical scrub beam filter */}
+                <filter id="scrubGlowDual" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="3" result="blur" />
+                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
+              </defs>
 
-          {/* Column drawing structure */}
-          {chartType === 'column' && (
-            <g className="columns_area transition-all duration-300">
-              {coordPoints.map((pt, idx) => {
-                // Highly proportional column width calculation
-                const colWidth = Math.max(4, Math.min(22, (svgWidth - paddingLeft - paddingRight) / activeDataset.length * 0.32));
-                const salesHeight = Math.max(0, paddingTop + drawableHeight - pt.ySales);
-                const profitHeight = Math.max(0, paddingTop + drawableHeight - pt.yProfit);
-                const isHovered = hoverIndex === idx;
-                const isDimmed = hoverIndex !== null && hoverIndex !== idx;
-
+              {/* Horizontal Reference Gridlines */}
+              {[0.25, 0.5, 0.75, 1.0].map((ratio, idx) => {
+                const yPos = paddingTop + drawableHeight - ratio * drawableHeight;
+                const gridVal = (maxVal * ratio) / 1.18;
                 return (
-                  <g 
-                    key={idx} 
-                    className={`transition-all duration-200 cursor-pointer ${isDimmed ? 'opacity-[0.35]' : 'opacity-100'}`}
-                    onMouseEnter={() => setHoverIndex(idx)}
-                    onMouseLeave={() => setHoverIndex(null)}
-                  >
-                    {/* Sales Column (Rounded top rectangle) */}
-                    {salesHeight > 0 && (
-                      <rect
-                        x={pt.x - colWidth - 1}
-                        y={pt.ySales}
-                        width={colWidth}
-                        height={salesHeight}
-                        fill="url(#barSalesGradient)"
-                        stroke={chartSalesStroke}
-                        strokeWidth="1.5"
-                        rx="3.5"
-                        ry="3.5"
-                        className="transition-all duration-300"
-                      />
-                    )}
-
-                    {/* Profit Column (Rounded top rectangle) */}
-                    {profitHeight > 0 && (
-                      <rect
-                        x={pt.x + 1}
-                        y={pt.yProfit}
-                        width={colWidth}
-                        height={profitHeight}
-                        fill="url(#barProfitGradient)"
-                        stroke={chartProfitStroke}
-                        strokeWidth="1.5"
-                        rx="3.5"
-                        ry="3.5"
-                        className="transition-all duration-300"
-                      />
-                    )}
-
-                    {/* Highly aesthetic column alignment shadow overlay backer on hover */}
-                    {isHovered && (
-                      <rect
-                        x={pt.x - colWidth - 6}
-                        y={paddingTop - 10}
-                        width={colWidth * 2 + 12}
-                        height={drawableHeight + 20}
-                        fill="var(--foreground)"
-                        fillOpacity="0.04"
-                        stroke="var(--foreground)"
-                        strokeOpacity="0.1"
-                        strokeWidth="1"
-                        rx="8"
-                        ry="8"
-                        className="pointer-events-none"
-                      />
-                    )}
+                  <g key={idx} className="opacity-25">
+                    <line
+                      x1={paddingLeft}
+                      y1={yPos}
+                      x2={paddingLeft + drawableWidth}
+                      y2={yPos}
+                      stroke="currentColor"
+                      strokeWidth={1}
+                      strokeDasharray="4 4"
+                    />
+                    <text
+                      x={paddingLeft - 8}
+                      y={yPos + 3}
+                      textAnchor="end"
+                      fontSize={10}
+                      fontWeight="bold"
+                      fill="currentColor"
+                      className="font-mono opacity-60"
+                    >
+                      ₹{gridVal >= 1000 ? `${(gridVal / 1000).toFixed(0)}k` : Math.round(gridVal)}
+                    </text>
                   </g>
                 );
               })}
-            </g>
-          )}
 
-          {/* Curve drawing structures */}
-          {chartType === 'line' && (
-            <g className="curves_area transition-all duration-300">
-              {/* Sales gradient space */}
-              <path
-                d={salesFillPath}
-                fill="url(#gradientSales)"
-                className="transition-all duration-300"
-              />
-              {/* Profit gradient space */}
-              <path
-                d={profitFillPath}
-                fill="url(#gradientProfit)"
-                className="transition-all duration-300"
-              />
-
-              {/* Sales curve Line */}
-              <path
-                d={salesLinesPath}
-                fill="none"
-                stroke={chartSalesStroke}
-                strokeWidth="4.2"
-                strokeLinecap="round"
-                filter="url(#glowFilterSales)"
-                className="transition-all duration-300"
-              />
-              {/* Profit curve Line */}
-              <path
-                d={profitLinesPath}
-                fill="none"
-                stroke={chartProfitStroke}
-                strokeWidth="3.2"
-                strokeLinecap="round"
-                filter="url(#glowFilterProfit)"
-                className="transition-all duration-300"
-              />
-            </g>
-          )}
-
-          {/* Dynamic guideline and highlighted points */}
-          {hoverIndex !== null && coordPoints[hoverIndex] && (
-            <g className="interaction-indicators">
-              {/* Vertical guideline */}
-              <line
-                x1={coordPoints[hoverIndex].x}
-                y1={paddingTop - 15}
-                x2={coordPoints[hoverIndex].x}
-                y2={paddingTop + drawableHeight + 15}
-                stroke="var(--primary)"
-                strokeWidth="2"
-                strokeDasharray="4,4"
-                className="text-[var(--primary)] opacity-60 pointer-events-none"
-              />
-
-              {/* Horizontal Sales tracker guideline for extreme ease of reading */}
+              {/* Base Bottom Axis Line */}
               <line
                 x1={paddingLeft}
-                y1={coordPoints[hoverIndex].ySales}
-                x2={coordPoints[hoverIndex].x}
-                y2={coordPoints[hoverIndex].ySales}
-                stroke={chartSalesStroke}
-                strokeWidth="1.2"
-                strokeDasharray="3,3"
-                className="opacity-40 pointer-events-none"
+                y1={paddingTop + drawableHeight}
+                x2={paddingLeft + drawableWidth}
+                y2={paddingTop + drawableHeight}
+                stroke="currentColor"
+                strokeWidth={1.5}
+                className="opacity-20"
               />
 
-              {/* Horizontal Profit tracker guideline */}
-              <line
-                x1={paddingLeft}
-                y1={coordPoints[hoverIndex].yProfit}
-                x2={coordPoints[hoverIndex].x}
-                y2={coordPoints[hoverIndex].yProfit}
-                stroke={chartProfitStroke}
-                strokeWidth="1.2"
-                strokeDasharray="3,3"
-                className="opacity-40 pointer-events-none"
-              />
-
-              {/* Sales anchor dot */}
-              <circle
-                cx={coordPoints[hoverIndex].x}
-                cy={coordPoints[hoverIndex].ySales}
-                r="8.5"
-                fill={chartSalesStroke}
-                stroke="#fff"
-                strokeWidth="2.5"
-                className="shadow-2xl"
-              />
-              <circle
-                cx={coordPoints[hoverIndex].x}
-                cy={coordPoints[hoverIndex].ySales}
-                r="18"
-                fill={chartSalesStroke}
-                className="opacity-25 animate-ping pointer-events-none"
-              />
-
-              {/* Profit anchor dot */}
-              <circle
-                cx={coordPoints[hoverIndex].x}
-                cy={coordPoints[hoverIndex].yProfit}
-                r="7.5"
-                fill={chartProfitStroke}
-                stroke="#fff"
-                strokeWidth="2.2"
-              />
-              <circle
-                cx={coordPoints[hoverIndex].x}
-                cy={coordPoints[hoverIndex].yProfit}
-                r="14"
-                fill={chartProfitStroke}
-                className="opacity-20 animate-ping pointer-events-none"
-              />
-            </g>
-          )}
-
-          {/* Auto peak milestones and annotations */}
-          {coordPoints.length > 0 && (
-            <g className="auto-highlights">
-              {/* Peak Sales highlight */}
-              {annotations.maxSalesIdx !== -1 && coordPoints[annotations.maxSalesIdx] && coordPoints[annotations.maxSalesIdx].original.sales > 0 && (
-                <g>
-                  {/* Subtle pulsing background ring */}
-                  <circle 
-                     cx={coordPoints[annotations.maxSalesIdx].x}
-                     cy={coordPoints[annotations.maxSalesIdx].ySales}
-                     r="14"
-                     fill="none"
-                     stroke={chartSalesStroke}
-                     strokeWidth="1.2"
-                     strokeDasharray="3,3"
-                     className="opacity-70"
-                  />
-                  {/* Glowing text banner */}
-                  <text
-                    x={coordPoints[annotations.maxSalesIdx].x}
-                    y={coordPoints[annotations.maxSalesIdx].ySales - 24}
-                    textAnchor="middle"
-                    className="fill-[var(--foreground)] font-black text-[10px] md:text-[11.5px] uppercase font-sans tracking-widest bg-black"
-                  >
-                    ★ PEAK SALES
-                  </text>
-                </g>
+              {/* Smooth Area Gradient Fill for Sales */}
+              {salesFillPath && (
+                <path
+                  d={salesFillPath}
+                  fill="url(#dualSalesGradient)"
+                  className="transition-all duration-300"
+                />
               )}
 
-              {/* Peak Profit highlight */}
-              {annotations.maxProfitIdx !== -1 && coordPoints[annotations.maxProfitIdx] && coordPoints[annotations.maxProfitIdx].original.profit > 0 && (
+              {/* Smooth Area Gradient Fill for Profit */}
+              {profitFillPath && (
+                <path
+                  d={profitFillPath}
+                  fill="url(#dualProfitGradient)"
+                  className="transition-all duration-300"
+                />
+              )}
+
+              {/* Smooth Spline Curve Line: SALES (Blue) */}
+              {salesLinePath && (
+                <path
+                  d={salesLinePath}
+                  fill="none"
+                  stroke={salesColor}
+                  strokeWidth={3.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="transition-all duration-300"
+                />
+              )}
+
+              {/* Smooth Spline Curve Line: PROFIT (Emerald) */}
+              {profitLinePath && (
+                <path
+                  d={profitLinePath}
+                  fill="none"
+                  stroke={profitColor}
+                  strokeWidth={3}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="transition-all duration-300"
+                />
+              )}
+
+              {/* X-Axis Tick Labels */}
+              {coordPoints.map((pt, i) => {
+                if (!visibleLabelIndices.has(i)) return null;
+                return (
+                  <g key={i}>
+                    <line
+                      x1={pt.x}
+                      y1={paddingTop + drawableHeight}
+                      x2={pt.x}
+                      y2={paddingTop + drawableHeight + 4}
+                      stroke="currentColor"
+                      strokeWidth={1}
+                      className="opacity-30"
+                    />
+                    <text
+                      x={pt.x}
+                      y={paddingTop + drawableHeight + 18}
+                      textAnchor="middle"
+                      fontSize={10}
+                      fontWeight="800"
+                      fill="currentColor"
+                      className="font-mono opacity-50 uppercase tracking-tighter"
+                    >
+                      {pt.original.label}
+                    </text>
+                  </g>
+                );
+              })}
+
+              {/* Active Highlight Vertical Guide Line & Both Points */}
+              {activePoint && (
                 <g>
-                  <circle 
-                    cx={coordPoints[annotations.maxProfitIdx].x}
-                    cy={coordPoints[annotations.maxProfitIdx].yProfit}
-                    r="12"
-                    fill="none"
-                    stroke={chartProfitStroke}
-                    strokeWidth="1.2"
-                    className="opacity-50"
+                  {/* Vertical Guide Line */}
+                  <line
+                    x1={activePoint.x}
+                    y1={paddingTop}
+                    x2={activePoint.x}
+                    y2={paddingTop + drawableHeight}
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 4"
+                    opacity={0.6}
                   />
-                  <text
-                    x={coordPoints[annotations.maxProfitIdx].x}
-                    y={coordPoints[annotations.maxProfitIdx].yProfit + 26}
-                    textAnchor="middle"
-                    className="fill-emerald-400 font-extrabold text-[10px] md:text-[11.5px] uppercase tracking-widest"
-                  >
-                    🚀 PEAK PROFIT
-                  </text>
+
+                  {/* SALES Highlight Point */}
+                  <circle
+                    cx={activePoint.x}
+                    cy={activePoint.ySales}
+                    r={12}
+                    fill={salesColor}
+                    opacity={0.2}
+                  />
+                  <circle
+                    cx={activePoint.x}
+                    cy={activePoint.ySales}
+                    r={6}
+                    fill={salesColor}
+                    stroke="#ffffff"
+                    strokeWidth={2}
+                    filter="url(#scrubGlowDual)"
+                  />
+                  <circle
+                    cx={activePoint.x}
+                    cy={activePoint.ySales}
+                    r={2.5}
+                    fill="#ffffff"
+                  />
+
+                  {/* PROFIT Highlight Point */}
+                  <circle
+                    cx={activePoint.x}
+                    cy={activePoint.yProfit}
+                    r={12}
+                    fill={profitColor}
+                    opacity={0.2}
+                  />
+                  <circle
+                    cx={activePoint.x}
+                    cy={activePoint.yProfit}
+                    r={6}
+                    fill={profitColor}
+                    stroke="#ffffff"
+                    strokeWidth={2}
+                    filter="url(#scrubGlowDual)"
+                  />
+                  <circle
+                    cx={activePoint.x}
+                    cy={activePoint.yProfit}
+                    r={2.5}
+                    fill="#ffffff"
+                  />
                 </g>
               )}
-            </g>
-          )}
+            </svg>
 
-          {/* Horizontal X axis labels */}
-          <g className="x-axis-labels">
-            {coordPoints.map((pt, idx) => {
-              // Conditionally hide standard ticks to prevent horizontal cramping on small displays
-              const intervalRatio = Math.ceil(activeDataset.length / 10);
-              const shouldRenderLabel = idx % intervalRatio === 0 || idx === activeDataset.length - 1;
-              if (!shouldRenderLabel) return null;
-
-              return (
-                <text
-                  key={idx}
-                  x={pt.x}
-                  y={paddingTop + drawableHeight + 32}
-                  textAnchor="middle"
-                  className="fill-[var(--foreground)] font-mono text-[11px] md:text-[12.5px] font-black opacity-95 uppercase tracking-wide"
+            {/* Floating Dual Dynamic Tooltip Capsule pinned above active scrub point */}
+            <AnimatePresence>
+              {activePoint && (
+                <motion.div
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 5 }}
+                  transition={{ duration: 0.12 }}
+                  className="absolute pointer-events-none z-20"
+                  style={{
+                    left: `${Math.max(16, Math.min(84, (activePoint.x / svgWidth) * 100))}%`,
+                    top: '8px',
+                    transform: 'translateX(-50%)'
+                  }}
                 >
-                  {pt.original.label}
-                </text>
-              );
-            })}
-          </g>
-
-          {/* X axis line rule */}
-          <line
-            x1={paddingLeft}
-            y1={paddingTop + drawableHeight}
-            x2={svgWidth - paddingRight}
-            y2={paddingTop + drawableHeight}
-            stroke="var(--foreground)"
-            strokeWidth="2.0"
-            className="opacity-[0.25] dark:opacity-[0.3]"
-          />
-        </svg>
-
-        {/* Floating Custom Tooltip Overlays */}
-        <AnimatePresence>
-          {hoverIndex !== null && coordPoints[hoverIndex] && (() => {
-            const pctX = (coordPoints[hoverIndex].x / svgWidth) * 100;
-            const pctYSales = (coordPoints[hoverIndex].ySales / svgHeight) * 100;
-
-            // Shift tooltip horizontally to prevent clipping against container bounds
-            let translateX = '-50%';
-            let leftStyle = `${pctX}%`;
-            if (pctX < 20) {
-              translateX = '0%';
-              leftStyle = `calc(${pctX}% + 12px)`;
-            } else if (pctX > 80) {
-              translateX = '-100%';
-              leftStyle = `calc(${pctX}% - 12px)`;
-            }
-
-            // Flip tooltip vertically to render below the point if it's too close to the top
-            let translateY = '-115%';
-            let topStyle = `${pctYSales}%`;
-            if (pctYSales < 25) {
-              translateY = '15px'; // Flow below the dot
-            }
-
-            return (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 15 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 15 }}
-                transition={{ duration: 0.18, ease: 'easeOut' }}
-                className={`absolute pointer-events-none z-30 p-4 rounded-2xl min-w-[210px] shadow-2xl ${themeChartColors.cardBorder}`}
-                style={{
-                  left: leftStyle,
-                  top: topStyle,
-                  backgroundColor: 'rgba(9, 15, 29, 0.96)',
-                  border: '1px solid rgba(255, 255, 255, 0.15)',
-                  color: '#fff',
-                  textShadow: '0 1px 2px rgba(0,0,0,0.4)',
-                  transform: `translate(${translateX}, ${translateY})`
-                }}
-              >
-                {/* Tooltip Header */}
-                <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-300 font-mono">
-                    {coordPoints[hoverIndex].original.fullLabel}
-                  </span>
-                  <span className="text-[9px] bg-white/10 text-slate-100 font-semibold px-2 py-0.5 rounded uppercase leading-none font-mono">
-                    {coordPoints[hoverIndex].original.bills} Orders
-                  </span>
-                </div>
-
-                {/* Data comparison contents - Only Sales & Profit (Profit Margin is removed as requested) */}
-                <div className="space-y-2.5">
-                  {/* Sales metric row */}
-                  <div className="flex items-center justify-between">
+                  <div className="bg-[var(--card)] border border-[var(--border)] text-[var(--foreground)] px-3.5 py-2 rounded-2xl shadow-2xl backdrop-blur-xl flex items-center gap-3 whitespace-nowrap">
                     <div className="flex items-center gap-1.5">
-                      <div className="h-2 w-2 rounded-full" style={{ backgroundColor: chartSalesStroke }} />
-                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Total Sales</span>
+                      <div className="h-2 w-2 rounded-full bg-blue-500" />
+                      <span className="text-[10px] font-black font-mono text-blue-400">
+                        ₹{Math.round(activePoint.original.sales).toLocaleString()}
+                      </span>
                     </div>
-                    <span className="text-sm font-black font-mono">
-                      ₹{coordPoints[hoverIndex].original.sales.toLocaleString()}
+
+                    <div className="h-3 w-px bg-[var(--border)]" />
+
+                    <div className="flex items-center gap-1.5">
+                      <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                      <span className="text-[10px] font-black font-mono text-emerald-400">
+                        ₹{Math.round(activePoint.original.profit).toLocaleString()}
+                      </span>
+                    </div>
+
+                    <span className="text-[9px] font-extrabold text-[var(--foreground)]/50 border-l border-[var(--border)] pl-2 uppercase font-mono">
+                      {activePoint.original.label}
                     </span>
                   </div>
-
-                  {/* Net profit metric row */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <div className="h-2 w-2 rounded-full" style={{ backgroundColor: chartProfitStroke }} />
-                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Net Profit</span>
-                    </div>
-                    <span className="text-sm font-black font-mono text-emerald-400">
-                      ₹{coordPoints[hoverIndex].original.profit.toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-              </motion.div>
-            );
-          })()}
-        </AnimatePresence>
-
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Viewport Virtual Scrollbar Indicator to guide zoomed navigation */}
-      {zoomScale > 1 && (
-        <div className="mt-3 w-full max-w-sm mx-auto h-[5px] bg-[var(--foreground)]/[0.04] rounded-full overflow-hidden border border-[var(--border)] relative">
-          <div 
-            className="h-full bg-[var(--primary)] rounded-full transition-all duration-100"
-            style={{
-              width: `${(1 / zoomScale) * 100}%`,
-              transform: `translateX(${(Math.abs(panOffset) / (drawableWidth * zoomScale)) * 100}%)`,
-              left: 0
-            }}
-          />
-        </div>
-      )}
-
-      {/* Premium BI Automated Trend Insights Panel */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-8 border-t border-[var(--border)] pt-6 z-10">
-        
-        <div className="p-4 bg-[var(--foreground)]/[0.02] border border-[var(--border)] rounded-2xl flex flex-col justify-between">
-          <span className="text-[9px] font-black text-[var(--foreground)]/50 uppercase tracking-widest flex items-center gap-1.5 mb-2">
-            <TrendingUp size={11} className="text-[var(--primary)]" /> System Performance
+      {/* 3. BOTTOM QUICK SUMMARY METRICS PILLS (Sales, Profit, Invoices, Units Sold) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[var(--border)]">
+        <div className="p-2.5 rounded-2xl bg-[var(--foreground)]/[0.02] border border-[var(--border)] space-y-0.5">
+          <span className="text-[8.5px] font-black uppercase tracking-wider text-[var(--foreground)]/40 block font-mono">
+            Avg Daily Sales
           </span>
-          <p className="text-xs font-semibold leading-relaxed text-[var(--foreground)]/80">
-            Current margin aggregates stabilized at{' '}
-            <strong className="text-[var(--primary)] font-black">
-              {aggregatedValues.margin.toFixed(1)}%
-            </strong>{' '}
-            with balanced checkout velocities.
-          </p>
-        </div>
-
-        <div className="p-4 bg-[var(--foreground)]/[0.02] border border-[var(--border)] rounded-2xl flex flex-col justify-between">
-          <span className="text-[9px] font-black text-[var(--foreground)]/50 uppercase tracking-widest flex items-center gap-1.5 mb-2">
-            <Flame size={11} className="text-amber-500 animate-pulse" /> Best Performing Period
+          <span className="text-xs font-black font-mono text-blue-400">
+            ₹{dataPoints.length > 0
+              ? Math.round(totals.sales / dataPoints.length).toLocaleString()
+              : '0'}
           </span>
-          <p className="text-xs font-semibold leading-relaxed text-[var(--foreground)]/80">
-            Velocity peaking at{' '}
-            <strong className="text-amber-500 font-extrabold uppercase">
-              {aggregatedValues.peakIntervalLabel}
-            </strong>{' '}
-            yielding robust customer asset checkpoints.
-          </p>
         </div>
 
-        <div className="p-4 bg-[var(--foreground)]/[0.02] border border-[var(--border)] rounded-2xl flex flex-col justify-between">
-          <span className="text-[9px] font-black text-[var(--foreground)]/50 uppercase tracking-widest flex items-center gap-1.5 mb-2">
-            <Info size={11} className="text-teal-500" /> Average Ticket Valuation
+        <div className="p-2.5 rounded-2xl bg-[var(--foreground)]/[0.02] border border-[var(--border)] space-y-0.5">
+          <span className="text-[8.5px] font-black uppercase tracking-wider text-[var(--foreground)]/40 block font-mono">
+            Avg Daily Profit
           </span>
-          <p className="text-xs font-semibold leading-relaxed text-[var(--foreground)]/80">
-            Average customer basket valuation indexed at{' '}
-            <strong className="text-teal-500 font-bold font-mono">
-              ₹{Math.round(aggregatedValues.avgBasketValue).toLocaleString()}
-            </strong>{' '}
-            per transaction invoice.
-          </p>
-        </div>
-
-        <div className="p-4 bg-[var(--foreground)]/[0.02] border border-[var(--border)] rounded-2xl flex flex-col justify-between">
-          <span className="text-[9px] font-black text-[var(--foreground)]/50 uppercase tracking-widest flex items-center gap-1.5 mb-2">
-            <Sparkles size={11} className="text-violet-500" /> Automated Trend Insight
+          <span className="text-xs font-black font-mono text-emerald-400 truncate block">
+            ₹{dataPoints.length > 0
+              ? Math.round(totals.profit / dataPoints.length).toLocaleString()
+              : '0'}
           </span>
-          <p className="text-xs font-semibold leading-relaxed text-[var(--foreground)]/80">
-            {aggregatedValues.totalSales > 15000 ? (
-              <span>High revenue intensity. Asset accumulation scaling ahead of storage commitments.</span>
-            ) : (
-              <span>Transaction frequency standard. Stock counts healthy with baseline checkouts.</span>
-            )}
-          </p>
         </div>
 
+        <div className="p-2.5 rounded-2xl bg-[var(--foreground)]/[0.02] border border-[var(--border)] space-y-0.5">
+          <span className="text-[8.5px] font-black uppercase tracking-wider text-[var(--foreground)]/40 block font-mono">
+            Total Invoices
+          </span>
+          <span className="text-xs font-black font-mono text-[var(--foreground)]">
+            {totals.bills} Bills
+          </span>
+        </div>
+
+        <div className="p-2.5 rounded-2xl bg-[var(--foreground)]/[0.02] border border-[var(--border)] space-y-0.5">
+          <span className="text-[8.5px] font-black uppercase tracking-wider text-[var(--foreground)]/40 block font-mono">
+            Overall Margin
+          </span>
+          <span className="text-xs font-black font-mono text-emerald-500 flex items-center gap-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            {profitMargin.toFixed(1)}% Net Margin
+          </span>
+        </div>
       </div>
 
     </div>

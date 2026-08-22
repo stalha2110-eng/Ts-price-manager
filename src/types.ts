@@ -139,6 +139,9 @@ export interface AppSettings {
     size: 'small' | 'medium' | 'large';
   }[];
 
+  // Custom Biz Settings Hub Card Order (for drag & drop prioritization)
+  bizHubCardsOrder?: string[];
+
   // Store Configuration
   businessName?: string;
   businessLogo?: string;

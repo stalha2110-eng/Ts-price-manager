@@ -131,6 +131,7 @@ import NotificationCenter from './components/NotificationCenter';
 import { backNavManager, useBackModal } from './utils/backNavigationManager';
 import PrinterSettingsScreen from './components/PrinterSettingsScreen';
 import { LatestAchievementWidget } from './components/MilestonesTab';
+import { MilestoneCelebrationModal } from './components/MilestoneCelebrationModal';
 import { UnbilledQuickLedgerWidget } from './components/UnbilledQuickLedgerWidget';
 import DynamicStoreDashboard from './components/DynamicStoreDashboard';
 import { AnimatedBillingIcon } from './components/AnimatedBillingIcon';
@@ -1006,7 +1007,7 @@ export default function App() {
   const [showMenu, setShowMenu] = useState(false);
   const [menuTab, setMenuTab] = useState<'profile' | 'settings' | 'business_settings' | 'printer' | 'day_closing'>('profile');
   const [settingsSubTab, setSettingsSubTab] = useState<'interface' | 'security' | 'sound' | 'data'>('interface');
-  const [businessSubTab, setBusinessSubTab] = useState<'journey' | 'profile' | 'features' | 'categories' | 'dashboard' | 'actions' | 'knowledge' | 'recovery'>('journey');
+  const [businessSubTab, setBusinessSubTab] = useState<'overview' | 'journey' | 'profile' | 'features' | 'categories' | 'dashboard' | 'actions' | 'knowledge' | 'recovery'>('overview');
   const [drawerSearchQuery, setDrawerSearchQuery] = useState('');
   const [drawerSearchHistory, setDrawerSearchHistory] = useState<string[]>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem('drawer_search_history') : null;
@@ -5984,104 +5985,17 @@ export default function App() {
       {/* Milestone Celebration Popup Modal */}
       <AnimatePresence>
         {activeCelebrationMilestone && (
-          <div key="milestone-celebration-backdrop-wrap" className="fixed inset-0 z-[150] flex items-center justify-center p-4">
-            {/* Backdrop */}
-            <motion.div 
-              key="milestone-backdrop-element"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setActiveCelebrationMilestone(null)}
-              className="absolute inset-0 bg-black/75 backdrop-blur-md"
-            />
-
-            {/* Container */}
-            <motion.div
-              key="milestone-container-element"
-              initial={{ scale: 0.85, opacity: 0, y: 50 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.85, opacity: 0, y: 50 }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="relative w-full max-w-lg p-8 bg-[var(--card)] border border-[var(--border)] rounded-[2.5rem] shadow-2xl space-y-7 text-center overflow-hidden"
-            >
-              {/* Sparkles Ambient Background Effect */}
-              <div className="absolute top-0 inset-x-0 h-2 bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 animate-pulse" />
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 p-6 opacity-5 pointer-events-none">
-                <Trophy size={180} className="text-amber-500 fill-amber-500/10" />
-              </div>
-
-              {/* Large Centered Floating Trophy Ring */}
-              <div className="flex flex-col items-center space-y-3 relative z-10">
-                <motion.div 
-                  animate={{ 
-                    y: [0, -8, 0],
-                    rotate: [0, 4, -4, 0]
-                  }}
-                  transition={{ 
-                    duration: 4,
-                    repeat: Infinity,
-                    ease: "easeInOut"
-                  }}
-                  className="h-20 w-20 bg-gradient-to-tr from-amber-400 to-yellow-300 text-slate-900 rounded-3xl flex items-center justify-center border-4 border-white shadow-xl shadow-amber-500/30"
-                >
-                  <Trophy size={40} className="stroke-[2.5]" />
-                </motion.div>
-                
-                <div className="space-y-1">
-                  <span className="text-[10px] font-black uppercase tracking-[0.25em] text-amber-500 animate-pulse bg-amber-500/10 px-3.5 py-1 rounded-full border border-amber-500/15">
-                    "CONGRATULATIONS"
-                  </span>
-                  <h2 className="text-2xl font-black text-[var(--foreground)] uppercase tracking-tight pt-2">
-                    Milestone Unlocked!
-                  </h2>
-                  <p className="text-[9px] font-extrabold opacity-40 uppercase tracking-widest leading-none">
-                    TS PRICE MANAGER OFFICIAL REGISTRY
-                  </p>
-                </div>
-              </div>
-
-              {/* Detailed Info Card */}
-              <div className="p-5 rounded-2xl bg-[var(--foreground)]/[0.02] border border-[var(--border)] relative space-y-2 text-center group">
-                <p className="text-lg font-black text-amber-500 leading-tight">
-                  {activeCelebrationMilestone.title}
-                </p>
-                <p className="text-[11px] text-[var(--foreground)]/70 font-semibold leading-relaxed uppercase tracking-wider mx-auto max-w-sm">
-                  {activeCelebrationMilestone.description}
-                </p>
-                
-                {activeCelebrationMilestone.unlockedAt && (
-                  <div className="pt-2 text-[8px] font-mono opacity-50 font-bold uppercase tracking-widest leading-none border-t border-[var(--border)]/30 mt-3 inline-block">
-                    Timestamp secured: {new Date(activeCelebrationMilestone.unlockedAt).toLocaleDateString('en-IN', {
-                      day: 'numeric',
-                      month: 'long',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2.5">
-                {/* Downloader Button */}
-                <button
-                  type="button"
-                  onClick={() => downloadCertificateOfMilestone(state.settings.storeName || "Our Retail Store", activeCelebrationMilestone)}
-                  className="w-full flex items-center justify-center gap-2 py-4 bg-[var(--primary)] text-white font-extrabold uppercase tracking-widest rounded-3xl cursor-pointer hover:bg-opacity-95 shadow-lg shadow-[var(--primary)]/20 active:scale-[0.98] transition-all text-xs border border-transparent"
-                >
-                  <Download size={15} /> Download PDF Certificate
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveCelebrationMilestone(null)}
-                  className="w-full py-3 hover:bg-[var(--foreground)]/5 text-[10px] font-extrabold uppercase tracking-wider text-[var(--foreground)]/60 hover:text-[var(--foreground)] rounded-2xl transition-all cursor-pointer"
-                >
-                  Dismiss Recognition
-                </button>
-              </div>
-            </motion.div>
-          </div>
+          <MilestoneCelebrationModal
+            key="milestone-celebration-popup-modal"
+            milestone={activeCelebrationMilestone}
+            storeName={state.settings.storeName || "Our Retail Store"}
+            theme={state.settings.theme}
+            onClose={() => setActiveCelebrationMilestone(null)}
+            onViewAllMilestones={() => {
+              localStorage.setItem('analytics_active_subtab', 'milestones');
+              setActiveTab('analytics');
+            }}
+          />
         )}
       </AnimatePresence>
       
@@ -7699,47 +7613,9 @@ function OnboardingTour({
   const [selectedCurrency, setSelectedCurrency] = useState('INR');
   const [selectedTheme, setSelectedTheme] = useState<ThemeType>('retro-blue');
   const [printerFormat, setPrinterFormat] = useState('80mm');
-  const [itemsBootstrapped, setItemsBootstrapped] = useState(false);
 
-  // Total 7 steps (0 to 6)
-  const totalSteps = 7;
-
-  // Bootstrap sample inventory
-  const handleBootstrapSampleItems = () => {
-    if (itemsBootstrapped) return;
-    
-    const sampleItems = [
-      { id: 'item-samp-1', name: 'Premium basmati rice (बासमती चावल)', categoryId: 'cat-groceries', buyingPrice: 85, sellingRetailPrice: 110, sellingWholesalePrice: 100, wholesaleMinQty: 5, stockQuantity: 120, unit: 'kg', rackNo: 'A-2', minStockAlert: 10 },
-      { id: 'item-samp-2', name: 'Refined sunflower oil 1L (फॉर्च्यून तेल)', categoryId: 'cat-oil', buyingPrice: 120, sellingRetailPrice: 155, sellingWholesalePrice: 145, wholesaleMinQty: 10, stockQuantity: 80, unit: 'pcs', rackNo: 'B-1', minStockAlert: 15 },
-      { id: 'item-samp-3', name: 'Organic tur dal 1kg (अरहर दाल)', categoryId: 'cat-groceries', buyingPrice: 110, sellingRetailPrice: 140, sellingWholesalePrice: 130, wholesaleMinQty: 5, stockQuantity: 90, unit: 'kg', rackNo: 'A-3', minStockAlert: 8 },
-      { id: 'item-samp-4', name: 'Tata Tea Premium 250g (चाय पट्टी)', categoryId: 'cat-beverages', buyingPrice: 75, sellingRetailPrice: 95, sellingWholesalePrice: 88, wholesaleMinQty: 6, stockQuantity: 150, unit: 'pcs', rackNo: 'C-2', minStockAlert: 20 },
-      { id: 'item-samp-5', name: 'Surf Excel Quickwash 1kg (वाशिंग पाउडर)', categoryId: 'cat-cleaning', buyingPrice: 140, sellingRetailPrice: 180, sellingWholesalePrice: 170, wholesaleMinQty: 4, stockQuantity: 60, unit: 'pcs', rackNo: 'D-1', minStockAlert: 10 },
-      { id: 'item-samp-6', name: 'Aashirvaad Shudh Chakki Atta 5kg (आटा)', categoryId: 'cat-groceries', buyingPrice: 210, sellingRetailPrice: 260, sellingWholesalePrice: 245, wholesaleMinQty: 3, stockQuantity: 100, unit: 'pcs', rackNo: 'A-1', minStockAlert: 12 },
-      { id: 'item-samp-7', name: 'Amul Salted Butter 100g (मक्खन)', categoryId: 'cat-dairy', buyingPrice: 42, sellingRetailPrice: 56, sellingWholesalePrice: 52, wholesaleMinQty: 12, stockQuantity: 75, unit: 'pcs', rackNo: 'Fridge-1', minStockAlert: 15 },
-      { id: 'item-samp-8', name: 'Dettol antiseptic liquid 500ml', categoryId: 'cat-health', buyingPrice: 175, sellingRetailPrice: 220, sellingWholesalePrice: 205, wholesaleMinQty: 5, stockQuantity: 45, unit: 'pcs', rackNo: 'Health-1', minStockAlert: 5 },
-      { id: 'item-samp-9', name: 'Cadbury Dairy Milk Silk (चॉकलेट)', categoryId: 'cat-snacks', buyingPrice: 65, sellingRetailPrice: 80, sellingWholesalePrice: 75, wholesaleMinQty: 10, stockQuantity: 110, unit: 'pcs', rackNo: 'Snacks-1', minStockAlert: 15 },
-      { id: 'item-samp-10', name: 'Vim Dishwash Liquid Tube 500ml', categoryId: 'cat-cleaning', buyingPrice: 80, sellingRetailPrice: 105, sellingWholesalePrice: 98, wholesaleMinQty: 8, stockQuantity: 95, unit: 'pcs', rackNo: 'D-2', minStockAlert: 10 }
-    ];
-
-    const sampleCategories = [
-      { id: 'cat-groceries', name: 'Groceries (किराना)', count: 4 },
-      { id: 'cat-oil', name: 'Edible Oils (खाद्य तेल)', count: 1 },
-      { id: 'cat-beverages', name: 'Beverages (पेय पदार्थ)', count: 1 },
-      { id: 'cat-cleaning', name: 'Cleaning (सफाई)', count: 2 },
-      { id: 'cat-dairy', name: 'Dairy & Eggs (डेयरी)', count: 1 },
-      { id: 'cat-snacks', name: 'Snacks (नाश्ता)', count: 1 },
-      { id: 'cat-health', name: 'Health & Personal (स्वास्थ्य)', count: 1 }
-    ];
-
-    // Bulk save categories and items in state
-    setState((prev: any) => ({
-      ...prev,
-      items: deduplicateById([...prev.items.filter((i: any) => !i.id.startsWith('item-samp')), ...sampleItems]),
-      categories: [...prev.categories.filter((c: any) => !c.id.startsWith('cat-')), ...sampleCategories]
-    }));
-
-    setItemsBootstrapped(true);
-  };
+  // Total 6 steps (0 to 5)
+  const totalSteps = 6;
 
   const handleFinishWizard = () => {
     // Update settings cleanly
@@ -7787,7 +7663,7 @@ function OnboardingTour({
                 </div>
                 <h3 className="text-xl font-black tracking-tight uppercase leading-tight">Welcome to TS Price Manager</h3>
                 <p className="text-xs text-[var(--foreground)]/70 leading-relaxed md:max-w-lg">
-                  Designed for wholesalers, retail outlets, and fast-paced billing yards. This wizard will initialize your database, store details, local language settings, and sample inventory catalogs in 1 minute.
+                  Designed for wholesalers, retail outlets, and fast-paced billing yards. This wizard will initialize your database, store details, local language settings, and hardware preferences in 1 minute.
                 </p>
                 <div className="pt-2 flex items-center gap-2 text-xs font-bold text-emerald-500">
                   <CheckCircle size={14} />
@@ -7900,35 +7776,7 @@ function OnboardingTour({
 
             )}
             {step === 4 && (
-              <motion.div key="step-4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
-                <h3 className="text-lg font-black uppercase tracking-tight">Bootstrap Starter Catalog</h3>
-                <p className="text-xs text-[var(--foreground)]/60">Initialize local storage with 10 standard general grocery goods (Atta, Oil, Tea) so you can checkout invoice instantly.</p>
-                
-                <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 text-center space-y-3 shadow-inner my-2">
-                  <p className="text-xs font-mono text-zinc-400">10 Standard Products • 7 Grocery Categories ready to deploy</p>
-                  
-                  <button
-                    onClick={handleBootstrapSampleItems}
-                    disabled={itemsBootstrapped}
-                    className={cn(
-                      "w-48 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all select-none mx-auto block cursor-pointer leading-none",
-                      itemsBootstrapped 
-                        ? "bg-emerald-500 text-white cursor-default" 
-                        : "bg-[var(--primary)] hover:scale-105 text-white shadow-lg shadow-[var(--primary)]/25"
-                    )}
-                  >
-                    {itemsBootstrapped ? "✔ Catalog Loaded" : "⚡ Bootstrap Now"}
-                  </button>
-                  
-                  {itemsBootstrapped && (
-                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[10px] text-emerald-400 font-extrabold uppercase">Successfully loaded Basmati Rice, Amul Salted Butter, Tata Tea & Atta!</motion.p>
-                  )}
-                </div>
-              </motion.div>
-
-            )}
-            {step === 5 && (
-              <motion.div key="step-5" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 select-none">
+              <motion.div key="step-4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 select-none">
                 <h3 className="text-lg font-black uppercase tracking-tight">Receipt Roll Format Configuration</h3>
                 <p className="text-xs text-[var(--foreground)]/60">Configure your spool layout to prevent clipped text or printing overlaps.</p>
                 
@@ -7954,8 +7802,8 @@ function OnboardingTour({
               </motion.div>
 
             )}
-            {step === 6 && (
-              <motion.div key="step-6" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 text-center">
+            {step === 5 && (
+              <motion.div key="step-5" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 text-center">
                 <div className="h-14 w-14 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center mx-auto mb-2 animate-bounce">
                   <CheckCircle size={32} />
                 </div>

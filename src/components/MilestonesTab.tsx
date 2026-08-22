@@ -560,65 +560,66 @@ export default function MilestonesTab({ state, t = {} }: MilestonesTabProps) {
       {/* Selected Milestone Detail Modal Modal dialog */}
       <AnimatePresence>
         {selectedMilestoneInfo && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div id="milestone-detail-verification-dialog" className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Backdrop */}
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setSelectedMilestoneInfo(null)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/75 backdrop-blur-md"
             />
 
             {/* Sheet/Modal Card */}
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="relative w-full max-w-md p-6 bg-[var(--card)] border border-[var(--border)] rounded-3xl shadow-xl space-y-6 text-left"
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md p-6 sm:p-7 bg-[var(--card)] text-[var(--foreground)] border-2 border-amber-500/30 rounded-3xl shadow-2xl space-y-5 text-left overflow-hidden z-10"
             >
+              {/* Header */}
               <div className="flex items-start justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2.5 bg-amber-500/10 text-amber-500 rounded-2xl border border-amber-500/20">
-                    <Trophy size={20} />
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-amber-500/15 text-amber-500 rounded-2xl border border-amber-500/30 shadow-sm">
+                    <Trophy size={22} className="stroke-[2.2]" />
                   </div>
                   <div>
                     <h4 className="text-xs font-black text-[var(--foreground)] uppercase tracking-wider">Milestone Verification</h4>
-                    <p className="text-[8px] font-bold opacity-50 uppercase tracking-widest">TS PRICE MANAGER CERTIFICATE CENTER</p>
+                    <p className="text-[8.5px] font-bold text-amber-500 uppercase tracking-widest">OFFICIAL BUSINESS BENCHMARK</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setSelectedMilestoneInfo(null)}
-                  className="p-1 rounded-lg hover:bg-[var(--foreground)]/5 text-[var(--foreground)]/45 hover:text-[var(--foreground)] transition-all cursor-pointer font-extrabold uppercase text-[9px]"
+                  className="h-8 w-8 rounded-full bg-[var(--foreground)]/[0.06] hover:bg-[var(--foreground)]/[0.12] text-[var(--foreground)] flex items-center justify-center transition-all cursor-pointer font-extrabold uppercase text-xs"
                 >
-                  ✕ Close
+                  ✕
                 </button>
               </div>
 
-              <div className="border-y border-[var(--border)]/65 py-5 space-y-3">
+              <div className="border-y border-[var(--border)] py-4 space-y-3.5">
                 <div className="space-y-1">
-                  <span className="text-[9px] font-bold opacity-45 uppercase tracking-widest">Benchmark Target</span>
-                  <p className="text-lg font-black text-[var(--foreground)] uppercase tracking-wide flex items-center gap-2">
+                  <span className="text-[8.5px] font-bold text-[var(--foreground)]/50 uppercase tracking-widest">Benchmark Target</span>
+                  <p className="text-lg font-black text-[var(--foreground)] tracking-tight flex items-center gap-2">
                     {selectedMilestoneInfo.title}
                   </p>
                 </div>
 
                 <div className="space-y-1">
-                  <span className="text-[9px] font-bold opacity-45 uppercase tracking-widest">Official Description</span>
-                  <p className="text-[10px] text-[var(--foreground)] font-semibold leading-relaxed uppercase tracking-wider">
+                  <span className="text-[8.5px] font-bold text-[var(--foreground)]/50 uppercase tracking-widest">Official Description</span>
+                  <p className="text-xs text-[var(--foreground)]/85 font-semibold leading-relaxed">
                     {selectedMilestoneInfo.description}
                   </p>
                 </div>
 
                 <div className="space-y-1">
-                  <span className="text-[9px] font-bold opacity-45 uppercase tracking-widest">Status Registry</span>
-                  <div className="flex items-center gap-2">
+                  <span className="text-[8.5px] font-bold text-[var(--foreground)]/50 uppercase tracking-widest">Status Registry</span>
+                  <div className="flex items-center gap-2 pt-0.5">
                     {selectedMilestoneInfo.isUnlocked ? (
-                      <span className="text-[9.5px] font-black uppercase text-emerald-500 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20 flex items-center gap-1">
-                        <Medal size={11} /> Unlocked & Documented
+                      <span className="text-[10px] font-black uppercase text-emerald-500 bg-emerald-500/15 px-3 py-1 rounded-xl border border-emerald-500/30 flex items-center gap-1.5 shadow-xs">
+                        <Medal size={13} /> Unlocked & Documented
                       </span>
                     ) : (
-                      <span className="text-[9.5px] font-black uppercase text-[var(--foreground)]/45 bg-[var(--foreground)]/[0.03] px-2.5 py-1 rounded-lg border border-[var(--border)] flex items-center gap-1">
+                      <span className="text-[10px] font-black uppercase text-[var(--foreground)]/60 bg-[var(--foreground)]/[0.05] px-3 py-1 rounded-xl border border-[var(--border)] flex items-center gap-1.5">
                         🔒 Operational Target Locked
                       </span>
                     )}
@@ -627,8 +628,8 @@ export default function MilestonesTab({ state, t = {} }: MilestonesTabProps) {
 
                 {selectedMilestoneInfo.isUnlocked && selectedMilestoneInfo.unlockedAt && (
                   <div className="space-y-1">
-                    <span className="text-[9px] font-bold opacity-45 uppercase tracking-widest">Timestamp Recorded</span>
-                    <p className="text-[9.5px] font-semibold font-mono text-[var(--foreground)]">
+                    <span className="text-[8.5px] font-bold text-[var(--foreground)]/50 uppercase tracking-widest">Timestamp Recorded</span>
+                    <p className="text-[10px] font-bold font-mono text-[var(--foreground)]">
                       {formatDateSafely(selectedMilestoneInfo.unlockedAt, {
                         day: 'numeric',
                         month: 'long',
@@ -641,16 +642,24 @@ export default function MilestonesTab({ state, t = {} }: MilestonesTabProps) {
                 )}
               </div>
 
-              {selectedMilestoneInfo.isUnlocked && (
+              {selectedMilestoneInfo.isUnlocked ? (
                 <button
                   type="button"
                   onClick={() => {
                     handleDownloadCertificate(selectedMilestoneInfo);
                     setSelectedMilestoneInfo(null);
                   }}
-                  className="w-full flex items-center justify-center gap-2 py-3 bg-[var(--primary)] text-white font-extrabold uppercase tracking-widest rounded-2xl cursor-pointer hover:bg-opacity-90 shadow-md shadow-[var(--primary)]/25 transition-all text-[11px]"
+                  className="w-full h-11 flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-400 text-stone-950 font-black uppercase tracking-wider rounded-2xl cursor-pointer shadow-md shadow-amber-500/25 transition-all text-xs border border-amber-300"
                 >
-                  <Download size={14} /> Download PDF Certificate
+                  <Download size={15} /> Download PDF Certificate
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setSelectedMilestoneInfo(null)}
+                  className="w-full h-11 flex items-center justify-center bg-[var(--foreground)]/[0.06] hover:bg-[var(--foreground)]/[0.12] text-[var(--foreground)] font-black uppercase tracking-wider rounded-2xl cursor-pointer transition-all text-xs border border-[var(--border)]"
+                >
+                  Close
                 </button>
               )}
             </motion.div>

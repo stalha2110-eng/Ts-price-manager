@@ -9,8 +9,9 @@ import { Item, Category } from "../types";
 import { 
   VoiceDraftProduct, VoiceSettings, VoiceSession, DEFAULT_VOICE_SETTINGS,
   normalizeUnit, parseVoiceTranscript, processVoiceCorrection, 
-  saveSessionToHistory, getVoiceSessionHistory 
+  saveSessionToHistory, getVoiceSessionHistory, fastClientVoiceParser 
 } from "../services/voiceProcessingService";
+import { keyPoolManager } from "../services/apiKeyPoolService";
 import { playFeedbackEvent } from "../services/soundFeedbackService";
 import { Button } from "./ui/Button";
 
@@ -380,15 +381,40 @@ export function VoiceProductAssistant({
     setAiDetectedLanguage("");
 
     try {
-      // Determine active custom API key if user configured custom key(s) in Settings -> Security & Sync
+      // ⚡ LOCAL REGEX SHORTCUT PRE-PARSER:
+      // If user provided a straightforward single item entry (e.g. "Badam 900", "Aloo 50 kilo"),
+      // parse it instantly on client without hitting API quotas!
+      const fastDrafts = fastClientVoiceParser(cleanedText, existingItems);
+      if (fastDrafts && fastDrafts.length > 0 && (!vSettings.multiProduct || fastDrafts.length === 1)) {
+        console.log("⚡ [Fast Local Regex Pre-Parser] Handled query locally without API call:", cleanedText);
+        setAiDetectedLanguage("⚡ Instant Local Engine");
+        
+        // Populate categories
+        const enrichedDrafts = fastDrafts.map(d => {
+          const matchedCategory = categories.find(c => 
+            c.name.toLowerCase().includes(d.name.toLowerCase()) || 
+            d.name.toLowerCase().includes(c.name.toLowerCase())
+          ) || categories[0];
+          return {
+            ...d,
+            categoryId: matchedCategory ? matchedCategory.id : (categories[0]?.id || 'cat-general')
+          };
+        });
+
+        setDraftProducts(enrichedDrafts);
+        triggerSound('product_added');
+        return;
+      }
+
+      // Sync custom keys to keyPoolManager
+      if (appSettings?.customApiKeys && appSettings.customApiKeys.length > 0) {
+        keyPoolManager.syncKeys(appSettings.customApiKeys);
+      }
+
+      // Determine active custom API key from pool or settings
       let customApiKey: string | undefined = undefined;
       if (appSettings?.customApiKeys && appSettings.customApiKeys.length > 0) {
-        if (appSettings.activeApiKeyId && appSettings.activeApiKeyId !== 'default') {
-          const found = appSettings.customApiKeys.find(k => k.id === appSettings.activeApiKeyId);
-          if (found) customApiKey = found.key;
-        } else if (appSettings.activeApiKeyId === undefined) {
-          customApiKey = appSettings.customApiKeys[0]?.key;
-        }
+        customApiKey = keyPoolManager.getNextAvailableKey(appSettings.activeApiKeyId) || undefined;
       } else if (appSettings?.customApiKey) {
         customApiKey = appSettings.customApiKey;
       }
@@ -408,6 +434,9 @@ export function VoiceProductAssistant({
       const responseData = isJson ? await response.json().catch(() => null) : null;
 
       if (!response.ok) {
+        if (customApiKey && (response.status === 429 || responseData?.code === "QUOTA_EXCEEDED")) {
+          keyPoolManager.markKeyExhausted(customApiKey, 60000);
+        }
         const errorCode = responseData?.code || (response.status === 429 ? "QUOTA_EXCEEDED" : response.status === 401 ? "INVALID_KEY" : response.status === 403 ? "MISSING_KEY" : "AI_SERVICE_ERROR");
         const rawServerMsg = responseData?.message || responseData?.error || `AI Assistant unavailable (${response.status})`;
 

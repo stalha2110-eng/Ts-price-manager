@@ -370,18 +370,18 @@ export function MonthlySalesTargetPanel({ state, onUpdateSettings, t = {} }: Mon
         };
       case 'minimalist-ivory':
         return {
-          cardBg: 'bg-white border-2 border-stone-200 shadow-sm text-stone-900',
-          accentBorder: 'border-stone-200',
-          accentColor: 'text-stone-800 font-bold',
-          badgeColor: 'bg-stone-100 text-stone-800 border border-stone-200',
-          inputBg: 'bg-stone-50 border border-stone-300 text-stone-900',
-          buttonPrimary: 'bg-stone-900 hover:bg-stone-800 text-white font-bold',
-          presetChip: 'border border-stone-300 bg-stone-100 text-stone-700 hover:bg-stone-200',
-          titleColor: 'text-stone-900',
-          textSub: 'text-stone-500',
-          progressBarTrack: 'bg-stone-100 border border-stone-200',
-          milestoneInactive: 'bg-stone-50 border border-stone-300 text-stone-400',
-          milestoneActive: 'bg-stone-900 border border-stone-900 text-white font-black',
+          cardBg: 'bg-[#faf8f2] border-2 border-stone-300 shadow-sm text-[#1c2e24]',
+          accentBorder: 'border-stone-300',
+          accentColor: 'text-[#2d5a4e] font-black',
+          badgeColor: 'bg-stone-200 text-[#1c2e24] border border-stone-300 font-bold',
+          inputBg: 'bg-white border-2 border-stone-300 text-[#1c2e24]',
+          buttonPrimary: 'bg-[#2d5a4e] hover:bg-[#23473d] text-[#fcfbf7] font-bold shadow-sm',
+          presetChip: 'border border-stone-300 bg-stone-100 text-[#1c2e24] font-bold hover:bg-stone-200',
+          titleColor: 'text-[#2d5a4e]',
+          textSub: 'text-stone-600 font-medium',
+          progressBarTrack: 'bg-stone-200/80 border border-stone-300',
+          milestoneInactive: 'bg-stone-100 border border-stone-300 text-stone-400',
+          milestoneActive: 'bg-[#2d5a4e] border-2 border-[#2d5a4e] text-white font-black shadow-sm',
         };
       case 'neo_brutalist':
         return {
@@ -823,7 +823,7 @@ export function MonthlySalesTargetPanel({ state, onUpdateSettings, t = {} }: Mon
                   : currentTheme === 'emerald-gold'
                   ? 'bg-emerald-950 border-amber-400 text-emerald-50'
                   : currentTheme === 'minimalist-ivory'
-                  ? 'bg-white border-stone-800 text-stone-900'
+                  ? 'bg-gradient-to-b from-[#faf8f2] via-[#f5f2ea] to-[#eeeae0] border-2 border-stone-300 text-[#1c2e24]'
                   : currentTheme === 'neo_brutalist'
                   ? 'bg-yellow-400 border-4 border-black shadow-[10px_10px_0px_#000000] text-black font-mono'
                   : currentTheme === 'retro-blue'
@@ -840,9 +840,13 @@ export function MonthlySalesTargetPanel({ state, onUpdateSettings, t = {} }: Mon
                   animate={{ rotate: [0, -8, 8, -8, 8, 0], scale: [1, 1.08, 1] }}
                   transition={{ duration: 1.8, repeat: Infinity, repeatDelay: 1.5 }}
                   className={`p-4 rounded-full border-2 ${
-                    activeCelebrationModal === '100' 
-                      ? 'bg-amber-500/20 border-amber-450 text-amber-300' 
-                      : 'bg-indigo-500/20 border-indigo-455 text-indigo-300'
+                    currentTheme === 'minimalist-ivory'
+                      ? 'bg-[#2d5a4e]/10 border-[#2d5a4e]/30 text-[#2d5a4e]'
+                      : currentTheme === 'neo_brutalist'
+                      ? 'bg-white border-2 border-black text-black'
+                      : activeCelebrationModal === '100' 
+                      ? 'bg-amber-500/20 border-amber-400 text-amber-300' 
+                      : 'bg-indigo-500/20 border-indigo-400 text-indigo-300'
                   }`}
                 >
                   {activeCelebrationModal === '100' ? (
@@ -855,7 +859,11 @@ export function MonthlySalesTargetPanel({ state, onUpdateSettings, t = {} }: Mon
 
               {/* Performance category ribbon */}
               <span className={`text-[9px] font-black uppercase tracking-[0.25em] px-3 py-1 rounded-full ${
-                activeCelebrationModal === '100'
+                currentTheme === 'minimalist-ivory'
+                  ? (activeCelebrationModal === '100' ? 'bg-amber-100 text-amber-900 border border-amber-300 font-extrabold' : 'bg-stone-200 text-[#1c2e24] border border-stone-300 font-extrabold')
+                  : currentTheme === 'neo_brutalist'
+                  ? 'bg-white border-2 border-black text-black font-black'
+                  : activeCelebrationModal === '100'
                   ? 'bg-amber-500/25 text-amber-300 border border-amber-500/35'
                   : 'bg-indigo-500/25 text-indigo-300 border border-indigo-500/35'
               }`}>
@@ -864,7 +872,11 @@ export function MonthlySalesTargetPanel({ state, onUpdateSettings, t = {} }: Mon
 
               {/* Title heading */}
               <h3 className={`text-xl sm:text-2xl font-black uppercase tracking-tight mt-5 mb-2 ${
-                currentTheme === 'neo_brutalist' ? 'text-black' : 'text-white'
+                currentTheme === 'neo_brutalist' 
+                  ? 'text-black' 
+                  : currentTheme === 'minimalist-ivory' 
+                  ? 'text-[#1c2e24]' 
+                  : 'text-white'
               }`}>
                 {activeCelebrationModal === '100' 
                   ? 'Legendary Store Conquest!' 
@@ -872,8 +884,12 @@ export function MonthlySalesTargetPanel({ state, onUpdateSettings, t = {} }: Mon
               </h3>
 
               {/* Text description */}
-              <p className={`text-xs opacity-80 mt-2 leading-relaxed max-w-xs mx-auto ${
-                currentTheme === 'neo_brutalist' ? 'text-zinc-800' : 'text-zinc-300'
+              <p className={`text-xs mt-2 leading-relaxed max-w-xs mx-auto ${
+                currentTheme === 'neo_brutalist' 
+                  ? 'text-zinc-800 font-bold' 
+                  : currentTheme === 'minimalist-ivory' 
+                  ? 'text-[#1c2e24]/85 font-medium' 
+                  : 'text-zinc-300 opacity-90'
               }`}>
                 {activeCelebrationModal === '100'
                   ? `Incredible! Your live cashier sales volume for ${monthName} successfully conquered and bypassed your set target limit of ${formatCurrency(target)}. Live metrics are now in high orbit!`
@@ -881,27 +897,43 @@ export function MonthlySalesTargetPanel({ state, onUpdateSettings, t = {} }: Mon
               </p>
 
               {/* Dynamic metrics reading box */}
-              <div className={`my-4.5 p-3.5 rounded-2xl border text-xs flex flex-col gap-2 bg-black/30 ${
-                currentTheme === 'neo_brutalist' ? 'border-black text-black bg-white/45' : 'border-white/10'
+              <div className={`my-4.5 p-3.5 rounded-2xl border text-xs flex flex-col gap-2 ${
+                currentTheme === 'neo_brutalist' 
+                  ? 'border-2 border-black text-black bg-white/60 font-bold' 
+                  : currentTheme === 'minimalist-ivory'
+                  ? 'border-2 border-stone-300 text-[#1c2e24] bg-white/90 shadow-sm'
+                  : 'border-white/10 text-white bg-black/30'
               }`}>
                 <div className="flex justify-between items-center text-left">
-                  <span className="text-[9.5px] uppercase opacity-50 font-black">Calendar Rank</span>
+                  <span className={`text-[9.5px] uppercase font-black ${
+                    currentTheme === 'minimalist-ivory' ? 'text-[#1c2e24]/60' : currentTheme === 'neo_brutalist' ? 'text-zinc-700' : 'text-white/60'
+                  }`}>Calendar Rank</span>
                   <span className="font-extrabold font-mono">{monthName} {yearName}</span>
                 </div>
                 <div className="flex justify-between items-center text-left">
-                  <span className="text-[9.5px] uppercase opacity-50 font-black">Ledger Cash Completed</span>
-                  <span className="font-black font-mono text-emerald-500">{formatCurrency(currentMonthSales)}</span>
+                  <span className={`text-[9.5px] uppercase font-black ${
+                    currentTheme === 'minimalist-ivory' ? 'text-[#1c2e24]/60' : currentTheme === 'neo_brutalist' ? 'text-zinc-700' : 'text-white/60'
+                  }`}>Ledger Cash Completed</span>
+                  <span className="font-black font-mono text-emerald-600 dark:text-emerald-400">{formatCurrency(currentMonthSales)}</span>
                 </div>
                 <div className="flex justify-between items-center text-left">
-                  <span className="text-[9.5px] uppercase opacity-50 font-black">Target Accomplished</span>
+                  <span className={`text-[9.5px] uppercase font-black ${
+                    currentTheme === 'minimalist-ivory' ? 'text-[#1c2e24]/60' : currentTheme === 'neo_brutalist' ? 'text-zinc-700' : 'text-white/60'
+                  }`}>Target Accomplished</span>
                   <span className={`font-black font-mono ${
-                    activeCelebrationModal === '100' ? 'text-amber-500' : 'text-indigo-400'
+                    activeCelebrationModal === '100' 
+                      ? (currentTheme === 'minimalist-ivory' ? 'text-amber-700 font-extrabold' : 'text-amber-400')
+                      : (currentTheme === 'minimalist-ivory' ? 'text-[#2d5a4e] font-extrabold' : 'text-indigo-400')
                   }`}>{progressPercent.toFixed(1)}%</span>
                 </div>
                 {activeCelebrationModal === '50' && (
-                  <div className="flex justify-between items-center text-left border-t border-white/5 pt-1.5 mt-0.5">
-                    <span className="text-[9.5px] uppercase opacity-50 font-black">Remaining Target Gap</span>
-                    <span className="font-extrabold font-mono text-rose-500">{formatCurrency(salesRemaining)}</span>
+                  <div className={`flex justify-between items-center text-left border-t pt-1.5 mt-0.5 ${
+                    currentTheme === 'minimalist-ivory' ? 'border-stone-200' : currentTheme === 'neo_brutalist' ? 'border-black/20' : 'border-white/10'
+                  }`}>
+                    <span className={`text-[9.5px] uppercase font-black ${
+                      currentTheme === 'minimalist-ivory' ? 'text-[#1c2e24]/60' : currentTheme === 'neo_brutalist' ? 'text-zinc-700' : 'text-white/60'
+                    }`}>Remaining Target Gap</span>
+                    <span className="font-extrabold font-mono text-rose-600 dark:text-rose-400">{formatCurrency(salesRemaining)}</span>
                   </div>
                 )}
               </div>
@@ -909,20 +941,30 @@ export function MonthlySalesTargetPanel({ state, onUpdateSettings, t = {} }: Mon
               {/* Trigger Buttons */}
               <div className="flex flex-col sm:flex-row gap-2.5 mt-5">
                 <button
+                  id="replay-sales-target-confetti-btn"
+                  type="button"
                   onClick={() => setConfettiTriggerCount(prev => prev + 1)}
-                  className={`flex-1 py-2 rounded-xl text-[10px] font-mono font-black uppercase flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all ${
-                    activeCelebrationModal === '100'
-                      ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-md'
-                      : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
+                  className={`flex-1 py-2.5 rounded-xl text-[10px] font-mono font-black uppercase flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all shadow-md ${
+                    currentTheme === 'neo_brutalist'
+                      ? 'bg-amber-400 hover:bg-amber-300 text-black border-2 border-black shadow-[3px_3px_0px_#000]'
+                      : currentTheme === 'minimalist-ivory'
+                      ? 'bg-[#2d5a4e] hover:bg-[#23473d] text-[#fcfbf7] font-black border-transparent shadow-md shadow-[#2d5a4e]/20'
+                      : activeCelebrationModal === '100'
+                      ? 'bg-amber-600 hover:bg-amber-500 text-white'
+                      : 'bg-indigo-600 hover:bg-indigo-500 text-white'
                   }`}
                 >
                   <Play size={12} className="shrink-0" /> Replay Confetti 🎉
                 </button>
                 <button
+                  id="continue-sales-target-celebration-btn"
+                  type="button"
                   onClick={() => setActiveCelebrationModal('none')}
-                  className={`flex-1 py-2 rounded-xl text-[10px] font-mono font-black uppercase border cursor-pointer active:scale-95 transition-all ${
+                  className={`flex-1 py-2.5 rounded-xl text-[10px] font-mono font-black uppercase border cursor-pointer active:scale-95 transition-all ${
                     currentTheme === 'neo_brutalist' 
-                      ? 'border-black text-black hover:bg-black hover:text-white'
+                      ? 'border-2 border-black text-black bg-zinc-100 hover:bg-zinc-200 shadow-[3px_3px_0px_#000]'
+                      : currentTheme === 'minimalist-ivory'
+                      ? 'border-2 border-stone-300 text-[#1c2e24] bg-stone-200 hover:bg-stone-300 font-extrabold shadow-xs'
                       : 'border-white/20 text-white hover:bg-white/10'
                   }`}
                 >

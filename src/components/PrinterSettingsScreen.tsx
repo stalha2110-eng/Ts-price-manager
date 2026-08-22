@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Printer, Bluetooth, Usb, Wifi, Check, Trash2, Plus, 
   Languages, Image as ImageIcon, Clock, AlignLeft, AlignCenter, 
@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { AppState } from '../types';
 import { printerService, DEFAULT_PRINT_SETTINGS, PrintSettings, PrinterDevice } from '../services/printerService';
+import { cn } from '../lib/utils';
 
 interface PrinterSettingsScreenProps {
   state: AppState;
@@ -139,21 +140,110 @@ export default function PrinterSettingsScreen({ state, t, onUpdateState }: Print
     clearMessagesAfterDelay();
   };
 
+  // Store Logo Upload & Processing Refs/Handlers
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
+  const [isDraggingLogo, setIsDraggingLogo] = useState(false);
+
+  // Generate crisp standard preset logo PNG for thermal receipts
+  const generatePresetLogoPng = (emojiOrSymbol: string, title: string) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 240;
+    canvas.height = 120;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, 240, 120);
+    
+    // Draw Icon
+    ctx.font = '48px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(emojiOrSymbol, 120, 48);
+    
+    // Draw Title
+    ctx.fillStyle = '#000000';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText(title.toUpperCase(), 120, 95);
+    
+    return canvas.toDataURL('image/png');
+  };
+
+  // Robust client-side canvas compressor for any file size (even 10MB phone camera shots)
+  const processImageFile = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setErrorMessage('Please select a valid image file (JPG, PNG, WEBP, SVG, etc.).');
+      clearMessagesAfterDelay();
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 320;
+        const MAX_HEIGHT = 160;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+        if (height > MAX_HEIGHT) {
+          width = Math.round((width * MAX_HEIGHT) / height);
+          height = MAX_HEIGHT;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          // Fill crisp white background so transparency renders cleanly on thermal paper
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/png', 0.92);
+          updateConfig({ logoBase64: dataUrl });
+          setSuccessMessage('Store Logo graphic uploaded and optimized for thermal printing!');
+          clearMessagesAfterDelay();
+        } else {
+          updateConfig({ logoBase64: event.target?.result as string });
+          setSuccessMessage('Store Logo graphic uploaded!');
+          clearMessagesAfterDelay();
+        }
+      };
+      img.onerror = () => {
+        setErrorMessage('Could not load the chosen image file. Please try another graphic.');
+        clearMessagesAfterDelay();
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.onerror = () => {
+      setErrorMessage('Failed to read image file.');
+      clearMessagesAfterDelay();
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Logo file upload handler
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 250000) {
-        setErrorMessage('File size exceeds limit (Recommended < 250KB for fast thermal loading).');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        updateConfig({ logoBase64: reader.result as string });
-        setSuccessMessage('Store Logo graphic uploaded and optimized.');
-        clearMessagesAfterDelay();
-      };
-      reader.readAsDataURL(file);
+      processImageFile(file);
+    }
+    // Reset file input value so selecting the same file again triggers change event
+    if (e.target) {
+      e.target.value = '';
+    }
+  };
+
+  const handleLogoDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingLogo(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processImageFile(file);
     }
   };
 
@@ -498,10 +588,20 @@ export default function PrinterSettingsScreen({ state, t, onUpdateState }: Print
                 <div className="p-3 bg-[var(--foreground)]/[0.02] border border-[var(--border)] rounded-xl space-y-3">
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-[8.5px] font-black uppercase text-[var(--foreground)] opacity-55 block mb-1">Watermark Text</label>
+                      <label className="text-[8.5px] font-black uppercase text-[var(--foreground)] opacity-55 block mb-1">Watermark Stamp</label>
                       <select
-                        value={printSettings.watermarkText}
-                        onChange={(e) => updateConfig({ watermarkText: e.target.value })}
+                        value={['PAID', 'PENDING', 'UDHAR', 'DUPLICATE COPY', 'SAMPLE'].includes(printSettings.watermarkText) ? printSettings.watermarkText : 'CUSTOM'}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === 'CUSTOM') {
+                            const isAlreadyNonStandard = !['PAID', 'PENDING', 'UDHAR', 'DUPLICATE COPY', 'SAMPLE'].includes(printSettings.watermarkText);
+                            updateConfig({ 
+                              watermarkText: isAlreadyNonStandard && printSettings.watermarkText ? printSettings.watermarkText : 'STORE COPY' 
+                            });
+                          } else {
+                            updateConfig({ watermarkText: val });
+                          }
+                        }}
                         className="w-full p-1.5 text-[10.5px] rounded-lg border border-[var(--border)] bg-transparent text-[var(--foreground)] outline-none"
                       >
                         <option value="PAID">PAID (भुगतान)</option>
@@ -509,6 +609,7 @@ export default function PrinterSettingsScreen({ state, t, onUpdateState }: Print
                         <option value="UDHAR">UDHAR / उधार</option>
                         <option value="DUPLICATE COPY">DUPLICATE COPY</option>
                         <option value="SAMPLE">SAMPLE</option>
+                        <option value="CUSTOM">✏️ Custom / कस्टम...</option>
                       </select>
                     </div>
 
@@ -525,6 +626,57 @@ export default function PrinterSettingsScreen({ state, t, onUpdateState }: Print
                       />
                     </div>
                   </div>
+
+                  {/* Custom Watermark Text Input & Quick Preset Chips */}
+                  {!['PAID', 'PENDING', 'UDHAR', 'DUPLICATE COPY', 'SAMPLE'].includes(printSettings.watermarkText) && (
+                    <div className="pt-2 border-t border-[var(--border)]/60 space-y-2">
+                      <div>
+                        <label className="text-[8px] font-black uppercase text-[var(--foreground)] opacity-60 block mb-1">
+                          Custom Watermark Text
+                        </label>
+                        <div className="flex gap-1.5 items-center">
+                          <input
+                            type="text"
+                            value={printSettings.watermarkText}
+                            onChange={(e) => updateConfig({ watermarkText: e.target.value })}
+                            placeholder="e.g. STORE COPY, CANCELLED, KACHHA BILL, etc."
+                            maxLength={30}
+                            className="w-full px-2.5 py-1.5 text-xs font-bold rounded-lg border border-[var(--border)] bg-transparent text-[var(--foreground)] outline-none focus:border-[var(--primary)] tracking-wide uppercase"
+                          />
+                          {printSettings.watermarkText && (
+                            <button
+                              type="button"
+                              onClick={() => updateConfig({ watermarkText: '' })}
+                              className="text-[10px] text-gray-400 hover:text-[var(--foreground)] px-2 py-1.5 rounded-lg bg-[var(--foreground)]/5 font-bold cursor-pointer shrink-0"
+                              title="Clear text"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Quick Suggestion Chips */}
+                      <div className="flex flex-wrap gap-1 items-center">
+                        <span className="text-[7.5px] font-bold text-[var(--foreground)]/40 uppercase">Suggestions:</span>
+                        {['STORE COPY', 'CANCELLED', 'ESTIMATE / कच्चा बिल', 'VERIFIED', 'PROFORMA', 'NO RETURN'].map((chip) => (
+                          <button
+                            key={chip}
+                            type="button"
+                            onClick={() => updateConfig({ watermarkText: chip })}
+                            className={cn(
+                              "px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider border transition-all cursor-pointer",
+                              printSettings.watermarkText === chip 
+                                ? "bg-[var(--primary)] text-white border-[var(--primary)] shadow-xs" 
+                                : "border-[var(--border)] bg-[var(--foreground)]/[0.03] hover:border-[var(--primary)]/50 text-[var(--foreground)]/70 hover:text-[var(--foreground)]"
+                            )}
+                          >
+                            {chip}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -590,40 +742,122 @@ export default function PrinterSettingsScreen({ state, t, onUpdateState }: Print
             </div>
 
             {/* I. Store logo */}
-            <div className="space-y-2 border-t border-[var(--border)] pt-3">
+            <div className="space-y-3 border-t border-[var(--border)] pt-3">
               <div className="flex items-center justify-between">
-                <label className="text-[9px] font-black uppercase tracking-wider opacity-70">Store Logo Node (Image)</label>
+                <div>
+                  <label className="text-[9px] font-black uppercase tracking-wider opacity-70 block">Store Logo Node (Graphic Symbol)</label>
+                  <span className="text-[8px] text-gray-400">Prints at top of thermal receipts and laser bills</span>
+                </div>
                 {printSettings.logoBase64 && (
-                  <button 
-                    onClick={handleRemoveLogo}
-                    className="text-rose-500 font-bold hover:underline text-[9.5px] uppercase"
-                  >
-                    Delete Logo
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      type="button"
+                      onClick={() => logoFileInputRef.current?.click()}
+                      className="text-[var(--primary)] font-bold hover:underline text-[9.5px] uppercase cursor-pointer"
+                    >
+                      Change Graphic
+                    </button>
+                    <span className="text-gray-300">|</span>
+                    <button 
+                      type="button"
+                      onClick={handleRemoveLogo}
+                      className="text-rose-500 font-bold hover:underline text-[9.5px] uppercase cursor-pointer"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 )}
               </div>
+
+              {/* Hidden File Input */}
+              <input 
+                ref={logoFileInputRef}
+                id="store-logo-file-input"
+                type="file"
+                accept="image/*"
+                onChange={handleLogoUpload}
+                className="hidden"
+              />
               
               {printSettings.logoBase64 ? (
-                <div className="p-3 bg-[var(--foreground)]/[0.03] border border-dashed border-[var(--border)] rounded-xl flex items-center gap-3">
-                  <img src={printSettings.logoBase64} alt="Store logo preview" className="h-10 w-10 object-contain bg-white rounded p-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <span className="text-[10px] font-black block truncate text-emerald-500">Logo Connected</span>
-                    <span className="text-[8px] opacity-40 uppercase font-mono block">Image stream cached locally</span>
+                <div className="p-3 bg-[var(--foreground)]/[0.03] border border-dashed border-[var(--border)] rounded-xl flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="h-12 w-12 bg-white rounded-lg p-1 border border-[var(--border)] flex items-center justify-center shadow-xs overflow-hidden">
+                      <img src={printSettings.logoBase64} alt="Store logo preview" className="max-h-full max-w-full object-contain" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[10px] font-black block truncate text-emerald-500 flex items-center gap-1">
+                        <Check size={12} /> Logo Connected
+                      </span>
+                      <span className="text-[8px] opacity-40 uppercase font-mono block">Optimized for thermal print head</span>
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => logoFileInputRef.current?.click()}
+                    className="px-2.5 py-1.5 rounded-lg bg-[var(--foreground)]/5 hover:bg-[var(--foreground)]/10 text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+                  >
+                    Upload New
+                  </button>
                 </div>
               ) : (
-                <div className="relative border-2 border-dashed border-[var(--border)] rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-[var(--foreground)]/[0.01]">
-                  <input 
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoUpload}
-                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                  />
-                  <ImageIcon className="text-gray-400 mb-1" size={18} />
-                  <div className="text-[9.5px] uppercase font-black">Choose Store Symbol Graphic</div>
-                  <div className="text-[7.5px] opacity-45 uppercase mt-0.5">JPEG/PNG formatted (Recommended &lt; 250KB)</div>
+                <div 
+                  onDragOver={(e) => { e.preventDefault(); setIsDraggingLogo(true); }}
+                  onDragLeave={() => setIsDraggingLogo(false)}
+                  onDrop={handleLogoDrop}
+                  onClick={() => logoFileInputRef.current?.click()}
+                  className={cn(
+                    "relative border-2 border-dashed rounded-2xl p-4 sm:p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all",
+                    isDraggingLogo 
+                      ? "border-[var(--primary)] bg-[var(--primary)]/10 scale-101" 
+                      : "border-[var(--border)] hover:border-[var(--primary)]/60 hover:bg-[var(--foreground)]/[0.02]"
+                  )}
+                >
+                  <div className="w-10 h-10 rounded-2xl bg-[var(--primary)]/10 text-[var(--primary)] flex items-center justify-center mb-2">
+                    <ImageIcon size={20} />
+                  </div>
+                  <div className="text-[10.5px] uppercase font-black tracking-wide text-[var(--foreground)]">Choose Store Symbol Graphic</div>
+                  <div className="text-[8px] opacity-60 uppercase mt-0.5">Tap to browse or drop image here (JPEG, PNG, WEBP, SVG)</div>
+                  <div className="mt-2.5 px-3.5 py-1.5 bg-[var(--primary)] text-white text-[9px] font-black uppercase tracking-wider rounded-xl shadow-xs hover:opacity-90 transition-opacity">
+                    📁 Browse Image / Take Photo
+                  </div>
                 </div>
               )}
+
+              {/* Quick Preset Symbols */}
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[8px] font-black uppercase text-[var(--foreground)] opacity-50 block">Or pick a standard store symbol:</span>
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5">
+                  {[
+                    { icon: '🛒', label: 'Grocery' },
+                    { icon: '🏪', label: 'Retail' },
+                    { icon: '🥦', label: 'Veggies' },
+                    { icon: '☕', label: 'Cafe' },
+                    { icon: '💊', label: 'Pharma' },
+                    { icon: '👗', label: 'Fashion' },
+                    { icon: '⚡', label: 'Electro' },
+                    { icon: '📦', label: 'General' },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => {
+                        const pngData = generatePresetLogoPng(preset.icon, preset.label);
+                        if (pngData) {
+                          updateConfig({ logoBase64: pngData });
+                          setSuccessMessage(`Applied ${preset.label} symbol logo!`);
+                          clearMessagesAfterDelay();
+                        }
+                      }}
+                      className="p-1.5 rounded-xl border border-[var(--border)] hover:border-[var(--primary)]/60 bg-[var(--card)] hover:bg-[var(--primary)]/5 flex flex-col items-center justify-center text-center transition-all cursor-pointer group"
+                      title={`Use ${preset.label} symbol as receipt logo`}
+                    >
+                      <span className="text-base group-hover:scale-110 transition-transform">{preset.icon}</span>
+                      <span className="text-[7.5px] font-bold opacity-70 group-hover:opacity-100 truncate w-full mt-0.5">{preset.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </>
         )}

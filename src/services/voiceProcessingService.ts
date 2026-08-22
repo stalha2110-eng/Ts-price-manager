@@ -107,9 +107,52 @@ export function normalizeUnit(word: string): string {
   return "KG"; // default fallback
 }
 
+// Indian numeric spoken words to number mapping
+const INDIAN_NUM_WORDS: Record<string, number> = {
+  // Hindi / Hinglish numbers
+  'ek': 1, 'do': 2, 'teen': 3, 'tin': 3, 'char': 4, 'panch': 5, 'paanch': 5,
+  'che': 6, 'chhah': 6, 'sat': 7, 'saat': 7, 'aath': 8, 'ath': 8, 'nau': 9, 'nav': 9,
+  'das': 10, 'gyarah': 11, 'barah': 12, 'terah': 13, 'chaudah': 14, 'pandrah': 15,
+  'solah': 16, 'satrah': 17, 'atharah': 18, 'unnis': 19, 'bees': 20, 'bis': 20,
+  'pachis': 25, 'tees': 30, 'tis': 30, 'paintis': 35, 'chalis': 40, 'chaalis': 40,
+  'pentalis': 45, 'pachas': 50, 'panchavan': 55, 'saath': 60, 'shatt': 60,
+  'painsath': 65, 'sattar': 70, 'pachattar': 75, 'assi': 80, 'pachasi': 85,
+  'nabbe': 90, 'pichanve': 95, 'sau': 100, 'so': 100, 'dedh sau': 150,
+  'do sau': 200, 'dhai sau': 250, 'teen sau': 300, 'char sau': 400,
+  'panch sau': 500, 'hazar': 1000, 'hajaar': 1000,
+  // Hindi script numbers
+  'एक': 1, 'दो': 2, 'तीन': 3, 'चार': 4, 'पांच': 5, 'छह': 6, 'सात': 7, 'आठ': 8, 'नौ': 9,
+  'दस': 10, 'बीस': 20, 'पच्चीस': 25, 'तीस': 30, 'चालीस': 40, 'पचास': 50, 'साठ': 60,
+  'सत्तर': 70, 'अस्सी': 80, 'नब्बे': 90, 'सौ': 100, 'हजार': 1000
+};
+
 /**
- * Simple Phonetic Name Localizer dictionary if name holds known ingredients
+ * Fast Client-Side Regex Pre-Parser for Simple Voice Inputs.
+ * Detects common single or dual item inputs (e.g. "Badam 900", "Aloo 50 kilo", "Amul milk 32 packet")
+ * and extracts structured product drafts without consuming server AI quota!
  */
+export function fastClientVoiceParser(text: string, existingItems: Item[] = []): VoiceDraftProduct[] | null {
+  if (!text || !text.trim()) return null;
+  const raw = text.trim();
+
+  // Replace spoken numeric words with digits for easy regex parsing
+  let normalizedText = raw;
+  Object.entries(INDIAN_NUM_WORDS).forEach(([word, num]) => {
+    const reg = new RegExp(`\\b${word}\\b`, 'gi');
+    normalizedText = normalizedText.replace(reg, num.toString());
+  });
+
+  // Check if we can parse locally
+  const parsed = parseVoiceTranscript(normalizedText, existingItems);
+  if (parsed && parsed.length > 0) {
+    // Verify each parsed item has a valid name and at least a retail price > 0
+    const allValid = parsed.every(p => p.name && p.name !== "Unknown Spoken Product" && p.retailPrice > 0);
+    if (allValid) {
+      return parsed;
+    }
+  }
+  return null;
+}
 const DICTIONARY: Record<string, string> = {
   badam: "Badam",
   kaju: "Kaju",
