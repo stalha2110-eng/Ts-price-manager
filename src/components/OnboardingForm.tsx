@@ -7,6 +7,7 @@ import {
   Sun, 
   Moon, 
   ArrowRight, 
+  ArrowLeft,
   Receipt, 
   ShieldCheck,
   CheckCircle,
@@ -26,9 +27,10 @@ interface OnboardingFormProps {
     storeClosingTime: string;
   }) => Promise<void>;
   userEmail: string | null;
+  onBack?: () => void;
 }
 
-export function OnboardingForm({ settings, onComplete, userEmail }: OnboardingFormProps) {
+export function OnboardingForm({ settings, onComplete, userEmail, onBack }: OnboardingFormProps) {
   const [storeName, setStoreName] = useState(settings.storeName || '');
   const [storeOwnerName, setStoreOwnerName] = useState(settings.storeOwnerName || '');
   const [storePhone, setStorePhone] = useState(settings.storePhone || '');
@@ -108,21 +110,36 @@ export function OnboardingForm({ settings, onComplete, userEmail }: OnboardingFo
         {/* Left Column: Form Setup Fields */}
         <div className="lg:col-span-7 bg-white border border-slate-200/85 rounded-[2.5rem] p-8 md:p-10 shadow-lg flex flex-col justify-between backdrop-blur-xl">
           <div className="space-y-6">
-            <div className="flex items-center gap-3">
-              <div className="h-11 w-11 rounded-xl bg-slate-50 p-1.5 border border-slate-200/80 flex items-center justify-center">
-                <img 
-                  src={logoTSPM} 
-                  alt="TS Price Manager Logo" 
-                  className="h-full w-full object-contain rounded-lg"
-                  referrerPolicy="no-referrer"
-                />
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 rounded-xl bg-slate-50 p-1.5 border border-slate-200/80 flex items-center justify-center">
+                  <img 
+                    src={logoTSPM} 
+                    alt="TS Price Manager Logo" 
+                    className="h-full w-full object-contain rounded-lg"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+                <div>
+                  <span className="font-mono text-[8px] uppercase tracking-[0.3em] text-indigo-600 font-extrabold block">Merchant Account Setup</span>
+                  <h2 className="text-sm font-black uppercase tracking-tight text-slate-900 mt-0.5">
+                    Store Profile Configuration
+                  </h2>
+                </div>
               </div>
-              <div>
-                <span className="font-mono text-[8px] uppercase tracking-[0.3em] text-indigo-600 font-extrabold block">Merchant Account Setup</span>
-                <h2 className="text-sm font-black uppercase tracking-tight text-slate-900 mt-0.5">
-                  Store Profile Configuration
-                </h2>
-              </div>
+
+              {onBack && (
+                <button
+                  type="button"
+                  id="merchant-setup-back-btn"
+                  onClick={onBack}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-950 text-xs font-black uppercase tracking-wider transition-all shadow-xs active:scale-95 cursor-pointer shrink-0"
+                  title="Back to login"
+                >
+                  <ArrowLeft size={14} className="text-indigo-600" />
+                  <span>Back</span>
+                </button>
+              )}
             </div>
 
             <div className="space-y-1.5">
